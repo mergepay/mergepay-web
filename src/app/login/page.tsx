@@ -8,7 +8,6 @@ import { ArrowLeft, ShieldCheck, Wallet, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { LottieIllo, LOTTIE } from "@/components/lottie-illo";
 import { useAuth } from "@/lib/auth-store";
 import { loginWithWallet, isFreighterAvailable, WalletError } from "@/lib/stellar";
 import { ApiRequestError } from "@/lib/api";
@@ -65,13 +64,14 @@ export default function LoginPage() {
           {/* border tilted right for neobrutalist flair */}
           <div className="mx-auto max-w-sm" style={{ transform: "rotate(3deg)" }}>
             <div
-              className="rounded-3xl border-3 border-ink bg-cream/10 p-2 shadow-brutal"
+              className="rounded-3xl border-3 border-ink bg-cream/10 p-2 shadow-brutal overflow-hidden"
               style={{ transform: "rotate(-3deg) skewX(-2deg)" }}
             >
-              <LottieIllo
-                src={LOTTIE.paymentHands}
-                className="aspect-square w-full"
-                label="Two hands sending payments on Stellar"
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/illustrations/wallet-login.gif"
+                alt="Wallet login animation"
+                className="aspect-square w-full rounded-2xl object-cover"
               />
             </div>
           </div>
