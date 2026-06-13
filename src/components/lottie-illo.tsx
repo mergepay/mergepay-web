@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { DotLottieReact } from "@lottiefiles/dotlottie-react";
+import { useEffect, useState } from "react";
+import Lottie from "lottie-react";
 import { cn } from "@/lib/utils";
 
 /**
- * LottieFiles illustration with a graceful neobrutalist SVG fallback when the
- * animation cannot load (offline, blocked CDN, etc.).
+ * Renders a locally-hosted Lottie JSON animation (from /public/lottie).
+ * The JSON is fetched at runtime so it stays out of the JS bundle. While it
+ * loads — or if it fails — we show a neobrutalist SVG fallback, so the surface
+ * is never empty.
  */
 export function LottieIllo({
   src,
@@ -19,20 +21,37 @@ export function LottieIllo({
   fallback?: React.ReactNode;
   label?: string;
 }) {
+  const [data, setData] = useState<unknown>(null);
   const [failed, setFailed] = useState(false);
 
-  if (failed && fallback) return <>{fallback}</>;
+  useEffect(() => {
+    let active = true;
+    setData(null);
+    setFailed(false);
+    fetch(src)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("not ok"))))
+      .then((json) => active && setData(json))
+      .catch(() => active && setFailed(true));
+    return () => {
+      active = false;
+    };
+  }, [src]);
+
+  const fallbackNode = fallback ?? <CoinsIllustration />;
 
   return (
     <div className={cn("relative", className)} role="img" aria-label={label}>
-      <DotLottieReact
-        src={src}
-        loop
-        autoplay
-        onError={() => setFailed(true)}
-        style={{ width: "100%", height: "100%" }}
-      />
-      {failed && !fallback && <CoinsIllustration className="absolute inset-0" />}
+      {data && !failed ? (
+        <Lottie
+          animationData={data as object}
+          loop
+          autoplay
+          style={{ width: "100%", height: "100%" }}
+          rendererSettings={{ preserveAspectRatio: "xMidYMid meet" }}
+        />
+      ) : (
+        fallbackNode
+      )}
     </div>
   );
 }
@@ -40,7 +59,12 @@ export function LottieIllo({
 /** Hand-drawn style fallback: stacked coins with a star. */
 export function CoinsIllustration({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 200 160" fill="none" className={cn("w-full h-full", className)} aria-hidden>
+    <svg
+      viewBox="0 0 200 160"
+      fill="none"
+      className={cn("h-full w-full", className)}
+      aria-hidden
+    >
       <ellipse cx="100" cy="130" rx="70" ry="14" fill="#18130E" opacity="0.15" />
       <rect x="40" y="84" width="76" height="40" rx="12" fill="#6C4DF6" stroke="#18130E" strokeWidth="4" />
       <rect x="56" y="62" width="76" height="40" rx="12" fill="#FF8A3C" stroke="#18130E" strokeWidth="4" />
@@ -50,3 +74,8 @@ export function CoinsIllustration({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export const LOTTIE = {
+  coins: "/lottie/coins.json",
+  paymentHands: "/lottie/payment-hands.json",
+};

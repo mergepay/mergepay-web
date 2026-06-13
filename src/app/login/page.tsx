@@ -8,7 +8,7 @@ import { ArrowLeft, ShieldCheck, Wallet, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { LottieIllo, CoinsIllustration } from "@/components/lottie-illo";
+import { LottieIllo, CoinsIllustration, LOTTIE } from "@/components/lottie-illo";
 import { useAuth } from "@/lib/auth-store";
 import { loginWithWallet, isFreighterAvailable, WalletError } from "@/lib/stellar";
 import { ApiRequestError } from "@/lib/api";
@@ -62,11 +62,11 @@ export default function LoginPage() {
           <Logo className="[&_span]:text-white [&_.text-grape]:text-lime" />
         </Link>
         <div>
-          <div className="mx-auto max-w-sm">
+          <div className="mx-auto max-w-sm rounded-3xl border-3 border-ink bg-cream/10 p-2">
             <LottieIllo
-              src="https://lottie.host/4db68bbd-31f6-4cd0-83fd-1f0fbf3a5b21/Pmr9bgRxBz.lottie"
+              src={LOTTIE.paymentHands}
               className="aspect-square w-full"
-              label="Connect your Stellar wallet"
+              label="Payment confirmed on Stellar"
               fallback={<CoinsIllustration />}
             />
           </div>

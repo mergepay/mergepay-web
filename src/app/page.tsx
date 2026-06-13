@@ -19,7 +19,7 @@ import {
 import { Logo, LogoMark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Marquee } from "@/components/marquee";
-import { LottieIllo, CoinsIllustration } from "@/components/lottie-illo";
+import { LottieIllo, CoinsIllustration, LOTTIE } from "@/components/lottie-illo";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -152,12 +152,14 @@ function Hero() {
         >
           <div className="absolute -left-4 -top-4 h-full w-full rounded-3xl border-3 border-ink bg-grape" />
           <div className="relative rounded-3xl border-3 border-ink bg-cream p-6 shadow-brutal-xl">
-            <LottieIllo
-              src="https://lottie.host/4db68bbd-31f6-4cd0-83fd-1f0fbf3a5b21/Pmr9bgRxBz.lottie"
-              className="aspect-square w-full"
-              label="People settling shared expenses"
-              fallback={<CoinsIllustration />}
-            />
+            <div className="rounded-2xl border-3 border-ink bg-grape-pale overflow-hidden">
+              <LottieIllo
+                src={LOTTIE.coins}
+                className="mx-auto h-56 w-full"
+                label="Coins merging into one settlement"
+                fallback={<CoinsIllustration />}
+              />
+            </div>
             <SplitPreview />
           </div>
         </motion.div>
