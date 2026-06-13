@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-paper text-ink font-body antialiased;
+  }
+
+  ::selection {
+    @apply bg-lime text-ink;
+  }
+
+  /* Chunky neobrutalist scrollbar */
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #fbf3e2;
+    border-left: 2px solid #18130e;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #6c4df6;
+    border: 2px solid #18130e;
+    border-radius: 6px;
+  }
+}
+
+@layer utilities {
+  .text-outline {
+    -webkit-text-stroke: 2px #18130e;
+    color: transparent;
+  }
+
+  .dotted-bg {
+    background-image: radial-gradient(#18130e22 1.5px, transparent 1.5px);
+    background-size: 22px 22px;
+  }
+
+  .grid-bg {
+    background-image: linear-gradient(#18130e14 1px, transparent 1px),
+      linear-gradient(90deg, #18130e14 1px, transparent 1px);
+    background-size: 36px 36px;
+  }
+}
