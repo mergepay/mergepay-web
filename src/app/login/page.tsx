@@ -64,14 +64,15 @@ export default function LoginPage() {
           {/* border tilted right for neobrutalist flair */}
           <div className="mx-auto max-w-sm" style={{ transform: "rotate(3deg)" }}>
             <div
-              className="rounded-3xl border-3 border-ink bg-cream/10 p-2 shadow-brutal overflow-hidden"
+              className="overflow-hidden rounded-3xl border-3 border-ink bg-cream p-2 shadow-brutal"
               style={{ transform: "rotate(-3deg) skewX(-2deg)" }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/illustrations/wallet-login.gif"
-                alt="Wallet login animation"
-                className="aspect-square w-full rounded-2xl object-cover"
+                alt="Two people paying each other on Stellar"
+                className="aspect-[5/4] w-full rounded-2xl object-contain"
+                draggable={false}
               />
             </div>
           </div>
@@ -146,7 +147,7 @@ export default function LoginPage() {
             <p className="mt-6 text-center text-xs text-ink/50">
               By continuing you agree to settle on the Stellar{" "}
               <span className="font-bold uppercase">
-                {process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "testnet"}
+                {process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "public"}
               </span>{" "}
               network.
             </p>

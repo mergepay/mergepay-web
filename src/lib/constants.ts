@@ -2,10 +2,10 @@ export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 export const STELLAR_NETWORK =
-  (process.env.NEXT_PUBLIC_STELLAR_NETWORK as "testnet" | "public") ?? "testnet";
+  (process.env.NEXT_PUBLIC_STELLAR_NETWORK as "testnet" | "public") ?? "public";
 
 export const HORIZON_URL =
-  process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon-testnet.stellar.org";
+  process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org";
 
 export const NETWORK_PASSPHRASE =
   STELLAR_NETWORK === "public"
@@ -20,7 +20,7 @@ export const STABLE_ASSET = {
   code: process.env.NEXT_PUBLIC_STABLE_ASSET_CODE ?? "USDC",
   issuer:
     process.env.NEXT_PUBLIC_STABLE_ASSET_ISSUER ??
-    "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 };
 
 export const XLM_ASSET = { code: "XLM", issuer: null as string | null };

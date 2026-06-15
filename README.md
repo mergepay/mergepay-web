@@ -8,8 +8,8 @@ Mergepay is a Stellar-native group settlement app that turns shared spending int
 transparent, auditable, low-fee on-chain payments for friends, roommates, trips,
 and small communities.
 
-[Web repo](https://github.com/Cjay-Cyber-2/mergepay-web) ·
-[API repo](https://github.com/Cjay-Cyber-2/mergepay-api)
+[Web repo](https://github.com/mergepay/mergepay-web) ·
+[API repo](https://github.com/mergepay/mergepay-api)
 
 </div>
 
@@ -18,7 +18,7 @@ and small communities.
 This is the **frontend** — a Next.js 14 app with a bold neobrutalist design system.
 It handles wallet login (SEP-10 via Freighter), group & expense management, on-chain
 settlement, treasury mode, anchor on/off-ramp, and transparent history. All business
-logic and Stellar submission live in [`mergepay-api`](https://github.com/Cjay-Cyber-2/mergepay-api).
+logic and Stellar submission live in [`mergepay-api`](https://github.com/mergepay/mergepay-api).
 
 ## Why Stellar
 
@@ -52,13 +52,13 @@ public Stellar ledger.
 ## Prerequisites
 
 - Node.js 20+ and npm
-- A running [`mergepay-api`](https://github.com/Cjay-Cyber-2/mergepay-api) instance
-- [Freighter](https://www.freighter.app/) wallet browser extension (testnet account funded via [friendbot](https://friendbot.stellar.org))
+- A running [`mergepay-api`](https://github.com/mergepay/mergepay-api) instance
+- [Freighter](https://www.freighter.app/) wallet browser extension — a **mainnet** account funded with real XLM (for a free dry run, switch Freighter to testnet and fund via [friendbot](https://friendbot.stellar.org))
 
 ## Installation
 
 ```bash
-git clone https://github.com/Cjay-Cyber-2/mergepay-web.git
+git clone https://github.com/mergepay/mergepay-web.git
 cd mergepay-web
 npm install
 cp .env.example .env.local   # then edit values

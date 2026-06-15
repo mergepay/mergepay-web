@@ -1,4 +1,5 @@
 import type { Expense, Settlement } from "./types";
+import { explorerTxUrl } from "./constants";
 
 function escapeCsv(value: string | number | null | undefined): string {
   const s = value == null ? "" : String(value);
@@ -80,9 +81,7 @@ export function printReceipt(settlement: Settlement) {
   const w = window.open("", "_blank", "width=520,height=700");
   if (!w) return;
   const explorer = settlement.stellarTxHash
-    ? `https://stellar.expert/explorer/${
-        process.env.NEXT_PUBLIC_STELLAR_NETWORK === "public" ? "public" : "testnet"
-      }/tx/${settlement.stellarTxHash}`
+    ? explorerTxUrl(settlement.stellarTxHash)
     : "";
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"/>
   <title>Mergepay receipt ${settlement.id}</title>

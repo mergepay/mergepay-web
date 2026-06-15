@@ -152,14 +152,12 @@ function Hero() {
         >
           <div className="absolute -left-4 -top-4 h-full w-full rounded-3xl border-3 border-ink bg-grape" />
           <div className="relative rounded-3xl border-3 border-ink bg-cream p-6 shadow-brutal-xl">
-            <div className="rounded-2xl border-3 border-ink bg-grape-pale overflow-hidden">
-              <LottieIllo
-                src={LOTTIE.coins}
-                className="mx-auto h-56 w-full"
-                label="Coins merging into one settlement"
-                fallback={<CoinsIllustration />}
-              />
-            </div>
+            <LottieIllo
+              src={LOTTIE.coins}
+              className="aspect-square w-full"
+              label="People settling shared expenses"
+              fallback={<CoinsIllustration />}
+            />
             <SplitPreview />
           </div>
         </motion.div>
