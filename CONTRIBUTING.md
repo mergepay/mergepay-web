@@ -25,8 +25,21 @@ Thanks for helping build an open-source, Stellar-native public good!
 - `good first issue` — friendly entry point
 - `docs` — documentation
 
+## Drips Wave
+
+Mergepay participates in the Stellar **Drips Wave** program. The active, bounty-ready
+issue queue is intentionally **backend-only** and lives in the API repo:
+[mergepay/mergepay-api → DRIPS_WAVE.md](https://github.com/mergepay/mergepay-api/blob/main/DRIPS_WAVE.md).
+This `mergepay-web` repo carries its own [`FUNDING.json`](FUNDING.json), `LICENSE`,
+and contribution docs so it is independently claimable, but please pick up Wave tasks
+in the API repo unless a `drips-wave`-labelled issue is opened here.
+
+If you do work a Wave task: claim the issue publicly before starting, keep all
+discussion on the issue/PR thread, and link your PR to the issue (`Closes #NN`).
+
 ## PR checklist
 
+- [ ] Linked to an issue (`Closes #NN`)
 - [ ] `npm run typecheck` passes
 - [ ] `npm run lint` passes
 - [ ] `npm run build` succeeds

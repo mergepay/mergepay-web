@@ -1,0 +1,35 @@
+# Drips Wave + project labels for mergepay-web.
+# Create them in the repo (GitHub → Issues → Labels), or with the GitHub CLI.
+# The active Drips Wave bounty queue is in the API repo's DRIPS_WAVE.md.
+
+- name: "drips-wave"
+  color: "6C4DF6"
+  description: "Tracked in a Drips Wave program"
+
+- name: "complexity: trivial"
+  color: "BFE9F0"
+  description: "Drips Wave — small, well-bounded task"
+
+- name: "complexity: medium"
+  color: "D7F94B"
+  description: "Drips Wave — moderate scope, some design"
+
+- name: "complexity: high"
+  color: "FF8A3C"
+  description: "Drips Wave — large or cross-cutting task"
+
+- name: "good first issue"
+  color: "0E8A16"
+  description: "Good entry point for new contributors"
+
+- name: "stellar"
+  color: "08B5E5"
+  description: "Touches Stellar / SEP flows"
+
+- name: "design"
+  color: "E99695"
+  description: "UI / UX"
+
+- name: "docs"
+  color: "1D76DB"
+  description: "Documentation only"

@@ -20,6 +20,15 @@ It handles wallet login (SEP-10 via Freighter), group & expense management, on-c
 settlement, treasury mode, anchor on/off-ramp, and transparent history. All business
 logic and Stellar submission live in [`mergepay-api`](https://github.com/mergepay/mergepay-api).
 
+> **Built on Stellar.** Login is SEP-10 wallet auth, settlements are real on-chain
+> Stellar payments (with a `MP:<code>` memo per expense), balances clear in XLM or
+> USDC over trustlines, and fiat on/off-ramp uses SEP-24 anchors. Keys never leave the
+> user's wallet.
+>
+> **🌊 Drips Wave (Stellar ecosystem).** The active bounty-ready issue queue is
+> backend-only and lives in the API repo — see
+> [mergepay-api → DRIPS_WAVE.md](https://github.com/mergepay/mergepay-api/blob/main/DRIPS_WAVE.md).
+
 ## Why Stellar
 
 Mergepay uses Stellar for exactly what it is best at — moving value cheaply, quickly,

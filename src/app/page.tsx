@@ -62,7 +62,7 @@ function Nav() {
           <a href="#features" className="hover:text-grape transition-colors">Features</a>
           <a href="#stellar" className="hover:text-grape transition-colors">Stellar</a>
           <a
-            href="https://github.com/Cjay-Cyber-2/mergepay-web"
+            href="https://github.com/mergepay/mergepay-web"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 hover:text-grape transition-colors"
@@ -481,7 +481,7 @@ function Footer() {
         </p>
         <div className="flex items-center gap-4 font-display text-xs uppercase tracking-widest">
           <a
-            href="https://github.com/Cjay-Cyber-2/mergepay-web"
+            href="https://github.com/mergepay/mergepay-web"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 hover:text-lime transition-colors"
@@ -489,7 +489,7 @@ function Footer() {
             <Github className="h-4 w-4" /> Web
           </a>
           <a
-            href="https://github.com/Cjay-Cyber-2/mergepay-api"
+            href="https://github.com/mergepay/mergepay-api"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 hover:text-lime transition-colors"
