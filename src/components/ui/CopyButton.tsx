@@ -1,28 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function CopyButton({
-  value,
+export default function CopyButton({
+  text,
   className,
   label,
 }: {
-  value: string;
+  text: string;
   className?: string;
   label?: string;
 }) {
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    if (!copied) return;
+    const timeout = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timeout);
+  }, [copied]);
+
   return (
     <button
       type="button"
-      aria-label={`Copy ${label ?? "value"}`}
+      aria-label="Copy address"
       onClick={async () => {
-        await navigator.clipboard.writeText(value);
+        await navigator.clipboard.writeText(text);
         setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
       }}
       className={cn(
         "inline-flex items-center gap-1 border-2 border-ink rounded-lg px-2 py-1 text-xs font-bold shadow-brutal-sm transition-colors",
@@ -30,7 +35,7 @@ export function CopyButton({
         className
       )}
     >
-      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
       {label}
     </button>
   );
