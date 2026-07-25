@@ -75,6 +75,27 @@ export function TreasuryPanel({
     );
   }
 
+  if (info.isError || history.isError) {
+    return (
+      <EmptyState
+        icon={<Landmark className="h-7 w-7 text-red-500" />}
+        title="Error loading treasury"
+        description="We couldn't load the treasury balances or activity."
+        action={
+          <Button
+            onClick={() => {
+              info.refetch();
+              history.refetch();
+            }}
+            variant="outline"
+          >
+            Retry
+          </Button>
+        }
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <Card>

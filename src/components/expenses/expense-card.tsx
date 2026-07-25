@@ -62,6 +62,8 @@ export function ExpenseCard({
       <button
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-3 p-4 text-left"
+        aria-label={`${expanded ? "Collapse" : "Expand"} expense ${expense.title}`}
+        aria-expanded={expanded}
       >
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-3 border-ink bg-butter shadow-brutal-sm">
           <Avatar user={expense.payer} />
@@ -142,13 +144,14 @@ export function ExpenseCard({
                   onClick={handleDelete}
                   loading={del.isPending}
                   className="text-flamingo"
+                  aria-label={`Delete expense "${expense.title}"`}
                 >
                   <Trash2 className="h-3.5 w-3.5" /> Delete
                 </Button>
               )}
             </div>
             {myShare && myShare.status === "pending" && !isPayer && (
-              <Button size="sm" onClick={settleMyShare}>
+              <Button size="sm" onClick={settleMyShare} aria-label={`Settle my share for "${expense.title}"`}>
                 Settle my share
               </Button>
             )}
