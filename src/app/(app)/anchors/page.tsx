@@ -74,7 +74,24 @@ export default function AnchorsPage() {
         description="Move between fiat and Stellar assets through SEP-24 anchors — no crypto workflow required."
       />
 
-      {anchors.isLoading ? (
+      {anchors.isError || sessions.isError ? (
+        <EmptyState
+          icon={<Banknote className="h-7 w-7 text-red-500" />}
+          title="Error loading anchors"
+          description="We couldn't load the anchor configuration or transfers."
+          action={
+            <Button
+              onClick={() => {
+                anchors.refetch();
+                sessions.refetch();
+              }}
+              variant="outline"
+            >
+              Retry
+            </Button>
+          }
+        />
+      ) : anchors.isLoading ? (
         <ListSkeleton rows={2} />
       ) : anchors.data?.anchors.length ? (
         <div className="space-y-4">

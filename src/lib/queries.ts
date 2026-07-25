@@ -57,6 +57,7 @@ export function useExpenses(groupId: string) {
   return useQuery({
     queryKey: qk.expenses(groupId),
     queryFn: () => api.listExpenses(groupId),
+    staleTime: 30_000,
   });
 }
 

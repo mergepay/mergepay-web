@@ -125,7 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper">
             <button
               onClick={() => setMobileOpen(false)}
-              aria-label="Close menu"
+              aria-label="Close"
               className="absolute right-3 top-4 rounded-lg border-2 border-ink bg-cream p-1.5 shadow-brutal-sm"
             >
               <X className="h-4 w-4" />
