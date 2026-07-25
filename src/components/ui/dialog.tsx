@@ -60,7 +60,7 @@ export function Dialog({
               <h2 className="font-display text-base uppercase tracking-tight">{title}</h2>
               <button
                 onClick={onClose}
-                aria-label="Close"
+                aria-label="Close dialog"
                 className="border-2 border-ink rounded-lg bg-cream p-1 shadow-brutal-sm hover:bg-flamingo transition-colors"
               >
                 <X className="h-4 w-4" />
