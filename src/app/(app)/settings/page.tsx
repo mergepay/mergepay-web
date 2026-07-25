@@ -15,10 +15,14 @@ import { ApiRequestError } from "@/lib/api";
 import { explorerAccountUrl, STELLAR_NETWORK } from "@/lib/constants";
 
 export default function SettingsPage() {
-  const { data: me } = useMe();
+  const { data: me, isError: isMeError, error: meError } = useMe();
   const update = useUpdateMe();
   const [displayName, setDisplayName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
+
+  if (isMeError) {
+    throw meError || new Error("Failed to load user information");
+  }
 
   useEffect(() => {
     if (me?.user) {

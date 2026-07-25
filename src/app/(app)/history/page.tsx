@@ -27,7 +27,7 @@ import { fullDate } from "@/lib/format";
 type Filter = "all" | "expenses" | "settlements";
 
 export default function HistoryPage() {
-  const { data, isLoading } = useHistory();
+  const { data, isLoading, isError, refetch } = useHistory();
   const [filter, setFilter] = useState<Filter>("all");
 
   const expenses = useMemo(() => data?.expenses ?? [], [data]);
@@ -65,6 +65,17 @@ export default function HistoryPage() {
 
       {isLoading ? (
         <ListSkeleton rows={5} />
+      ) : isError ? (
+        <EmptyState
+          icon={<HistoryIcon className="h-7 w-7 text-red-500" />}
+          title="Error loading history"
+          description="We couldn't load your transaction history."
+          action={
+            <Button onClick={() => refetch()} variant="outline">
+              Retry
+            </Button>
+          }
+        />
       ) : !hasData ? (
         <EmptyState
           icon={<HistoryIcon className="h-7 w-7" />}

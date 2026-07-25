@@ -28,10 +28,14 @@ type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
 
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: me } = useMe();
+  const { data: me, isError: isMeError, error: meError } = useMe();
   const { data: detail, isLoading, isError } = useGroup(id);
   const [tab, setTab] = useState<Tab>("expenses");
   const [addOpen, setAddOpen] = useState(false);
+
+  if (isMeError) {
+    throw meError || new Error("Failed to load user information");
+  }
 
   const currentUserId = me?.user.id ?? "";
 
@@ -134,9 +138,24 @@ function ExpensesTab({
   members: import("@/lib/types").GroupMember[];
   onAdd: () => void;
 }) {
-  const { data, isLoading } = useExpenses(groupId);
+  const { data, isLoading, isError, refetch } = useExpenses(groupId);
 
   if (isLoading) return <ListSkeleton rows={4} />;
+
+  if (isError) {
+    return (
+      <EmptyState
+        icon={<Receipt className="h-7 w-7 text-red-500" />}
+        title="Error loading expenses"
+        description="We couldn't load the expenses for this group."
+        action={
+          <Button onClick={() => refetch()} variant="outline">
+            Retry
+          </Button>
+        }
+      />
+    );
+  }
 
   const expenses = data?.expenses ?? [];
   if (expenses.length === 0) {

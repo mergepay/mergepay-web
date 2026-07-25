@@ -25,10 +25,14 @@ import { formatAmount } from "@/lib/format";
 import type { GroupSummary } from "@/lib/types";
 
 export default function DashboardPage() {
-  const { data: me } = useMe();
-  const { data, isLoading } = useGroups();
+  const { data: me, isError: isMeError, error: meError } = useMe();
+  const { data, isLoading, isError, refetch } = useGroups();
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+
+  if (isMeError) {
+    throw meError || new Error("Failed to load user information");
+  }
 
   const groups = useMemo(
     () => (data?.groups ?? []).filter((g) => !g.archived),
@@ -102,6 +106,17 @@ export default function DashboardPage() {
 
       {isLoading ? (
         <ListSkeleton rows={3} />
+      ) : isError ? (
+        <EmptyState
+          icon={<Users className="h-7 w-7 text-red-500" />}
+          title="Error loading dashboard"
+          description="We couldn't load your groups and balances."
+          action={
+            <Button onClick={() => refetch()} variant="outline">
+              Retry
+            </Button>
+          }
+        />
       ) : groups.length === 0 ? (
         <EmptyState
           icon={<Users className="h-7 w-7" />}
