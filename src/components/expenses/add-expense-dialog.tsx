@@ -66,6 +66,8 @@ export function AddExpenseDialog({
     );
   }
 
+  const isPayerAlsoParticipant = participants.includes(payerUserId);
+
   async function handleUpload(file: File) {
     setUploading(true);
     try {
@@ -83,6 +85,7 @@ export function AddExpenseDialog({
     if (!title.trim()) return "Add a title";
     if (total <= 0) return "Enter an amount greater than zero";
     if (participants.length === 0) return "Pick at least one participant";
+    if (isPayerAlsoParticipant) return "You cannot be both payer and participant.";
     if (splitType === "custom" && Math.abs(customSum - total) > 0.0000001)
       return `Custom amounts must sum to ${total}`;
     if (splitType === "percentage" && Math.abs(percentSum - 100) > 0.001)
@@ -333,13 +336,16 @@ export function AddExpenseDialog({
               }}
             />
           </label>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
+        </div>          {isPayerAlsoParticipant && (
+            <div className="rounded-xl border-2 border-flamingo bg-flamingo/10 px-3 py-2 text-sm text-flamingo">
+              You cannot be both payer and participant.
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={create.isPending}>
+          <Button type="submit" loading={create.isPending} disabled={isPayerAlsoParticipant}>
             Add expense
           </Button>
         </div>
