@@ -17,8 +17,7 @@ import { toast } from "sonner";
 import { Logo, LogoMark } from "./logo";
 import { Avatar } from "./ui/avatar";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-store";
-import { logout } from "@/lib/stellar";
+import { useAuth } from "@/hooks/useAuth";
 import { shortKey } from "@/lib/format";
 
 const NAV = [
@@ -32,7 +31,7 @@ const NAV = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const user = useAuth((s) => s.user);
+  const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   async function handleLogout() {
