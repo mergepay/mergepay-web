@@ -24,6 +24,7 @@ import { LedgerPanel } from "@/components/ledger/ledger-panel";
 import { TreasuryPanel } from "@/components/treasury/treasury-panel";
 import { MembersPanel } from "@/components/groups/members-panel";
 import { useExpenses, useGroup, useMe } from "@/lib/queries";
+import { sortExpensesByDateDesc } from "@/lib/expenses";
 
 type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
 
@@ -163,7 +164,7 @@ function ExpensesTab({
     );
   }
 
-  const expenses = data?.expenses ?? [];
+  const expenses = sortExpensesByDateDesc(data?.expenses ?? []);
   if (expenses.length === 0) {
     return (
       <EmptyState
