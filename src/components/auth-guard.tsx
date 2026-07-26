@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-store";
+import { useAuth } from "@/hooks/useAuth";
 import { LogoMark } from "./logo";
 
 /** Client-side guard: redirects to /login when there is no session. */

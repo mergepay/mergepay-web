@@ -16,7 +16,7 @@ import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { useGroups } from "@/lib/queries";
 
 export default function GroupsPage() {
-  const { data, isLoading } = useGroups();
+  const { data, isLoading, isError, refetch } = useGroups();
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [filter, setFilter] = useState<"active" | "archived">("active");
@@ -55,6 +55,17 @@ export default function GroupsPage() {
 
       {isLoading ? (
         <ListSkeleton rows={4} />
+      ) : isError ? (
+        <EmptyState
+          icon={<Users className="h-7 w-7 text-red-500" />}
+          title="Error loading groups"
+          description="We couldn't load your groups. Please try again."
+          action={
+            <Button onClick={() => refetch()} variant="outline">
+              Retry
+            </Button>
+          }
+        />
       ) : groups.length === 0 ? (
         <EmptyState
           icon={<Users className="h-7 w-7" />}

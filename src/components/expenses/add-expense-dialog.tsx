@@ -12,6 +12,7 @@ import { useCreateExpense } from "@/lib/queries";
 import { api, ApiRequestError } from "@/lib/api";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
+import { validateExpenseForm, type FormErrors } from "@/lib/expenseValidation";
 
 export function AddExpenseDialog({
   open,
@@ -60,6 +61,19 @@ export function AddExpenseDialog({
     [participants, percent]
   );
 
+  const validationErrors = useMemo(
+    () =>
+      validateExpenseForm({
+        title,
+        amount,
+        splitType,
+        participants,
+        custom,
+        percent,
+      }),
+    [title, amount, splitType, participants, custom, percent]
+  );
+
   function toggleParticipant(id: string) {
     setParticipants((p) =>
       p.includes(id) ? p.filter((x) => x !== id) : [...p, id]
@@ -79,22 +93,11 @@ export function AddExpenseDialog({
     }
   }
 
-  function validate(): string | null {
-    if (!title.trim()) return "Add a title";
-    if (total <= 0) return "Enter an amount greater than zero";
-    if (participants.length === 0) return "Pick at least one participant";
-    if (splitType === "custom" && Math.abs(customSum - total) > 0.0000001)
-      return `Custom amounts must sum to ${total}`;
-    if (splitType === "percentage" && Math.abs(percentSum - 100) > 0.001)
-      return "Percentages must sum to 100";
-    return null;
-  }
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const err = validate();
-    if (err) {
-      toast.error(err);
+    if (validationErrors) {
+      const first = Object.values(validationErrors)[0];
+      toast.error(first);
       return;
     }
 
@@ -153,7 +156,13 @@ export function AddExpenseDialog({
             placeholder="Dinner at Terra Kulture"
             maxLength={80}
             autoFocus
+            aria-describedby={validationErrors?.title ? "e-title-error" : undefined}
           />
+          {validationErrors?.title && (
+            <p id="e-title-error" className="mt-1 text-xs text-flamingo" role="alert">
+              {validationErrors.title}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -168,7 +177,13 @@ export function AddExpenseDialog({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
+              aria-describedby={validationErrors?.amount ? "e-amount-error" : undefined}
             />
+            {validationErrors?.amount && (
+              <p id="e-amount-error" className="mt-1 text-xs text-flamingo" role="alert">
+                {validationErrors.amount}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="e-asset">Asset</Label>
@@ -284,19 +299,33 @@ export function AddExpenseDialog({
               );
             })}
           </div>
+          {validationErrors?.participants && (
+            <p id="e-participants-error" className="mt-1 text-xs text-flamingo" role="alert">
+              {validationErrors.participants}
+            </p>
+          )}
           {splitType === "custom" && (
             <FieldHint>
               Sum: {customSum.toFixed(2)} / {total.toFixed(2)}{" "}
-              {Math.abs(customSum - total) > 0.0000001 && total > 0 && (
-                <span className="text-flamingo font-bold">· must match total</span>
+              {validationErrors?.custom ? (
+                <span className="text-flamingo font-bold">· {validationErrors.custom}</span>
+              ) : (
+                Math.abs(customSum - total) > 0.0000001 &&
+                total > 0 && (
+                  <span className="text-flamingo font-bold">· must match total</span>
+                )
               )}
             </FieldHint>
           )}
           {splitType === "percentage" && (
             <FieldHint>
               Sum: {percentSum.toFixed(1)}% / 100%{" "}
-              {Math.abs(percentSum - 100) > 0.001 && (
-                <span className="text-flamingo font-bold">· must total 100</span>
+              {validationErrors?.percent ? (
+                <span className="text-flamingo font-bold">· {validationErrors.percent}</span>
+              ) : (
+                Math.abs(percentSum - 100) > 0.001 && (
+                  <span className="text-flamingo font-bold">· must total 100</span>
+                )
               )}
             </FieldHint>
           )}
@@ -339,7 +368,12 @@ export function AddExpenseDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={create.isPending}>
+          <Button
+            type="submit"
+            loading={create.isPending}
+            disabled={validationErrors !== null}
+            title={validationErrors ? Object.values(validationErrors)[0] : undefined}
+          >
             Add expense
           </Button>
         </div>

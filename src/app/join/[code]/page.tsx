@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useAuth } from "@/lib/auth-store";
+import { useAuth } from "@/hooks/useAuth";
 import { useJoinGroup } from "@/lib/queries";
 import { ApiRequestError } from "@/lib/api";
 
