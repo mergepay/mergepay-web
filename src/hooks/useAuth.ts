@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { WatchWalletChanges } from "@stellar/freighter-api";
 import { useAuth as useAuthStore } from "@/lib/auth-store";
 import { loginWithWallet, logout as walletLogout, isFreighterAvailable } from "@/lib/stellar";
+import { isSessionExpired, resetSessionExpired } from "@/lib/api";
 
 export function useAuth() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
@@ -34,6 +37,7 @@ export function useAuth() {
     setIsLoading(true);
     try {
       const loggedInUser = await loginWithWallet();
+      resetSessionExpired();
       await queryClient.invalidateQueries();
       return loggedInUser;
     } catch (err: any) {
@@ -45,6 +49,13 @@ export function useAuth() {
       setIsLoading(false);
     }
   }, [queryClient]);
+
+  useEffect(() => {
+    if (hydrated && isSessionExpired() && !token) {
+      router.replace("/login");
+      toast.error("Session expired. Please sign in again.");
+    }
+  }, [hydrated, token, router]);
 
   // Watch for wallet account or network changes mid-session
   useEffect(() => {
