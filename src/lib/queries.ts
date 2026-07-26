@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -21,6 +22,7 @@ import type {
   TreasuryWithdrawRequest,
   UpdateMeRequest,
 } from "./types";
+import type { ExpensesPage } from "./expenses";
 
 export const qk = {
   me: ["me"] as const,
@@ -59,6 +61,39 @@ export function useExpenses(groupId: string) {
   return useQuery({
     queryKey: qk.expenses(groupId),
     queryFn: () => api.listExpenses(groupId),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Cursor-paginated expense list backed by GET /api/expenses.
+ *
+ * Use this for groups with many expenses — pulling the full list in
+ * one request is slow and burns memory. The first call uses
+ * `options.limit` (default 20, max 100); each subsequent page uses
+ * the `nextCursor` returned by the server.
+ */
+export function useInfiniteExpenses(
+  groupId: string,
+  options: { limit?: number; cursor?: string } = {}
+) {
+  return useInfiniteQuery({
+    queryKey: [
+      ...qk.expenses(groupId),
+      "page",
+      options.limit ?? 20,
+      options.cursor ?? null,
+    ],
+    queryFn: ({ pageParam }) =>
+      api.listExpensesPage(groupId, {
+        limit: options.limit,
+        cursor: pageParam as string | undefined,
+      }),
+    // Forward any caller-provided starting cursor through React
+    // Query's page machinery so the first request carries it.
+    initialPageParam: options.cursor as string | undefined,
+    getNextPageParam: (lastPage: ExpensesPage) =>
+      lastPage.nextCursor ?? undefined,
     staleTime: 30_000,
   });
 }

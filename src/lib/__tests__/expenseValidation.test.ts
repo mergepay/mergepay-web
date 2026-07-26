@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { validateExpenseForm } from "./expenseValidation";
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { validateExpenseForm } from "../expenseValidation";
 
 const validEqual = {
   title: "Dinner at Terra Kulture",
@@ -24,85 +25,85 @@ const validPercent = {
 
 describe("validateExpenseForm", () => {
   it("returns null for valid equal split", () => {
-    expect(validateExpenseForm(validEqual)).toBeNull();
+    assert.equal(validateExpenseForm(validEqual), null);
   });
 
   it("returns null for valid custom split", () => {
-    expect(validateExpenseForm(validCustom)).toBeNull();
+    assert.equal(validateExpenseForm(validCustom), null);
   });
 
   it("returns null for valid percentage split", () => {
-    expect(validateExpenseForm(validPercent)).toBeNull();
+    assert.equal(validateExpenseForm(validPercent), null);
   });
 
   describe("title", () => {
     it("returns title error when title is empty", () => {
       const result = validateExpenseForm({ ...validEqual, title: "" });
-      expect(result?.title).toBe("Title is required");
+      assert.equal(result?.title, "Title is required");
     });
 
     it("returns title error when title is only whitespace", () => {
       const result = validateExpenseForm({ ...validEqual, title: "   " });
-      expect(result?.title).toBe("Title is required");
+      assert.equal(result?.title, "Title is required");
     });
 
     it("returns title error when title exceeds 80 characters", () => {
       const result = validateExpenseForm({ ...validEqual, title: "A".repeat(81) });
-      expect(result?.title).toBe("Title must be 80 characters or fewer");
+      assert.equal(result?.title, "Title must be 80 characters or fewer");
     });
 
     it("accepts title at exactly 80 characters", () => {
       const result = validateExpenseForm({ ...validEqual, title: "A".repeat(80) });
-      expect(result).toBeNull();
+      assert.equal(result, null);
     });
   });
 
   describe("amount", () => {
     it("returns amount error when amount is empty", () => {
       const result = validateExpenseForm({ ...validEqual, amount: "" });
-      expect(result?.amount).toBe("Amount is required");
+      assert.equal(result?.amount, "Amount is required");
     });
 
     it("returns amount error when amount is zero", () => {
       const result = validateExpenseForm({ ...validEqual, amount: "0" });
-      expect(result?.amount).toMatch(/positive/);
+      assert.match(result?.amount ?? "", /positive/);
     });
 
     it("returns amount error when amount is negative", () => {
       const result = validateExpenseForm({ ...validEqual, amount: "-5" });
-      expect(result?.amount).toMatch(/positive/);
+      assert.match(result?.amount ?? "", /positive/);
     });
 
     it("returns amount error when amount has 8 decimal places", () => {
       const result = validateExpenseForm({ ...validEqual, amount: "1.12345678" });
-      expect(result?.amount).toMatch(/7 decimal/);
+      assert.match(result?.amount ?? "", /7 decimal/);
     });
 
     it("accepts amount with 7 decimal places", () => {
       const result = validateExpenseForm({ ...validEqual, amount: "1.1234567" });
-      expect(result).toBeNull();
+      assert.equal(result, null);
     });
 
     it("accepts amount with trailing dot", () => {
       const result = validateExpenseForm({ ...validEqual, amount: "50." });
-      expect(result).toBeNull();
+      assert.equal(result, null);
     });
 
     it("returns amount error for non-numeric string", () => {
       const result = validateExpenseForm({ ...validEqual, amount: "abc" });
-      expect(result?.amount).toMatch(/positive/);
+      assert.match(result?.amount ?? "", /positive/);
     });
   });
 
   describe("participants", () => {
     it("returns participants error when none selected", () => {
       const result = validateExpenseForm({ ...validEqual, participants: [] });
-      expect(result?.participants).toBe("Select at least one participant");
+      assert.equal(result?.participants, "Select at least one participant");
     });
 
     it("accepts a single participant", () => {
       const result = validateExpenseForm({ ...validEqual, participants: ["user-a"] });
-      expect(result).toBeNull();
+      assert.equal(result, null);
     });
   });
 
@@ -113,7 +114,7 @@ describe("validateExpenseForm", () => {
         splitType: "custom",
         custom: { "user-a": "10.00", "user-b": "20.00", "user-c": "30.00" },
       });
-      expect(result?.custom).toMatch(/must sum to/);
+      assert.match(result?.custom ?? "", /must sum to/);
     });
 
     it("accepts custom amounts that exactly sum to total", () => {
@@ -122,7 +123,7 @@ describe("validateExpenseForm", () => {
         splitType: "custom",
         custom: { "user-a": "50.00", "user-b": "50.00", "user-c": "50.00" },
       });
-      expect(result).toBeNull();
+      assert.equal(result, null);
     });
   });
 
@@ -133,7 +134,7 @@ describe("validateExpenseForm", () => {
         splitType: "percentage",
         percent: { "user-a": "30", "user-b": "30", "user-c": "30" },
       });
-      expect(result?.percent).toBe("Percentages must sum to 100");
+      assert.equal(result?.percent, "Percentages must sum to 100");
     });
 
     it("accepts percentages that sum to 100", () => {
@@ -142,7 +143,7 @@ describe("validateExpenseForm", () => {
         splitType: "percentage",
         percent: { "user-a": "50", "user-b": "25", "user-c": "25" },
       });
-      expect(result).toBeNull();
+      assert.equal(result, null);
     });
   });
 
@@ -156,9 +157,9 @@ describe("validateExpenseForm", () => {
         custom: {},
         percent: {},
       });
-      expect(result?.title).toBeDefined();
-      expect(result?.amount).toBeDefined();
-      expect(result?.participants).toBeDefined();
+      assert.ok(result?.title !== undefined);
+      assert.ok(result?.amount !== undefined);
+      assert.ok(result?.participants !== undefined);
     });
   });
 });
