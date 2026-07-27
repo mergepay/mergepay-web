@@ -1,7 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { explorerTxUrl, explorerAccountUrl } from "@/lib/constants";
 import { shortHash, shortKey } from "@/lib/format";
-import { CopyButton } from "./ui/copy-button";
+import CopyButton from "./ui/CopyButton";
 
 /** Renders a Stellar transaction hash as a mono chip linking to stellar.expert. */
 export function TxLink({ hash }: { hash: string }) {
@@ -17,7 +17,7 @@ export function TxLink({ hash }: { hash: string }) {
         {shortHash(hash)}
         <ExternalLink className="h-3 w-3" />
       </a>
-      <CopyButton value={hash} />
+      <CopyButton text={hash} />
     </span>
   );
 }
@@ -34,7 +34,7 @@ export function PubkeyChip({ publicKey }: { publicKey: string }) {
       >
         {shortKey(publicKey, 6)}
       </a>
-      <CopyButton value={publicKey} />
+      <CopyButton text={publicKey} />
     </span>
   );
 }

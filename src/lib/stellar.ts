@@ -25,26 +25,29 @@ export class WalletError extends Error {
   }
 }
 
-/** Handles both Freighter v1 (plain values) and v2+ ({ value, error }) APIs. */
-function unwrap<T extends object | string>(
-  result: T | { error?: { message?: string } | string },
-  pick: (r: any) => string | undefined
-): string {
-  if (typeof result === "string") return result;
-  const err = (result as any)?.error;
-  if (err) {
-    throw new WalletError(typeof err === "string" ? err : err.message ?? "Wallet error");
-  }
-  const value = pick(result);
-  if (!value) throw new WalletError("Wallet returned an empty response.");
-  return value;
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function extractError(result: Record<string, unknown>): string | undefined {
+  const err = result.error;
+  if (typeof err === "string") return err;
+  if (isObject(err) && typeof err.message === "string") return err.message;
+  return undefined;
+}
+
+function throwOnError(result: unknown): void {
+  if (!isObject(result)) return;
+  const msg = extractError(result);
+  if (msg) throw new WalletError(msg);
 }
 
 export async function isFreighterAvailable(): Promise<boolean> {
   try {
     const res = await isConnected();
     if (typeof res === "boolean") return res;
-    return Boolean((res as any)?.isConnected);
+    if (isObject(res) && typeof res.isConnected === "boolean") return res.isConnected;
+    return false;
   } catch {
     return false;
   }
@@ -60,12 +63,29 @@ export async function connectWallet(): Promise<string> {
   }
   try {
     const res = await requestAccess();
-    return unwrap(res as any, (r) => r.address ?? r.publicKey);
+    throwOnError(res);
+    if (typeof res === "string") return res;
+    if (isObject(res)) {
+      const r = res as Record<string, unknown>;
+      const pk =
+        (typeof r.address === "string" ? r.address : undefined) ??
+        (typeof r.publicKey === "string" ? r.publicKey : undefined);
+      if (pk) return pk;
+    }
+    throw new WalletError("Wallet returned an empty response.");
   } catch (e) {
     if (e instanceof WalletError) throw e;
     // Older Freighter versions expose getAddress / getPublicKey instead.
     const res = await getAddress();
-    return unwrap(res as any, (r) => r.address ?? r.publicKey);
+    throwOnError(res);
+    if (isObject(res)) {
+      const r = res as Record<string, unknown>;
+      const pk =
+        (typeof r.address === "string" ? r.address : undefined) ??
+        (typeof r.publicKey === "string" ? r.publicKey : undefined);
+      if (pk) return pk;
+    }
+    throw new WalletError("Wallet returned an empty response.");
   }
 }
 
@@ -74,7 +94,16 @@ export async function signXdr(
   networkPassphrase: string = NETWORK_PASSPHRASE
 ): Promise<string> {
   const res = await signTransaction(xdr, { networkPassphrase });
-  return unwrap(res as any, (r) => r.signedTxXdr ?? r.signedTransaction);
+  throwOnError(res);
+  if (typeof res === "string") return res;
+  if (isObject(res)) {
+    const r = res as Record<string, unknown>;
+    const signed =
+      (typeof r.signedTxXdr === "string" ? r.signedTxXdr : undefined) ??
+      (typeof r.signedTransaction === "string" ? r.signedTransaction : undefined);
+    if (signed) return signed;
+  }
+  throw new WalletError("Wallet returned an empty response.");
 }
 
 /**

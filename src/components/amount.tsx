@@ -14,7 +14,7 @@ export function NetAmount({
   assetCode: string;
   className?: string;
 }) {
-  const n = typeof value === "number" ? value : parseFloat(value);
+  const n = typeof value === "number" ? value : Number(value);
   const positive = n > 0.0000001;
   const negative = n < -0.0000001;
   return (

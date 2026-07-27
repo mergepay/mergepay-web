@@ -1,13 +1,16 @@
 "use client";
 
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api } from "./api";
 import { useAuth } from "./auth-store";
 import type {
+  BalancesResponse,
   ConfirmSettlementRequest,
   CreateExpenseRequest,
   CreateGroupRequest,
@@ -19,6 +22,7 @@ import type {
   TreasuryWithdrawRequest,
   UpdateMeRequest,
 } from "./types";
+import type { ExpensesPage } from "./expenses";
 
 export const qk = {
   me: ["me"] as const,
@@ -57,6 +61,40 @@ export function useExpenses(groupId: string) {
   return useQuery({
     queryKey: qk.expenses(groupId),
     queryFn: () => api.listExpenses(groupId),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Cursor-paginated expense list backed by GET /api/expenses.
+ *
+ * Use this for groups with many expenses — pulling the full list in
+ * one request is slow and burns memory. The first call uses
+ * `options.limit` (default 20, max 100); each subsequent page uses
+ * the `nextCursor` returned by the server.
+ */
+export function useInfiniteExpenses(
+  groupId: string,
+  options: { limit?: number; cursor?: string } = {}
+) {
+  return useInfiniteQuery({
+    queryKey: [
+      ...qk.expenses(groupId),
+      "page",
+      options.limit ?? 20,
+      options.cursor ?? null,
+    ],
+    queryFn: ({ pageParam }) =>
+      api.listExpensesPage(groupId, {
+        limit: options.limit,
+        cursor: pageParam as string | undefined,
+      }),
+    // Forward any caller-provided starting cursor through React
+    // Query's page machinery so the first request carries it.
+    initialPageParam: options.cursor as string | undefined,
+    getNextPageParam: (lastPage: ExpensesPage) =>
+      lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
   });
 }
 
@@ -154,17 +192,105 @@ export function useCreateInvite(groupId: string) {
   });
 }
 
+/**
+ * Calculate optimistic group member balances based on an expense split.
+ */
+export function calculateOptimisticBalances(
+  oldBalances: BalancesResponse,
+  data: CreateExpenseRequest,
+  payerUserId: string
+): BalancesResponse {
+  const totalAmount = parseFloat(data.amount) || 0;
+  const sharesMap = new Map<string, number>();
+  const shares = data.shares || [];
+
+  if (data.splitType === "equal" && shares.length > 0) {
+    const equalShare = totalAmount / shares.length;
+    for (const s of shares) {
+      sharesMap.set(s.userId, equalShare);
+    }
+  } else if (data.splitType === "custom") {
+    for (const s of shares) {
+      sharesMap.set(s.userId, parseFloat(s.amount || "0") || 0);
+    }
+  } else if (data.splitType === "percentage") {
+    for (const s of shares) {
+      sharesMap.set(s.userId, (totalAmount * (s.percent || 0)) / 100);
+    }
+  }
+
+  const updatedBalances = oldBalances.balances.map((b) => {
+    const participantShare = sharesMap.get(b.userId) ?? 0;
+    const paidAmount = b.userId === payerUserId ? totalAmount : 0;
+    const netDelta = paidAmount - participantShare;
+    const currentNet = parseFloat(b.net) || 0;
+    const newNet = currentNet + netDelta;
+
+    return {
+      ...b,
+      net: String(Math.round(newNet * 10000000) / 10000000),
+    };
+  });
+
+  return {
+    ...oldBalances,
+    balances: updatedBalances,
+  };
+}
+
 export function useCreateExpense(groupId: string) {
   const invalidate = useInvalidator();
+  const qc = useQueryClient();
+  const me = useMe();
+
   return useMutation({
     mutationFn: (data: CreateExpenseRequest) => api.createExpense(groupId, data),
-    onSuccess: () =>
+    // Optimistically update group member balances before the API responds
+    onMutate: async (data: CreateExpenseRequest) => {
+      const balanceKey = qk.balances(groupId);
+
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await qc.cancelQueries({ queryKey: balanceKey });
+
+      // Save a snapshot of current query data for rollback on error
+      const previousBalances = qc.getQueryData<BalancesResponse>(balanceKey);
+
+      // Apply optimistic update only if previous balance cache exists
+      if (previousBalances) {
+        const payerUserId =
+          data.payerUserId ||
+          me.data?.user.id ||
+          useAuth.getState().user?.id ||
+          "";
+
+        qc.setQueryData<BalancesResponse>(balanceKey, (old) => {
+          if (!old) return old;
+          return calculateOptimisticBalances(old, data, payerUserId);
+        });
+      }
+
+      return { previousBalances };
+    },
+    // On failure, revert back to saved snapshot and display error toast
+    onError: (err, _variables, context) => {
+      if (context?.previousBalances) {
+        qc.setQueryData(qk.balances(groupId), context.previousBalances);
+      }
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to create expense. Balances reverted."
+      );
+    },
+    // Refetch canonical data on settlement (success or error)
+    onSettled: () => {
       invalidate([
         qk.expenses(groupId),
         qk.balances(groupId),
         qk.ledger(groupId),
         qk.groups,
-      ]),
+      ]);
+    },
   });
 }
 

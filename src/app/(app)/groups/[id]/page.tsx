@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useGroupStore } from "@/lib/group-store";
 import {
   Landmark,
   Plus,
@@ -23,15 +24,25 @@ import { LedgerPanel } from "@/components/ledger/ledger-panel";
 import { TreasuryPanel } from "@/components/treasury/treasury-panel";
 import { MembersPanel } from "@/components/groups/members-panel";
 import { useExpenses, useGroup, useMe } from "@/lib/queries";
+import { sortExpensesByDateDesc } from "@/lib/expenses";
 
 type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
 
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: me } = useMe();
+  const { data: me, isError: isMeError, error: meError } = useMe();
   const { data: detail, isLoading, isError } = useGroup(id);
   const [tab, setTab] = useState<Tab>("expenses");
   const [addOpen, setAddOpen] = useState(false);
+  const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
+
+  useEffect(() => {
+    setSelectedGroup(id);
+  }, [id, setSelectedGroup]);
+
+  if (isMeError) {
+    throw meError || new Error("Failed to load user information");
+  }
 
   const currentUserId = me?.user.id ?? "";
 
@@ -134,11 +145,26 @@ function ExpensesTab({
   members: import("@/lib/types").GroupMember[];
   onAdd: () => void;
 }) {
-  const { data, isLoading } = useExpenses(groupId);
+  const { data, isLoading, isError, refetch } = useExpenses(groupId);
 
   if (isLoading) return <ListSkeleton rows={4} />;
 
-  const expenses = data?.expenses ?? [];
+  if (isError) {
+    return (
+      <EmptyState
+        icon={<Receipt className="h-7 w-7 text-red-500" />}
+        title="Error loading expenses"
+        description="We couldn't load the expenses for this group."
+        action={
+          <Button onClick={() => refetch()} variant="outline">
+            Retry
+          </Button>
+        }
+      />
+    );
+  }
+
+  const expenses = sortExpensesByDateDesc(data?.expenses ?? []);
   if (expenses.length === 0) {
     return (
       <EmptyState
