@@ -1,8 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, PenLine, Send, Wallet } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  Lock,
+  PenLine,
+  RefreshCcw,
+  Send,
+  ShieldX,
+  Wallet,
+} from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -15,7 +25,7 @@ import { useConfirmSettlement } from "@/lib/queries";
 import { validateSettlementInput } from "@/lib/paymentValidation";
 import type { SettlementSuggestion, User } from "@/lib/types";
 
-type Step = "review" | "signing" | "confirming" | "done" | "error";
+type Step = "review" | "submitting" | "submitted" | "confirmed" | "failed";
 
 export interface SettleTarget {
   /** Either settle a specific expense share, or a freeform net suggestion. */
@@ -49,9 +59,19 @@ export function SettleDialog({
   target: SettleTarget | null;
 }) {
   const confirm = useConfirmSettlement(groupId);
+  // We only attach the polling hook once the user has submitted so we don't
+  // burn API calls reviewing balances. settledId flips from null → string at
+  // submission.
+  const [settlementId, setSettlementId] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("review");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
+  const [errorCode, setErrorCode] = useState<WalletErrorCode | null>(null);
+
+  const statusQuery = useSettlementStatus(
+    settlementId,
+    step === "submitted"
+  );
 
   function close() {
     onClose();
@@ -60,6 +80,8 @@ export function SettleDialog({
       setStep("review");
       setTxHash(null);
       setError("");
+      setErrorCode(null);
+      setSettlementId(null);
     }, 200);
   }
 
@@ -78,6 +100,7 @@ export function SettleDialog({
     }
 
     setError("");
+    setErrorCode(null);
     try {
       // 1. Ask the API to build an unsigned settlement intent.
       const intent = target.expenseId
@@ -93,26 +116,79 @@ export function SettleDialog({
           });
 
       // 2. Sign the XDR in the wallet.
-      setStep("signing");
+      setStep("submitting");
       const signedXdr = await signXdr(intent.xdr, intent.networkPassphrase);
 
       // 3. Confirm — the API submits to Stellar and records the hash.
-      setStep("confirming");
       const { settlement } = await confirm.mutateAsync({
         settlementId: intent.settlement.id,
         data: { signedXdr },
       });
 
-      setTxHash(settlement.stellarTxHash);
-      setStep("done");
-      toast.success("Settled on Stellar");
+      // Move into the polling state. We don't yet know if the settlement
+      // reached a terminal state synchronously; let the polling hook decide.
+      setSettlementId(intent.settlement.id);
+      setTxHash(settlement.stellarTxHash ?? null);
+      setStep("submitted");
+
+      // If the API synchronously returned a terminal state, jump straight
+      // to that step.
+      if (settlement.status === "confirmed") {
+        setStep("confirmed");
+        toast.success("Settled on Stellar");
+      } else if (settlement.status === "failed") {
+        setStep("failed");
+        setError("Stellar rejected this transaction. Please try again.");
+      }
     } catch (e) {
-      if (e instanceof WalletError) setError(e.message);
-      else if (e instanceof ApiRequestError) setError(e.message);
-      else setError("Settlement failed. Please try again.");
-      setStep("error");
+      // Distinguish wallet vs API failures. Wallet subclasses give us a
+      // stable code so the UI can render the right affordance.
+      if (e instanceof UserRejectedError) {
+        setErrorCode("user_rejected");
+        setError(e.message);
+        setStep("review"); // user cancelled — leave form on a safe retryable state
+      } else if (e instanceof WalletLockedError) {
+        setErrorCode("locked");
+        setError(e.message);
+        setStep("review");
+      } else if (e instanceof WalletNotInstalledError) {
+        setErrorCode("not_installed");
+        setError(e.message);
+        setStep("review");
+      } else if (e instanceof WalletDisconnectedError) {
+        setErrorCode("disconnected");
+        setError(e.message);
+        setStep("review");
+      } else if (e instanceof WalletError) {
+        // Catch-all for any other WalletError variant.
+        setErrorCode(e.code);
+        setError(e instanceof Error ? e.message : walletMessage("unknown"));
+        setStep("review");
+      } else if (e instanceof ApiRequestError) {
+        setErrorCode(null);
+        setError(e.message);
+        setStep("failed");
+      } else {
+        setErrorCode(null);
+        setError("Settlement failed. Please try again.");
+        setStep("failed");
+      }
     }
   }
+
+  // React to terminal status updates from the polling hook.
+  useEffect(() => {
+    if (step !== "submitted" || !statusQuery.data) return;
+    const live = statusQuery.data.stellarTxHash ?? null;
+    if (statusQuery.data.status === "confirmed") {
+      setTxHash(live);
+      setStep("confirmed");
+      toast.success("Settled on Stellar");
+    } else if (statusQuery.data.status === "failed") {
+      setStep("failed");
+      setError("Stellar rejected this transaction. Please try again.");
+    }
+  }, [step, statusQuery.data]);
 
   if (!target) return null;
 
@@ -154,6 +230,11 @@ export function SettleDialog({
                 It settles on Stellar and the ledger updates with the tx hash.
               </StepLine>
             </ol>
+
+            {error && (
+              <WalletErrorBanner code={errorCode} message={error} />
+            )}
+
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={close}>
                 Cancel
@@ -165,20 +246,41 @@ export function SettleDialog({
           </>
         )}
 
-        {(step === "signing" || step === "confirming") && (
-          <div className="flex flex-col items-center gap-3 py-4">
+        {step === "submitting" && (
+          <div
+            className="flex flex-col items-center gap-3 py-4"
+            aria-busy
+            aria-live="polite"
+          >
             <Button loading variant="outline" className="pointer-events-none">
-              {step === "signing" ? "Waiting for signature…" : "Submitting to Stellar…"}
+              Submitting to Stellar…
             </Button>
             <p className="text-center text-sm text-ink/60">
-              {step === "signing"
-                ? "Approve the transaction in your Freighter wallet."
-                : "Broadcasting your payment to the network."}
+              Approve the transaction in your Freighter wallet, and we'll
+              record it on the ledger.
             </p>
           </div>
         )}
 
-        {step === "done" && (
+        {step === "submitted" && (
+          <div
+            className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-butter-pale px-4 py-5"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-7 w-7 animate-spin text-grape" />
+            <p className="font-display text-sm uppercase tracking-tight">
+              Waiting for confirmation
+            </p>
+            <p className="text-center text-xs text-ink/60">
+              Polling the network for the terminal transaction state.
+              You can close this dialog — the ledger will refresh
+              automatically.
+            </p>
+          </div>
+        )}
+
+        {step === "confirmed" && (
           <div className="space-y-4 text-center">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border-3 border-ink bg-lime shadow-brutal">
               <CheckCircle2 className="h-8 w-8" />
@@ -203,7 +305,7 @@ export function SettleDialog({
           </div>
         )}
 
-        {step === "error" && (
+        {step === "failed" && (
           <div className="space-y-4">
             <div className="rounded-xl border-2 border-ink bg-flamingo-pale px-4 py-3 text-sm">
               {error}
@@ -212,7 +314,9 @@ export function SettleDialog({
               <Button variant="ghost" onClick={close}>
                 Close
               </Button>
-              <Button onClick={run}>Try again</Button>
+              <Button onClick={run}>
+                <RefreshCcw className="h-4 w-4" /> Try again
+              </Button>
             </div>
           </div>
         )}
@@ -235,5 +339,33 @@ function StepLine({
       </span>
       <span>{children}</span>
     </li>
+  );
+}
+
+function WalletErrorBanner({
+  code,
+  message,
+}: {
+  code: WalletErrorCode | null;
+  message: string;
+}) {
+  const icon =
+    code === "locked" ? (
+      <Lock className="h-4 w-4" />
+    ) : code === "not_installed" ? (
+      <ShieldX className="h-4 w-4" />
+    ) : (
+      <AlertTriangle className="h-4 w-4" />
+    );
+  return (
+    <div
+      className="flex items-start gap-3 rounded-xl border-2 border-ink bg-butter-pale px-4 py-3 text-sm"
+      role="alert"
+    >
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 border-ink bg-cream">
+        {icon}
+      </span>
+      <span>{message}</span>
+    </div>
   );
 }

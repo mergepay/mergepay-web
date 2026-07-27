@@ -20,6 +20,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
               ) {
                 return false;
               }
+              // A schema-validated 200 response is not going to become
+              // valid on the next attempt. Never retry validation errors
+              // — the next polling tick will surface fresh data.
+              if (error instanceof ApiValidationError) {
+                return false;
+              }
               return failureCount < 1;
             },
             refetchOnWindowFocus: false,
@@ -36,7 +42,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         position="bottom-right"
         toastOptions={{
           className:
-            "!bg-cream !text-ink !border-[3px] !border-ink !rounded-2xl !shadow-[4px_4px_0_0_#18130E] !font-bold",
+            "animate-fade-in !bg-cream !text-ink !border-[3px] !border-ink !rounded-2xl !shadow-[4px_4px_0_0_#18130E] !font-bold",
         }}
       />
     </QueryClientProvider>
