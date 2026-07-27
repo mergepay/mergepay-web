@@ -8,8 +8,8 @@ import { ArrowLeft, ShieldCheck, Wallet, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/lib/auth-store";
-import { loginWithWallet, isFreighterAvailable, WalletError } from "@/lib/stellar";
+import { useAuth } from "@/hooks/useAuth";
+import { isFreighterAvailable, WalletError } from "@/lib/stellar";
 import { ApiRequestError } from "@/lib/api";
 
 /** After auth, jump to a parked invite link if one exists, else the dashboard. */
@@ -26,7 +26,7 @@ function postLoginTarget(): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { token, hydrated } = useAuth();
+  const { token, hydrated, login, isLoading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [hasFreighter, setHasFreighter] = useState<boolean | null>(null);
 
@@ -41,9 +41,11 @@ export default function LoginPage() {
   async function handleConnect() {
     setLoading(true);
     try {
-      await loginWithWallet();
-      toast.success("Signed in with Stellar");
-      router.replace(postLoginTarget());
+      const user = await login();
+      if (user) {
+        toast.success("Signed in with Stellar");
+        router.replace(postLoginTarget());
+      }
     } catch (e) {
       if (e instanceof WalletError) toast.error(e.message);
       else if (e instanceof ApiRequestError) toast.error(e.message);
@@ -124,7 +126,7 @@ export default function LoginPage() {
               className="mt-7 w-full"
               size="lg"
               onClick={handleConnect}
-              loading={loading}
+              loading={loading || authLoading}
             >
               <Wallet className="h-5 w-5" /> Connect Freighter
             </Button>

@@ -29,16 +29,19 @@ Please report vulnerabilities in any of these areas:
 
 - **Cross-site scripting (XSS)** in expense descriptions, group names, member
   display names, invite metadata, memo strings, or any other user-supplied text
-  rendered without sanitization. XSS is elevated here because the JWT is held in
-  `localStorage` (see `src/lib/auth-store.ts`) — a successful XSS lets an attacker
-  exfiltrate the session token.
+  rendered without sanitization. The session JWT is held **only in memory**
+  (see `src/lib/auth-store.ts`) so it cannot be read from `localStorage` or
+  `sessionStorage`; however, XSS during an active session can still issue
+  authenticated API requests or read the in-memory token from Zustand's store
+  before the tab is closed.
 - **Invite-link handling** (`/join/[code]`) — code enumeration, open redirects
   when returning from login, auto-accepting or auto-joining a group without an
   explicit user confirmation step, and any UI that could be spoofed to make a
   user think they're joining group A when the code resolves to group B.
 - **Client-side token exposure** — anything that widens the XSS blast radius:
   logging the JWT, sending it to a third-party origin, exposing it via
-  `postMessage`, or leaking it into a URL or referrer.
+  `postMessage`, leaking it into a URL or referrer, or persisting it to any
+  web-readable storage (the token must remain in-memory only).
 - **Wallet-connection phishing / transaction spoofing** — any UI path where the
   amount, destination, asset, or memo *displayed* to the user before signing
   does not match what is actually placed in the XDR sent to Freighter. This
