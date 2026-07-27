@@ -86,6 +86,8 @@ export function AddExpenseDialog({
     );
   }
 
+  const isPayerAlsoParticipant = participants.includes(payerUserId);
+
   async function handleUpload(file: File) {
     setUploading(true);
     try {
@@ -396,9 +398,12 @@ export function AddExpenseDialog({
               }}
             />
           </label>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
+        </div>          {isPayerAlsoParticipant && (
+            <div className="rounded-xl border-2 border-flamingo bg-flamingo/10 px-3 py-2 text-sm text-flamingo">
+              You cannot be both payer and participant.
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
