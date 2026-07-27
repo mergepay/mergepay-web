@@ -4,9 +4,8 @@ import {
   apiError,
   apiSuccess,
   COMMON_CODES,
-  decodeJwtSubject,
 } from "@/lib/apiHelpers";
-import { rateLimit } from "@/lib/rateLimiter";
+import { hashBearerToken, rateLimit } from "@/lib/rateLimiter";
 import {
   decodeCursor,
   fetchExpensesPage,
@@ -174,13 +173,13 @@ export const POST = rateLimit(
   {
     limit: 30,
     windowMs: 60_000,
-    // Bucket by JWT subject if we can decode it; otherwise fall back to
-    // the raw bearer token so each session gets its own bucket even
-    // when the token shape is unexpected.
+    // Bucket by a SHA-256 hash of the full bearer token. Decoding JWT
+    // claims here would require a verification secret we don't have,
+    // and the previous fallback (token prefix) let callers rotate
+    // keys to evade the limit. See `hashBearerToken` for details.
     keyFn: (req) => {
       const token = bearerToken(req);
-      if (!token) return null;
-      return decodeJwtSubject(token) ?? `tok:${token.slice(0, 32)}`;
+      return token ? hashBearerToken(token) : null;
     },
   },
   handlePost

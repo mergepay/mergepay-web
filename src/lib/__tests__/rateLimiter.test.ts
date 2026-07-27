@@ -4,6 +4,7 @@ import {
   rateLimit,
   checkRateLimit,
   getClientIp,
+  hashBearerToken,
   __resetRateLimitStore,
 } from "../rateLimiter";
 
@@ -81,6 +82,35 @@ describe("checkRateLimit", () => {
     const blocked = checkRateLimit("k", 1, 1000, 500);
     assert.equal(blocked.ok, false);
     assert.equal(blocked.retryAfterMs, 500);
+  });
+});
+
+describe("hashBearerToken", () => {
+  it("is deterministic for the same token", () => {
+    assert.equal(hashBearerToken("abc"), hashBearerToken("abc"));
+  });
+
+  it("produces distinct keys for distinct tokens", () => {
+    assert.notEqual(hashBearerToken("token-a"), hashBearerToken("token-b"));
+  });
+
+  it("treats tokens that share a 32-char prefix as distinct", () => {
+    // The previous fallback (token.slice(0, 32)) collapsed these
+    // into the same bucket, letting callers evade the limit. The
+    // full-token hash must keep them apart.
+    const a = "aaaaaaaaaaaaaaaa" + "-rest-of-a";
+    const b = "aaaaaaaaaaaaaaaa" + "-rest-of-b";
+    assert.notEqual(hashBearerToken(a), hashBearerToken(b));
+  });
+
+  it("prefixes the result so it cannot collide with other key shapes", () => {
+    assert.ok(hashBearerToken("123").startsWith("tok:"));
+  });
+
+  it("hashes to a fixed 64-char hex digest", () => {
+    const suffix = hashBearerToken("any").slice("tok:".length);
+    assert.equal(suffix.length, 64);
+    assert.match(suffix, /^[0-9a-f]{64}$/);
   });
 });
 

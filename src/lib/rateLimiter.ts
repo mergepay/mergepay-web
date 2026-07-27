@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { apiError, COMMON_CODES } from "./apiHelpers";
 
 /**
@@ -74,6 +75,28 @@ export function getClientIp(request: Request): string {
   const real = request.headers.get("x-real-ip");
   if (real) return real.trim();
   return "unknown";
+}
+
+/**
+ * Derive a stable, opaque bucket key from a bearer token.
+ *
+ * Why hash the full token rather than decode the JWT subject?
+ * - The BFF does not hold a JWT verification secret; decoding claims
+ *   without verification is unsafe because a caller can forge any
+ *   subject.
+ * - Truncating the token (a previous fallback) lets a caller generate
+ *   arbitrarily many distinct keys by varying inputs, so the limit
+ *   was trivially evadable.
+ * - A SHA-256 of the full token uniquely identifies the credential
+ *   that authenticated the request. The upstream API remains the
+ *   source of truth for identity; this helper only segments buckets.
+ *
+ * Returns a prefixed string so collision with `getClientIp`-style
+ * keys (e.g. IPv4 strings) is impossible even if a future caller
+ * passes one through this function by mistake.
+ */
+export function hashBearerToken(token: string): string {
+  return `tok:${createHash("sha256").update(token).digest("hex")}`;
 }
 
 export interface RateLimitOptions {
