@@ -12,6 +12,7 @@
     "test": "tsx --test src/lib/__tests__/*.test.ts"
   },
   "dependencies": {
+    "@stellar/freighter-api": "^4.0.0",
     "@tanstack/react-query": "^5.51.23",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
@@ -25,8 +26,7 @@
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.4.0",
     "zod": "^3.23.8",
-    "zustand": "^4.5.4",
-    "@stellar/freighter-api": "^4.0.0"
+    "zustand": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^20.14.14",
@@ -38,6 +38,7 @@
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.9",
     "tsx": "^4.19.2",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.10"
   }
 }

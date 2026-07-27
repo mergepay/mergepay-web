@@ -130,34 +130,29 @@ function errorForCode(code: WalletErrorCode, fallbackMessage?: string): WalletEr
   }
 }
 
-/** Handles both Freighter v1 (plain values) and v2+ ({ value, error }) APIs. */
-function unwrap<T extends object | string>(
-  result: T | { error?: { message?: string } | string },
-  pick: (r: any) => string | undefined,
-  context: "connect" | "sign"
-): string {
-  if (typeof result === "string") return result;
-  const err = (result as any)?.error;
-  if (err) {
-    const raw = typeof err === "string" ? err : (err.message ?? "");
-    // Never include the raw provider object — just the message string.
-    const code = classifyWalletMessage(raw);
-    // For signing, "user_rejected" is the most common — surface it cleanly.
-    // Every rejected signature must NOT be auto-retried.
-    throw errorForCode(code, context === "sign" && code === "user_rejected"
-      ? undefined
-      : raw || MESSAGE_BY_CODE[code]);
-  }
-  const value = pick(result);
-  if (!value) throw errorForCode("disconnected");
-  return value;
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function extractError(result: Record<string, unknown>): string | undefined {
+  const err = result.error;
+  if (typeof err === "string") return err;
+  if (isObject(err) && typeof err.message === "string") return err.message;
+  return undefined;
+}
+
+function throwOnError(result: unknown): void {
+  if (!isObject(result)) return;
+  const msg = extractError(result);
+  if (msg) throw new WalletError(msg);
 }
 
 export async function isFreighterAvailable(): Promise<boolean> {
   try {
     const res = await isConnected();
     if (typeof res === "boolean") return res;
-    return Boolean((res as any)?.isConnected);
+    if (isObject(res) && typeof res.isConnected === "boolean") return res.isConnected;
+    return false;
   } catch {
     return false;
   }
@@ -171,17 +166,29 @@ export async function connectWallet(): Promise<string> {
   }
   try {
     const res = await requestAccess();
-    return unwrap(res as any, (r) => r.address ?? r.publicKey, "connect");
+    throwOnError(res);
+    if (typeof res === "string") return res;
+    if (isObject(res)) {
+      const r = res as Record<string, unknown>;
+      const pk =
+        (typeof r.address === "string" ? r.address : undefined) ??
+        (typeof r.publicKey === "string" ? r.publicKey : undefined);
+      if (pk) return pk;
+    }
+    throw new WalletError("Wallet returned an empty response.");
   } catch (e) {
     if (e instanceof WalletError) throw e;
     // Older Freighter versions expose getAddress / getPublicKey instead.
-    try {
-      const res = await getAddress();
-      return unwrap(res as any, (r) => r.address ?? r.publicKey, "connect");
-    } catch (inner) {
-      if (inner instanceof WalletError) throw inner;
-      throw errorForCode(classifyWalletMessage(String((inner as Error)?.message ?? inner)), (inner as Error)?.message);
+    const res = await getAddress();
+    throwOnError(res);
+    if (isObject(res)) {
+      const r = res as Record<string, unknown>;
+      const pk =
+        (typeof r.address === "string" ? r.address : undefined) ??
+        (typeof r.publicKey === "string" ? r.publicKey : undefined);
+      if (pk) return pk;
     }
+    throw new WalletError("Wallet returned an empty response.");
   }
 }
 
@@ -192,11 +199,16 @@ export async function signXdr(
   // Note: rejected signatures here are surfaced via `unwrap` and NEVER
   // retried automatically — the user must explicitly retry.
   const res = await signTransaction(xdr, { networkPassphrase });
-  return unwrap(
-    res as any,
-    (r) => r.signedTxXdr ?? r.signedTransaction,
-    "sign"
-  );
+  throwOnError(res);
+  if (typeof res === "string") return res;
+  if (isObject(res)) {
+    const r = res as Record<string, unknown>;
+    const signed =
+      (typeof r.signedTxXdr === "string" ? r.signedTxXdr : undefined) ??
+      (typeof r.signedTransaction === "string" ? r.signedTransaction : undefined);
+    if (signed) return signed;
+  }
+  throw new WalletError("Wallet returned an empty response.");
 }
 
 /**

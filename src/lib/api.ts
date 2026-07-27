@@ -53,6 +53,7 @@ import type {
   UploadResponse,
   VerifyResponse,
 } from "./types";
+import type { ExpensesPage } from "./expenses";
 
 export class ApiRequestError extends Error {
   code: string;
@@ -66,33 +67,59 @@ export class ApiRequestError extends Error {
   }
 }
 
+let expiryHandled = false;
+
+export function isSessionExpired(): boolean {
+  return expiryHandled;
+}
+
+export function resetSessionExpired(): void {
+  expiryHandled = false;
+}
+
 /**
- * Thrown when an API response is HTTP-OK but doesn't match the runtime
- * schema for its endpoint. Treated like any other failed request by the UI,
- * but stamps `status = 200` and `code = "invalid_response"` so callers can
- * distinguish a malformed payload from a transport error.
+ * Parse an upstream error response into a `(code, message)` pair.
  *
- * The message is intentionally generic — raw response contents are never
- * surfaced to the user.
+ * Supports both the new canonical flat shape `{ error: string, code?:
+ * string, details?: unknown }` and the legacy nested shape `{ error:
+ * { code, message } }` so we stay compatible during the upstream
+ * migration.
+ *
+ * Returns reasonable defaults when the body is missing, malformed,
+ * or non-JSON — never throws.
  */
-export class ApiValidationError extends ApiRequestError {
-  constructor() {
-    super(
-      200,
-      "invalid_response",
-      "The server response was malformed. Please try again."
-    );
-    this.name = "ApiValidationError";
+async function parseErrorBody(
+  res: Response
+): Promise<{ code: string; message: string }> {
+  let code = "unknown";
+  let message = `Request failed (${res.status})`;
+  try {
+    const data = (await res.json()) as
+      | {
+          error?: string | { code?: unknown; message?: unknown };
+          code?: unknown;
+        }
+      | undefined;
+    if (data) {
+      if (typeof data.error === "string") {
+        message = data.error;
+        if (typeof data.code === "string") code = data.code;
+      } else if (data.error && typeof data.error === "object") {
+        const inner = data.error;
+        if (typeof inner.code === "string") code = inner.code;
+        if (typeof inner.message === "string") message = inner.message;
+      }
+    }
+  } catch {
+    // non-JSON error body — keep defaults
   }
+  return { code, message };
 }
 
-interface RequestOptions extends RequestInit {
-  json?: unknown;
-  /** Optional Zod schema; if provided, the parsed body is validated. */
-  schema?: z.ZodType<unknown>;
-}
-
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestInit & { json?: unknown } = {}
+): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
@@ -107,21 +134,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers, body });
 
-  if (res.status === 401 && token) {
-    // Session expired — drop it so the auth guard kicks the user to /login.
+  if (res.status === 401 && token && !expiryHandled) {
+    expiryHandled = true;
     useAuth.getState().clear();
   }
 
   if (!res.ok) {
-    let code = "unknown";
-    let message = `Request failed (${res.status})`;
-    try {
-      const data = await res.json();
-      code = data?.error?.code ?? code;
-      message = data?.error?.message ?? message;
-    } catch {
-      // non-JSON error body
-    }
+    const { code, message } = await parseErrorBody(res);
     throw new ApiRequestError(res.status, code, message);
   }
 
@@ -195,9 +214,59 @@ export const api = {
       json: data,
     }),
   listExpenses: (groupId: string) =>
-    request<ExpensesResponse>(`/groups/${groupId}/expenses`, {
-      schema: ExpensesResponseSchema as unknown as z.ZodType<ExpensesResponse>,
-    }),
+    request<ExpensesResponse>(`/groups/${groupId}/expenses`),
+  /**
+   * Cursor-paginated variant. Goes through the local web route at
+   * /api/expenses so limit & cursor are validated server-side and so
+   * any future route-level enforcement (rate limits, caching) reaches
+   * the client transparently.
+   *
+   * Response shape is `{ data: Expense[], nextCursor: string | null }`,
+   * matching the canonical pagination format specified in issue #23.
+   */
+  listExpensesPage: async (
+    groupId: string,
+    params: { limit?: number; cursor?: string } = {}
+  ): Promise<ExpensesPage> => {
+    const search = new URLSearchParams();
+    search.set("groupId", groupId);
+    if (params.limit !== undefined) search.set("limit", String(params.limit));
+    if (params.cursor !== undefined) search.set("cursor", params.cursor);
+
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    // Browser-only: this method calls `/api/expenses` on the same
+    // origin so we can read the response from the BFF route. Throw
+    // loudly — never silently produce a relative-path fetch — when
+    // it ever runs outside a browser (RSC, SSR pre-render).
+    if (typeof window === "undefined") {
+      throw new Error(
+        "listExpensesPage requires a browser context (SSR/RSC)."
+      );
+    }
+    const origin = window.location.origin;
+    const res = await fetch(`${origin}/api/expenses?${search.toString()}`, {
+      headers,
+    });
+
+    if (res.status === 401 && token) {
+      useAuth.getState().clear();
+    }
+
+    if (!res.ok) {
+      const { code, message } = await parseErrorBody(res);
+      throw new ApiRequestError(res.status, code, message);
+    }
+
+    // 204 No Content: treat as the end of the stream — return an
+    // empty page so callers can stop iterating without special-casing.
+    if (res.status === 204) {
+      return { data: [], nextCursor: null };
+    }
+    return (await res.json()) as ExpensesPage;
+  },
   getExpense: (id: string) => request<ExpenseResponse>(`/expenses/${id}`),
   updateExpense: (id: string, data: UpdateExpenseRequest) =>
     request<ExpenseResponse>(`/expenses/${id}`, { method: "PATCH", json: data }),
