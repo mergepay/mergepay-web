@@ -29,11 +29,17 @@ export type AnchorSessionStatus =
   | "error"
   | "refunded";
 
+/**
+ * Canonical shape of every API error response. Mirrors the body
+ * emitted by `apiError` in `src/lib/apiHelpers.ts`.
+ */
 export interface ApiError {
-  error: {
-    code: string;
-    message: string;
-  };
+  /** Human-readable error message. */
+  error: string;
+  /** Optional machine-readable error code (e.g. "INVALID_INPUT"). */
+  code?: string;
+  /** Optional additional context (e.g. Zod validation issues). */
+  details?: unknown;
 }
 
 // ---------------------------------------------------------------------------
