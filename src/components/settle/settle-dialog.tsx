@@ -12,6 +12,7 @@ import { TxLink } from "@/components/tx-link";
 import { api, ApiRequestError } from "@/lib/api";
 import { signXdr, WalletError } from "@/lib/stellar";
 import { useConfirmSettlement } from "@/lib/queries";
+import { validateSettlementInput } from "@/lib/paymentValidation";
 import type { SettlementSuggestion, User } from "@/lib/types";
 
 type Step = "review" | "signing" | "confirming" | "done" | "error";
@@ -64,6 +65,18 @@ export function SettleDialog({
 
   async function run() {
     if (!target) return;
+
+    const validation = validateSettlementInput({
+      amount: target.amount,
+      assetCode: target.assetCode,
+      assetIssuer: target.assetIssuer,
+    });
+    if (!validation.valid) {
+      setError(validation.error ?? "Invalid payment input");
+      setStep("error");
+      return;
+    }
+
     setError("");
     try {
       // 1. Ask the API to build an unsigned settlement intent.
@@ -104,7 +117,7 @@ export function SettleDialog({
   if (!target) return null;
 
   return (
-    <Dialog open={open} onClose={close} title={target.label}>
+    <Dialog open={open} onClose={close} title={target.label} dismissible={false}>
       <div className="space-y-5">
         <div className="rounded-2xl border-3 border-ink bg-paper p-5">
           <div className="flex items-center justify-between">

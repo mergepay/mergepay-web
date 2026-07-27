@@ -54,6 +54,16 @@ export class ApiRequestError extends Error {
   }
 }
 
+let expiryHandled = false;
+
+export function isSessionExpired(): boolean {
+  return expiryHandled;
+}
+
+export function resetSessionExpired(): void {
+  expiryHandled = false;
+}
+
 /**
  * Parse an upstream error response into a `(code, message)` pair.
  *
@@ -111,8 +121,8 @@ async function request<T>(
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers, body });
 
-  if (res.status === 401 && token) {
-    // Session expired — drop it so the auth guard kicks the user to /login.
+  if (res.status === 401 && token && !expiryHandled) {
+    expiryHandled = true;
     useAuth.getState().clear();
   }
 

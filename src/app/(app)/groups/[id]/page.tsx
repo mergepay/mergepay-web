@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useGroupStore } from "@/lib/group-store";
 import {
   Landmark,
   Plus,
@@ -33,6 +34,11 @@ export default function GroupDetailPage() {
   const { data: detail, isLoading, isError } = useGroup(id);
   const [tab, setTab] = useState<Tab>("expenses");
   const [addOpen, setAddOpen] = useState(false);
+  const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
+
+  useEffect(() => {
+    setSelectedGroup(id);
+  }, [id, setSelectedGroup]);
 
   if (isMeError) {
     throw meError || new Error("Failed to load user information");

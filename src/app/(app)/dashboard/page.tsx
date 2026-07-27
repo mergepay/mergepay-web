@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -21,14 +22,30 @@ import { ListSkeleton } from "@/components/ui/skeleton";
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { useGroups, useMe } from "@/lib/queries";
+import { useGroupStore } from "@/lib/group-store";
 import { formatAmount } from "@/lib/format";
 import type { GroupSummary } from "@/lib/types";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { data: me, isError: isMeError, error: meError } = useMe();
   const { data, isLoading, isError, refetch } = useGroups();
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const selectedGroupId = useGroupStore((s) => s.selectedGroupId);
+  const restored = useGroupStore((s) => s.restored);
+
+  useEffect(() => {
+    if (!restored || isLoading || !data) return;
+    if (!selectedGroupId) return;
+    const groups = data?.groups ?? [];
+    const exists = groups.some((g: { id: string }) => g.id === selectedGroupId);
+    if (exists) {
+      router.replace(`/groups/${selectedGroupId}`);
+    } else {
+      useGroupStore.getState().clear();
+    }
+  }, [restored, selectedGroupId, isLoading, data, router]);
 
   if (isMeError) {
     throw meError || new Error("Failed to load user information");

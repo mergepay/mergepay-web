@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
-import { ApiRequestError } from "@/lib/api";
+import { ApiRequestError, isSessionExpired } from "@/lib/api";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -12,6 +12,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             retry: (failureCount, error) => {
+              if (isSessionExpired()) return false;
               if (
                 error instanceof ApiRequestError &&
                 error.status >= 400 &&
