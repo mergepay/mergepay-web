@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Loader2, Upload } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea, Label, Select, FieldHint } from "@/components/ui/input";
+import { Input, Textarea, Label, Select, FieldHint, FormError } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useCreateExpense } from "@/lib/queries";
@@ -31,6 +31,7 @@ export function AddExpenseDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [amountError, setAmountError] = useState<string | null>(null);
   const [assetKey, setAssetKey] = useState("XLM");
   const [payerUserId, setPayerUserId] = useState(currentUserId);
   const [splitType, setSplitType] = useState<SplitType>("equal");
@@ -177,7 +178,19 @@ export function AddExpenseDialog({
               step="0.0000001"
               inputMode="decimal"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                setAmount(e.target.value);
+                if (amountError) {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val) && val > 0) setAmountError(null);
+                }
+              }}
+              onBlur={(e) => {
+                const val = parseFloat(e.target.value);
+                if (!isNaN(val) && val <= 0) {
+                  setAmountError("Amount must be greater than zero");
+                }
+              }}
               placeholder="0.00"
               aria-describedby={validationErrors?.amount ? "e-amount-error" : undefined}
             />

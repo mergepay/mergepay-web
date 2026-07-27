@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, FieldHint } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { CopyButton } from "@/components/ui/copy-button";
+import CopyButton from "@/components/ui/CopyButton";
 import { useMe, useUpdateMe } from "@/lib/queries";
 import { ApiRequestError } from "@/lib/api";
 import { explorerAccountUrl, STELLAR_NETWORK } from "@/lib/constants";
@@ -106,7 +106,7 @@ export default function SettingsPage() {
                 <code className="block flex-1 overflow-hidden text-ellipsis rounded-xl border-2 border-ink bg-paper px-3 py-2 font-mono text-xs">
                   {user.stellarPublicKey}
                 </code>
-                <CopyButton value={user.stellarPublicKey} />
+                <CopyButton text={user.stellarPublicKey} />
               </div>
             </div>
             <a
