@@ -7,13 +7,29 @@ import { Money } from "@/components/amount";
 import { TxLink } from "@/components/tx-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { useLedger } from "@/lib/queries";
 import { fullDate } from "@/lib/format";
 
 export function LedgerPanel({ groupId }: { groupId: string }) {
-  const { data, isLoading } = useLedger(groupId);
+  const { data, isLoading, isError, refetch } = useLedger(groupId);
 
   if (isLoading) return <ListSkeleton rows={4} />;
+
+  if (isError) {
+    return (
+      <EmptyState
+        icon={<Receipt className="h-7 w-7 text-red-500" />}
+        title="Error loading ledger"
+        description="We couldn't load the transaction history for this group."
+        action={
+          <Button onClick={() => refetch()} variant="outline">
+            Retry
+          </Button>
+        }
+      />
+    );
+  }
 
   const entries = data?.entries ?? [];
   if (entries.length === 0) {
