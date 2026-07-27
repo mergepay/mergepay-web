@@ -43,6 +43,11 @@ export function AddExpenseDialog({
   const [memo, setMemo] = useState("");
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Form-level latch: a synchronous guard preventing double-clicks and
+  // auto-repeat Enter from issuing a second mutation while the first is
+  // in flight. Mirrors `create.isPending` for keyboard paths the native
+  // disabled state can't always intercept.
+  const [submitting, setSubmitting] = useState(false);
 
   const asset = useMemo(
     () => SETTLEMENT_ASSETS.find((a) => a.code === assetKey) ?? SETTLEMENT_ASSETS[0],
@@ -96,6 +101,12 @@ export function AddExpenseDialog({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Defense-in-depth: ignore Enter-repeats, double-clicks, and any other
+    // re-entry of the submit handler while a request is in flight or has
+    // already started. The button is also disabled via `loading` below; the
+    // check here covers keyboard activation paths browsers handle natively.
+    if (create.isPending || submitting) return;
     if (validationErrors) {
       const first = Object.values(validationErrors)[0];
       toast.error(first);
@@ -109,6 +120,7 @@ export function AddExpenseDialog({
       return { userId };
     });
 
+    setSubmitting(true);
     try {
       await create.mutateAsync({
         title: title.trim(),
@@ -127,6 +139,15 @@ export function AddExpenseDialog({
       onClose();
     } catch (e) {
       toast.error(e instanceof ApiRequestError ? e.message : "Could not add expense");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key === "Enter" && e.repeat && (create.isPending || submitting)) {
+      // Suppress repeated Enter auto-submits while a mutation is in flight.
+      e.preventDefault();
     }
   }
 
@@ -147,7 +168,7 @@ export function AddExpenseDialog({
 
   return (
     <Dialog open={open} onClose={onClose} title="Add expense">
-      <form onSubmit={submit} className="space-y-4">
+      <form onSubmit={submit} onKeyDown={handleKeyDown} className="space-y-4">
         <div>
           <Label htmlFor="e-title">Title</Label>
           <Input
@@ -383,9 +404,10 @@ export function AddExpenseDialog({
           </Button>
           <Button
             type="submit"
-            loading={create.isPending}
-            disabled={validationErrors !== null}
+            loading={create.isPending || submitting}
+            disabled={validationErrors !== null || create.isPending || submitting}
             title={validationErrors ? Object.values(validationErrors)[0] : undefined}
+            aria-busy={create.isPending || submitting}
           >
             Add expense
           </Button>

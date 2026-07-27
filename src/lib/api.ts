@@ -1,5 +1,18 @@
+import type { z } from "zod";
 import { API_URL } from "./constants";
 import { getToken, useAuth } from "./auth-store";
+import {
+  BalancesResponseSchema,
+  ExpensesResponseSchema,
+  GroupsResponseSchema,
+  GroupDetailSchema,
+  HistoryResponseSchema,
+  LedgerResponseSchema,
+  SettlementIntentResponseSchema,
+  SettlementResponseSchema,
+  MeResponseSchema,
+  ExpenseResponseSchema,
+} from "./schemas";
 import type {
   AnchorCompleteRequest,
   AnchorDepositRequest,
@@ -53,10 +66,33 @@ export class ApiRequestError extends Error {
   }
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit & { json?: unknown } = {}
-): Promise<T> {
+/**
+ * Thrown when an API response is HTTP-OK but doesn't match the runtime
+ * schema for its endpoint. Treated like any other failed request by the UI,
+ * but stamps `status = 200` and `code = "invalid_response"` so callers can
+ * distinguish a malformed payload from a transport error.
+ *
+ * The message is intentionally generic — raw response contents are never
+ * surfaced to the user.
+ */
+export class ApiValidationError extends ApiRequestError {
+  constructor() {
+    super(
+      200,
+      "invalid_response",
+      "The server response was malformed. Please try again."
+    );
+    this.name = "ApiValidationError";
+  }
+}
+
+interface RequestOptions extends RequestInit {
+  json?: unknown;
+  /** Optional Zod schema; if provided, the parsed body is validated. */
+  schema?: z.ZodType<unknown>;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
@@ -90,7 +126,23 @@ async function request<T>(
   }
 
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+
+  const parsed: unknown = await res.json();
+
+  if (options.schema) {
+    const result = options.schema.safeParse(parsed);
+    if (!result.success) {
+      // Don't log the raw payload — it may carry billing/account data.
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.warn(`[mergepay] response failed schema validation: ${path}`);
+      }
+      throw new ApiValidationError();
+    }
+    return result.data as T;
+  }
+
+  return parsed as T;
 }
 
 export const api = {
@@ -106,15 +158,24 @@ export const api = {
       json: { transaction },
     }),
   authLogout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
-  me: () => request<MeResponse>("/me"),
+  me: () =>
+    request<MeResponse>("/me", {
+      schema: MeResponseSchema as unknown as z.ZodType<MeResponse>,
+    }),
   updateMe: (data: UpdateMeRequest) =>
     request<MeResponse>("/me", { method: "PATCH", json: data }),
 
   // -- groups ---------------------------------------------------------------
   createGroup: (data: CreateGroupRequest) =>
     request<GroupResponse>("/groups", { method: "POST", json: data }),
-  listGroups: () => request<GroupsResponse>("/groups"),
-  getGroup: (id: string) => request<GroupDetail>(`/groups/${id}`),
+  listGroups: () =>
+    request<GroupsResponse>("/groups", {
+      schema: GroupsResponseSchema as unknown as z.ZodType<GroupsResponse>,
+    }),
+  getGroup: (id: string) =>
+    request<GroupDetail>(`/groups/${id}`, {
+      schema: GroupDetailSchema as unknown as z.ZodType<GroupDetail>,
+    }),
   createInvite: (groupId: string, data: InviteRequest = {}) =>
     request<InviteResponse>(`/groups/${groupId}/invite`, {
       method: "POST",
@@ -134,7 +195,9 @@ export const api = {
       json: data,
     }),
   listExpenses: (groupId: string) =>
-    request<ExpensesResponse>(`/groups/${groupId}/expenses`),
+    request<ExpensesResponse>(`/groups/${groupId}/expenses`, {
+      schema: ExpensesResponseSchema as unknown as z.ZodType<ExpensesResponse>,
+    }),
   getExpense: (id: string) => request<ExpenseResponse>(`/expenses/${id}`),
   updateExpense: (id: string, data: UpdateExpenseRequest) =>
     request<ExpenseResponse>(`/expenses/${id}`, { method: "PATCH", json: data }),
@@ -146,21 +209,37 @@ export const api = {
     request<SettlementIntentResponse>(`/expenses/${expenseId}/settle`, {
       method: "POST",
       json: data,
+      schema: SettlementIntentResponseSchema as unknown as z.ZodType<SettlementIntentResponse>,
     }),
   createSettlement: (groupId: string, data: CreateSettlementRequest) =>
     request<SettlementIntentResponse>(`/groups/${groupId}/settlements`, {
       method: "POST",
       json: data,
+      schema: SettlementIntentResponseSchema as unknown as z.ZodType<SettlementIntentResponse>,
     }),
   confirmSettlement: (settlementId: string, data: ConfirmSettlementRequest) =>
     request<SettlementResponse>(`/settlements/${settlementId}/confirm`, {
       method: "POST",
       json: data,
+      schema: SettlementResponseSchema as unknown as z.ZodType<SettlementResponse>,
+    }),
+  /**
+   * Polls the current status of a settlement. Used while a settlement is
+   * `pending` / `submitted` so the UI can advance to confirmed/failed as
+   * the Stellar transaction reaches a terminal state.
+   */
+  getSettlement: (id: string) =>
+    request<SettlementResponse>(`/settlements/${id}`, {
+      schema: SettlementResponseSchema as unknown as z.ZodType<SettlementResponse>,
     }),
   getBalances: (groupId: string) =>
-    request<BalancesResponse>(`/groups/${groupId}/balances`),
+    request<BalancesResponse>(`/groups/${groupId}/balances`, {
+      schema: BalancesResponseSchema as unknown as z.ZodType<BalancesResponse>,
+    }),
   getLedger: (groupId: string) =>
-    request<LedgerResponse>(`/groups/${groupId}/ledger`),
+    request<LedgerResponse>(`/groups/${groupId}/ledger`, {
+      schema: LedgerResponseSchema as unknown as z.ZodType<LedgerResponse>,
+    }),
 
   // -- treasury ----------------------------------------------------------------
   enableTreasury: (groupId: string, data: EnableTreasuryRequest) =>
@@ -208,7 +287,10 @@ export const api = {
   anchorSessions: () => request<AnchorSessionsResponse>("/anchors/sessions"),
 
   // -- history & uploads ------------------------------------------------------------
-  history: () => request<HistoryResponse>("/history"),
+  history: () =>
+    request<HistoryResponse>("/history", {
+      schema: HistoryResponseSchema as unknown as z.ZodType<HistoryResponse>,
+    }),
   uploadReceipt: async (file: File): Promise<UploadResponse> => {
     const form = new FormData();
     form.append("file", file);

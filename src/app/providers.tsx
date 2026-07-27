@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
-import { ApiRequestError } from "@/lib/api";
+import { ApiRequestError, ApiValidationError } from "@/lib/api";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -12,11 +12,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             retry: (failureCount, error) => {
+              // 4xx is a client/server-level decision — don't retry.
               if (
                 error instanceof ApiRequestError &&
                 error.status >= 400 &&
                 error.status < 500
               ) {
+                return false;
+              }
+              // A schema-validated 200 response is not going to become
+              // valid on the next attempt. Never retry validation errors
+              // — the next polling tick will surface fresh data.
+              if (error instanceof ApiValidationError) {
                 return false;
               }
               return failureCount < 1;

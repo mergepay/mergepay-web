@@ -18,25 +18,138 @@ import { useAuth } from "./auth-store";
 import { NETWORK_PASSPHRASE } from "./constants";
 import type { User } from "./types";
 
+/**
+ * Code representing a wallet-side failure mode. Codes are stable strings —
+ * they are safe to log and to render after translation.
+ */
+export type WalletErrorCode =
+  | "not_installed"
+  | "locked"
+  | "user_rejected"
+  | "disconnected"
+  | "network"
+  | "unknown";
+
 export class WalletError extends Error {
-  constructor(message: string) {
+  code: WalletErrorCode;
+  constructor(message: string, code: WalletErrorCode = "unknown") {
     super(message);
     this.name = "WalletError";
+    this.code = code;
+  }
+}
+
+export class WalletNotInstalledError extends WalletError {
+  constructor(message = "Freighter wallet not found. Install it from freighter.app and refresh.") {
+    super(message, "not_installed");
+    this.name = "WalletNotInstalledError";
+  }
+}
+
+export class WalletLockedError extends WalletError {
+  constructor(message = "Your Freighter wallet is locked. Unlock it and try again.") {
+    super(message, "locked");
+    this.name = "WalletLockedError";
+  }
+}
+
+export class UserRejectedError extends WalletError {
+  constructor(message = "You cancelled the request. No transaction was submitted.") {
+    super(message, "user_rejected");
+    this.name = "UserRejectedError";
+  }
+}
+
+export class WalletDisconnectedError extends WalletError {
+  constructor(message = "Wallet connection was lost. Reconnect Freighter to continue.") {
+    super(message, "disconnected");
+    this.name = "WalletDisconnectedError";
+  }
+}
+
+// User-facing messages keyed by code. Processed before showing in the UI so
+// raw provider strings — which can include method/path error context — are
+// never rendered verbatim.
+const MESSAGE_BY_CODE: Record<WalletErrorCode, string> = {
+  not_installed: "Freighter wallet not found. Install it from freighter.app and refresh.",
+  locked: "Your Freighter wallet is locked. Unlock it and try again.",
+  user_rejected: "You cancelled the request. No transaction was submitted.",
+  disconnected: "Wallet connection was lost. Reconnect Freighter to continue.",
+  network: "Couldn't reach the wallet. Check Freighter and try again.",
+  unknown: "The wallet returned an unexpected error. Please try again.",
+};
+
+/** Map a code to a safe message; falls back to "unknown" copy. */
+export function walletMessage(code: WalletErrorCode): string {
+  return MESSAGE_BY_CODE[code];
+}
+
+// Substring classifiers. Order matters: more specific patterns first.
+const REJECTED_PATTERNS = [
+  /user (denied|declined|cancelled|canceled|rejected)/i,
+  /request was rejected/i,
+  /user closed (the )?popup/i,
+  /cancelled? by user/i,
+];
+const LOCKED_PATTERNS = [
+  /locked/i,
+  /please unlock/i,
+  /unlock (your )?(freighter|wallet)/i,
+  /wallet is locked/i,
+];
+const DISCONNECTED_PATTERNS = [
+  /(wallet )?not connected/i,
+  /no account selected/i,
+  /account changed/i,
+  /disconnected/i,
+];
+
+function classifyWalletMessage(raw: string): WalletErrorCode {
+  const msg = raw.toLowerCase();
+  if (REJECTED_PATTERNS.some((p) => p.test(msg))) return "user_rejected";
+  if (LOCKED_PATTERNS.some((p) => p.test(msg))) return "locked";
+  if (DISCONNECTED_PATTERNS.some((p) => p.test(msg))) return "disconnected";
+  return "unknown";
+}
+
+function errorForCode(code: WalletErrorCode, fallbackMessage?: string): WalletError {
+  switch (code) {
+    case "not_installed":
+      return new WalletNotInstalledError();
+    case "locked":
+      return new WalletLockedError();
+    case "user_rejected":
+      return new UserRejectedError();
+    case "disconnected":
+      return new WalletDisconnectedError();
+    default:
+      return new WalletError(
+        fallbackMessage ?? MESSAGE_BY_CODE.unknown,
+        "unknown"
+      );
   }
 }
 
 /** Handles both Freighter v1 (plain values) and v2+ ({ value, error }) APIs. */
 function unwrap<T extends object | string>(
   result: T | { error?: { message?: string } | string },
-  pick: (r: any) => string | undefined
+  pick: (r: any) => string | undefined,
+  context: "connect" | "sign"
 ): string {
   if (typeof result === "string") return result;
   const err = (result as any)?.error;
   if (err) {
-    throw new WalletError(typeof err === "string" ? err : err.message ?? "Wallet error");
+    const raw = typeof err === "string" ? err : (err.message ?? "");
+    // Never include the raw provider object — just the message string.
+    const code = classifyWalletMessage(raw);
+    // For signing, "user_rejected" is the most common — surface it cleanly.
+    // Every rejected signature must NOT be auto-retried.
+    throw errorForCode(code, context === "sign" && code === "user_rejected"
+      ? undefined
+      : raw || MESSAGE_BY_CODE[code]);
   }
   const value = pick(result);
-  if (!value) throw new WalletError("Wallet returned an empty response.");
+  if (!value) throw errorForCode("disconnected");
   return value;
 }
 
@@ -54,18 +167,21 @@ export async function isFreighterAvailable(): Promise<boolean> {
 export async function connectWallet(): Promise<string> {
   const available = await isFreighterAvailable();
   if (!available) {
-    throw new WalletError(
-      "Freighter wallet not found. Install it from freighter.app and refresh."
-    );
+    throw new WalletNotInstalledError();
   }
   try {
     const res = await requestAccess();
-    return unwrap(res as any, (r) => r.address ?? r.publicKey);
+    return unwrap(res as any, (r) => r.address ?? r.publicKey, "connect");
   } catch (e) {
     if (e instanceof WalletError) throw e;
     // Older Freighter versions expose getAddress / getPublicKey instead.
-    const res = await getAddress();
-    return unwrap(res as any, (r) => r.address ?? r.publicKey);
+    try {
+      const res = await getAddress();
+      return unwrap(res as any, (r) => r.address ?? r.publicKey, "connect");
+    } catch (inner) {
+      if (inner instanceof WalletError) throw inner;
+      throw errorForCode(classifyWalletMessage(String((inner as Error)?.message ?? inner)), (inner as Error)?.message);
+    }
   }
 }
 
@@ -73,8 +189,14 @@ export async function signXdr(
   xdr: string,
   networkPassphrase: string = NETWORK_PASSPHRASE
 ): Promise<string> {
+  // Note: rejected signatures here are surfaced via `unwrap` and NEVER
+  // retried automatically — the user must explicitly retry.
   const res = await signTransaction(xdr, { networkPassphrase });
-  return unwrap(res as any, (r) => r.signedTxXdr ?? r.signedTransaction);
+  return unwrap(
+    res as any,
+    (r) => r.signedTxXdr ?? r.signedTransaction,
+    "sign"
+  );
 }
 
 /**
@@ -122,3 +244,7 @@ export async function signAndConfirmTreasuryTx(
   const signedXdr = await signXdr(xdr, networkPassphrase);
   return api.confirmTreasuryTx(txId, { signedXdr });
 }
+
+// Re-export the helper so other modules (e.g. UI) can map codes to messages
+// without depending on internal classifier strings.
+export { classifyWalletMessage };
