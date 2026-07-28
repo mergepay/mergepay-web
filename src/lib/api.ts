@@ -67,6 +67,22 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * Thrown when a response with a successful HTTP status fails client-side
+ * Zod schema validation. Retrying cannot help — the payload shape diverged
+ * from the contract the client was built against — so React Query's retry
+ * gate treats it as terminal (see providers.tsx).
+ */
+export class ApiValidationError extends Error {
+  readonly code = "invalid_response";
+  readonly status = 200;
+
+  constructor(message = "Received an unexpected response from the server.") {
+    super(message);
+    this.name = "ApiValidationError";
+  }
+}
+
 let expiryHandled = false;
 
 export function isSessionExpired(): boolean {
@@ -118,7 +134,7 @@ async function parseErrorBody(
 
 async function request<T>(
   path: string,
-  options: RequestInit & { json?: unknown } = {}
+  options: RequestInit & { json?: unknown; schema?: z.ZodType<T> } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
