@@ -13,6 +13,11 @@ import { api, ApiRequestError } from "@/lib/api";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
 import { validateExpenseForm, type FormErrors } from "@/lib/expenseValidation";
+// Issue #25: split helpers guarantee exact integer-stroop amounts
+// whose sum equals `total`. Replaces the prior pure-parseFloat approach
+// that surfaced as "API rejected" whenever fractional rounding produced
+// a cents-off-by-one mismatch.
+import { computeSharesAmounts, toStroops, fromStroops } from "@/lib/split";
 
 export function AddExpenseDialog({
   open,
@@ -115,11 +120,30 @@ export function AddExpenseDialog({
       return;
     }
 
-    const shares: ExpenseShareInput[] = participants.map((userId) => {
-      if (splitType === "custom") return { userId, amount: custom[userId] || "0" };
+    // Issue #25: compute per-member amounts with Hamilton's
+    // largest-remainder method so the resulting integer-stroop strings
+    // sum exactly to `total` (no floating-point drift for the API to
+    // round away on the server side).
+    const totalStroops = toStroops(amount || "0");
+    const weights = participants.map((id) => {
+      if (splitType === "equal") return 1;
       if (splitType === "percentage")
-        return { userId, percent: parseFloat(percent[userId] || "0") };
-      return { userId };
+        return parseFloat(percent[id] || "0");
+      return parseFloat(custom[id] || "0");
+    });
+    const exact = computeSharesAmounts(totalStroops, weights);
+    const shares: ExpenseShareInput[] = participants.map((userId, i) => {
+      const stroopStr = fromStroops(exact[i]);
+      if (splitType === "custom") return { userId, amount: stroopStr };
+      if (splitType === "percentage")
+        return {
+          userId,
+          percent: parseFloat(percent[userId] || "0"),
+          amount: stroopStr,
+        };
+      // equal split: per-member amounts flow as exact stroop strings so
+      // the server doesn't have to recompute (and risk drifting itself).
+      return { userId, amount: stroopStr };
     });
 
     setSubmitting(true);
