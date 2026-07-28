@@ -48,3 +48,8 @@ export function Label({
 export function FieldHint({ children }: { children: React.ReactNode }) {
   return <p className="mt-1 text-xs text-ink/60 font-body">{children}</p>;
 }
+
+export function FormError({ children }: { children: React.ReactNode }) {
+  if (!children) return null;
+  return <p className="mt-1 text-xs text-flamingo font-bold">{children}</p>;
+}

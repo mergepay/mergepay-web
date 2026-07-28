@@ -31,7 +31,22 @@
   }
 }
 
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @layer utilities {
+  .animate-fade-in {
+    animation: fade-in 200ms ease-out;
+  }
+
   .text-outline {
     -webkit-text-stroke: 2px #18130e;
     color: transparent;

@@ -17,7 +17,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { useAnchors, useAnchorSessions } from "@/lib/queries";
 import { api, ApiRequestError } from "@/lib/api";
-import { signXdr, WalletError } from "@/lib/stellar";
+import { signXdr, WalletError, NotInstalledMessage } from "@/lib/stellar";
 import { fullDate } from "@/lib/format";
 import type { AnchorSessionKind } from "@/lib/types";
 
@@ -59,9 +59,13 @@ export default function AnchorsPage() {
         toast.success("Anchor session started");
       }
     } catch (e) {
-      if (e instanceof WalletError) toast.error(e.message);
-      else if (e instanceof ApiRequestError) toast.error(e.message);
-      else toast.error("Could not start anchor flow");
+      if (e instanceof WalletError) {
+        toast.error(e.code === "not_installed" ? <NotInstalledMessage /> : e.message);
+      } else if (e instanceof ApiRequestError) {
+        toast.error(e.message);
+      } else {
+        toast.error("Could not start anchor flow");
+      }
     } finally {
       setBusy(null);
     }
@@ -74,7 +78,24 @@ export default function AnchorsPage() {
         description="Move between fiat and Stellar assets through SEP-24 anchors — no crypto workflow required."
       />
 
-      {anchors.isLoading ? (
+      {anchors.isError || sessions.isError ? (
+        <EmptyState
+          icon={<Banknote className="h-7 w-7 text-red-500" />}
+          title="Error loading anchors"
+          description="We couldn't load the anchor configuration or transfers."
+          action={
+            <Button
+              onClick={() => {
+                anchors.refetch();
+                sessions.refetch();
+              }}
+              variant="outline"
+            >
+              Retry
+            </Button>
+          }
+        />
+      ) : anchors.isLoading ? (
         <ListSkeleton rows={2} />
       ) : anchors.data?.anchors.length ? (
         <div className="space-y-4">

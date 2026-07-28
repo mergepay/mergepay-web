@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Label, FieldHint } from "@/components/ui/input";
-import { CopyButton } from "@/components/ui/copy-button";
+import CopyButton from "@/components/ui/CopyButton";
 import { useCreateInvite } from "@/lib/queries";
 import { ApiRequestError } from "@/lib/api";
 import type { Invite } from "@/lib/types";
@@ -96,14 +96,14 @@ export function InviteDialog({
               <code className="flex-1 rounded-xl border-3 border-ink bg-butter px-4 py-2.5 text-center font-mono text-lg font-bold tracking-widest shadow-brutal-sm">
                 {invite.code}
               </code>
-              <CopyButton value={invite.code} label="Copy" />
+              <CopyButton text={invite.code} label="Copy" />
             </div>
           </div>
           <div>
             <Label>Share link</Label>
             <div className="flex items-center gap-2">
               <Input readOnly value={invite.url} className="font-mono text-xs" />
-              <CopyButton value={invite.url} />
+              <CopyButton text={invite.url} />
             </div>
           </div>
           <div className="flex justify-between text-xs text-ink/50">

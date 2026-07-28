@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useAuth } from "@/lib/auth-store";
+import { useAuth } from "@/hooks/useAuth";
 import { useJoinGroup } from "@/lib/queries";
 import { ApiRequestError } from "@/lib/api";
 
@@ -17,7 +17,7 @@ export default function JoinByCodePage() {
   const router = useRouter();
   const { token, hydrated } = useAuth();
   const join = useJoinGroup();
-  const [done, setDone] = useState(false);
+  const joined = useRef(false);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -29,8 +29,8 @@ export default function JoinByCodePage() {
       router.replace("/login");
       return;
     }
-    if (done) return;
-    setDone(true);
+    if (joined.current) return;
+    joined.current = true;
     join
       .mutateAsync(code)
       .then(({ group }) => {
@@ -42,8 +42,7 @@ export default function JoinByCodePage() {
           e instanceof ApiRequestError ? e.message : "Invalid or expired invite"
         );
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, token, code]);
+  }, [hydrated, token, code, join, router]);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-paper p-6 dotted-bg">

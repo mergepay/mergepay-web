@@ -12,14 +12,24 @@ export function shortHash(hash: string, chars = 6) {
 
 /** Format a decimal-string amount with up to 7 dp, trimming trailing zeros. */
 export function formatAmount(amount: string | number, maxDp = 2): string {
-  const n = typeof amount === "number" ? amount : parseFloat(amount);
-  if (Number.isNaN(n)) return "0";
-  const abs = Math.abs(n);
-  const dp = abs !== 0 && abs < 0.01 ? 7 : maxDp;
-  return n.toLocaleString("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: dp,
-  });
+  const str = typeof amount === "number" ? String(amount) : amount;
+  if (!str || str === "0" || str === "-0") return "0";
+
+  const negative = str.startsWith("-");
+  const abs = negative ? str.slice(1) : str;
+
+  const [intPart, fracPart = ""] = abs.split(".");
+
+  const absNum = Number(abs);
+  const isSubCent = absNum !== 0 && absNum < 0.01;
+  const dp = isSubCent ? 7 : maxDp;
+
+  let trimmed = fracPart.slice(0, dp).replace(/0+$/, "");
+
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+  const result = trimmed ? `${grouped}.${trimmed}` : grouped;
+  return negative ? `-${result}` : result;
 }
 
 export function formatMoney(amount: string | number, assetCode: string) {

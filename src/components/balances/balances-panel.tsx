@@ -22,10 +22,25 @@ export function BalancesPanel({
   groupId: string;
   currentUserId: string;
 }) {
-  const { data, isLoading } = useBalances(groupId);
+  const { data, isLoading, isError, refetch } = useBalances(groupId);
   const [target, setTarget] = useState<SettleTarget | null>(null);
 
   if (isLoading) return <ListSkeleton rows={3} />;
+
+  if (isError) {
+    return (
+      <EmptyState
+        icon={<HandCoins className="h-7 w-7 text-red-500" />}
+        title="Error loading balances"
+        description="We couldn't load the net balances for this group."
+        action={
+          <Button onClick={() => refetch()} variant="outline">
+            Retry
+          </Button>
+        }
+      />
+    );
+  }
 
   const balances = data?.balances ?? [];
   const suggestions = data?.suggestions ?? [];
