@@ -8,6 +8,7 @@ import {
   WalletLockedError,
   WalletNotInstalledError,
   walletMessage,
+  FREIGHTER_INSTALL_URL,
 } from "../stellar";
 
 describe("wallet error classifier (#87)", () => {
@@ -109,5 +110,11 @@ describe("WalletError subclasses (#87)", () => {
     ]) {
       assert.doesNotMatch(m, /private|secret|token|signedTxXdr|JWT/i);
     }
+  });
+});
+
+describe("FREIGHTER_INSTALL_URL", () => {
+  it("points to the official Freighter website", () => {
+    assert.equal(FREIGHTER_INSTALL_URL, "https://freighter.app");
   });
 });

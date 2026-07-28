@@ -29,7 +29,12 @@ import {
   useTreasuryWithdraw,
 } from "@/lib/queries";
 import { api, ApiRequestError } from "@/lib/api";
-import { signAndConfirmTreasuryTx, WalletError } from "@/lib/stellar";
+import {
+  signAndConfirmTreasuryTx,
+  WalletError,
+  WalletNotInstalledError,
+  NotInstalledMessage,
+} from "@/lib/stellar";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import { fullDate } from "@/lib/format";
 import { validateAmount, normalizeAmount, exceedsBalance } from "@/lib/money";
@@ -388,7 +393,8 @@ function DepositDialog({
       onClose();
       setAmount("");
     } catch (e) {
-      if (e instanceof WalletError) toast.error(e.message);
+      if (e instanceof WalletNotInstalledError) toast.error(<NotInstalledMessage />);
+      else if (e instanceof WalletError) toast.error(e.message);
       else if (e instanceof ApiRequestError) toast.error(e.message);
       else toast.error("Deposit failed");
     } finally {
@@ -497,7 +503,8 @@ function WithdrawDialog({
       setAmount("");
       setDestination("");
     } catch (e) {
-      if (e instanceof WalletError) toast.error(e.message);
+      if (e instanceof WalletNotInstalledError) toast.error(<NotInstalledMessage />);
+      else if (e instanceof WalletError) toast.error(e.message);
       else if (e instanceof ApiRequestError) toast.error(e.message);
       else toast.error("Withdrawal failed");
     } finally {

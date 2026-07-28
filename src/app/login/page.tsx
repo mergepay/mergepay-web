@@ -9,7 +9,12 @@ import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
-import { isFreighterAvailable, WalletError } from "@/lib/stellar";
+import {
+  isFreighterAvailable,
+  NotInstalledMessage,
+  WalletError,
+  WalletNotInstalledError,
+} from "@/lib/stellar";
 import { ApiRequestError } from "@/lib/api";
 
 /** After auth, jump to a parked invite link if one exists, else the dashboard. */
@@ -47,7 +52,8 @@ export default function LoginPage() {
         router.replace(postLoginTarget());
       }
     } catch (e) {
-      if (e instanceof WalletError) toast.error(e.message);
+      if (e instanceof WalletNotInstalledError) toast.error(<NotInstalledMessage />);
+      else if (e instanceof WalletError) toast.error(e.message);
       else if (e instanceof ApiRequestError) toast.error(e.message);
       else toast.error("Could not sign in. Please try again.");
     } finally {

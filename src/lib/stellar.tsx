@@ -7,6 +7,7 @@
  * envelopes; the user's wallet signs them; the API submits and verifies.
  */
 
+import type { ReactNode } from "react";
 import {
   isConnected,
   requestAccess,
@@ -17,6 +18,8 @@ import { api } from "./api";
 import { useAuth } from "./auth-store";
 import { NETWORK_PASSPHRASE } from "./constants";
 import type { User } from "./types";
+
+export const FREIGHTER_INSTALL_URL = "https://freighter.app";
 
 /**
  * Code representing a wallet-side failure mode. Codes are stable strings —
@@ -40,7 +43,9 @@ export class WalletError extends Error {
 }
 
 export class WalletNotInstalledError extends WalletError {
-  constructor(message = "Freighter wallet not found. Install it from freighter.app and refresh.") {
+  constructor(
+    message = "Stellar Freighter extension not found. Please install it from freighter.app."
+  ) {
     super(message, "not_installed");
     this.name = "WalletNotInstalledError";
   }
@@ -71,7 +76,8 @@ export class WalletDisconnectedError extends WalletError {
 // raw provider strings — which can include method/path error context — are
 // never rendered verbatim.
 const MESSAGE_BY_CODE: Record<WalletErrorCode, string> = {
-  not_installed: "Freighter wallet not found. Install it from freighter.app and refresh.",
+  not_installed:
+    "Stellar Freighter extension not found. Please install it from freighter.app.",
   locked: "Your Freighter wallet is locked. Unlock it and try again.",
   user_rejected: "You cancelled the request. No transaction was submitted.",
   disconnected: "Wallet connection was lost. Reconnect Freighter to continue.",
@@ -260,3 +266,21 @@ export async function signAndConfirmTreasuryTx(
 // Re-export the helper so other modules (e.g. UI) can map codes to messages
 // without depending on internal classifier strings.
 export { classifyWalletMessage };
+
+/** User-friendly message with a link, shown when Freighter is not installed. */
+export function NotInstalledMessage(): ReactNode {
+  return (
+    <>
+      Stellar Freighter extension not found. Please{" "}
+      <a
+        href={FREIGHTER_INSTALL_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline"
+      >
+        install it
+      </a>{" "}
+      and refresh the page.
+    </>
+  );
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -20,7 +20,13 @@ import { Money } from "@/components/amount";
 import { AssetBadge } from "@/components/asset-badge";
 import { TxLink } from "@/components/tx-link";
 import { api, ApiRequestError } from "@/lib/api";
-import { signXdr, WalletError } from "@/lib/stellar";
+import {
+  signXdr,
+  WalletError,
+  WalletErrorCode,
+  WalletNotInstalledError,
+  NotInstalledMessage,
+} from "@/lib/stellar";
 import { useConfirmSettlement } from "@/lib/queries";
 import { validateSettlementInput } from "@/lib/paymentValidation";
 import type { SettlementSuggestion, User } from "@/lib/types";
@@ -65,7 +71,7 @@ export function SettleDialog({
   const [settlementId, setSettlementId] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("review");
   const [txHash, setTxHash] = useState<string | null>(null);
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState<ReactNode>("");
   const [errorCode, setErrorCode] = useState<WalletErrorCode | null>(null);
 
   const statusQuery = useSettlementStatus(
@@ -153,7 +159,7 @@ export function SettleDialog({
         setStep("review");
       } else if (e instanceof WalletNotInstalledError) {
         setErrorCode("not_installed");
-        setError(e.message);
+        setError(<NotInstalledMessage />);
         setStep("review");
       } else if (e instanceof WalletDisconnectedError) {
         setErrorCode("disconnected");
@@ -347,7 +353,7 @@ function WalletErrorBanner({
   message,
 }: {
   code: WalletErrorCode | null;
-  message: string;
+  message: ReactNode;
 }) {
   const icon =
     code === "locked" ? (
