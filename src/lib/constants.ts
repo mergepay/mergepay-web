@@ -32,6 +32,8 @@ export const SETTLEMENT_ASSETS = [
 
 export const TOKEN_STORAGE_KEY = "mergepay.token";
 
+export const SETTLEMENT_MEMO_PREFIX = "MP:";
+
 export function explorerTxUrl(hash: string) {
   return `${EXPLORER_BASE}/tx/${hash}`;
 }
