@@ -91,3 +91,7 @@ project has no formal on-call, timelines beyond that are best-effort.
 There is no bounty program for this repository. Coordinated disclosure and
 credit in release notes are offered by default unless you prefer to remain
 anonymous.
+
+<!-- There is no bounty program for this repository. Coordinated disclosure and
+credit in release notes are offered by default unless you prefer to remain
+anonymous. -->
