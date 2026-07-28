@@ -116,9 +116,16 @@ async function parseErrorBody(
   return { code, message };
 }
 
+export class ApiValidationError extends Error {
+  constructor(message = "The server returned invalid data.") {
+    super(message);
+    this.name = "ApiValidationError";
+  }
+}
+
 async function request<T>(
   path: string,
-  options: RequestInit & { json?: unknown } = {}
+  options: RequestInit & { json?: unknown; schema?: z.ZodType<T> } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),

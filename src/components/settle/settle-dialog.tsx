@@ -26,8 +26,12 @@ import {
   WalletErrorCode,
   WalletNotInstalledError,
   NotInstalledMessage,
+  UserRejectedError,
+  WalletLockedError,
+  WalletDisconnectedError,
+  walletMessage,
 } from "@/lib/stellar";
-import { useConfirmSettlement } from "@/lib/queries";
+import { useConfirmSettlement, useSettlementStatus } from "@/lib/queries";
 import { validateSettlementInput } from "@/lib/paymentValidation";
 import type { SettlementSuggestion, User } from "@/lib/types";
 
@@ -101,7 +105,7 @@ export function SettleDialog({
     });
     if (!validation.valid) {
       setError(validation.error ?? "Invalid payment input");
-      setStep("error");
+      setStep("failed");
       return;
     }
 
@@ -150,26 +154,21 @@ export function SettleDialog({
       // Distinguish wallet vs API failures. Wallet subclasses give us a
       // stable code so the UI can render the right affordance.
       if (e instanceof UserRejectedError) {
-        setErrorCode("user_rejected");
-        setError(e.message);
-        setStep("review"); // user cancelled — leave form on a safe retryable state
+        toast.error(walletMessage("user_rejected"));
+        setStep("review");
       } else if (e instanceof WalletLockedError) {
-        setErrorCode("locked");
-        setError(e.message);
+        toast.error(walletMessage("locked"));
         setStep("review");
       } else if (e instanceof WalletNotInstalledError) {
         setErrorCode("not_installed");
         setError(<NotInstalledMessage />);
         setStep("review");
       } else if (e instanceof WalletDisconnectedError) {
-        setErrorCode("disconnected");
-        setError(e.message);
+        toast.error(walletMessage("disconnected"));
         setStep("review");
       } else if (e instanceof WalletError) {
-        // Catch-all for any other WalletError variant.
-        setErrorCode(e.code);
-        setError(e instanceof Error ? e.message : walletMessage("unknown"));
-        setStep("review");
+        toast.error(walletMessage(e.code));
+        setStep("failed");
       } else if (e instanceof ApiRequestError) {
         setErrorCode(null);
         setError(e.message);

@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { WatchWalletChanges } from "@stellar/freighter-api";
 import { useAuth as useAuthStore } from "@/lib/auth-store";
-import { loginWithWallet, logout as walletLogout, isFreighterAvailable, NotInstalledMessage } from "@/lib/stellar";
-import { isSessionExpired, resetSessionExpired } from "@/lib/api";
+import { loginWithWallet, logout as walletLogout } from "@/lib/stellar";
+import { resetSessionExpired } from "@/lib/api";
 
 export function useAuth() {
   const queryClient = useQueryClient();
@@ -28,12 +28,6 @@ export function useAuth() {
   }, [queryClient]);
 
   const login = useCallback(async () => {
-    const available = await isFreighterAvailable();
-    if (!available) {
-      toast.error(<NotInstalledMessage />);
-      return;
-    }
-
     setIsLoading(true);
     try {
       const loggedInUser = await loginWithWallet();
@@ -49,13 +43,6 @@ export function useAuth() {
       setIsLoading(false);
     }
   }, [queryClient]);
-
-  useEffect(() => {
-    if (hydrated && isSessionExpired() && !token) {
-      router.replace("/login");
-      toast.error("Session expired. Please sign in again.");
-    }
-  }, [hydrated, token, router]);
 
   // Watch for wallet account or network changes mid-session
   useEffect(() => {
