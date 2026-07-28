@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -207,6 +207,7 @@ export function useHistory() {
  */
 export function useSettlementStatus(settlementId: string | null, enabled = true) {
   const failureCount = useRef(0);
+  const [pollingStalled, setPollingStalled] = useState(false);
 
   const query = useQuery({
     queryKey: settlementId ? qk.settlement(settlementId) : ["settlement", "_"],
@@ -232,15 +233,24 @@ export function useSettlementStatus(settlementId: string | null, enabled = true)
   // eventually return `false` once the cap is exceeded. `errorUpdatedAt`
   // / `dataUpdatedAt` change whenever the underlying query state moves
   // between error / success, so they're the right signal sources.
+  //
+  // Once the cap is hit, `refetchInterval` freezes at `false` and no more
+  // ticks fire — nothing else would ever flip `pollingStalled` back off,
+  // so callers need this flag to offer a manual "check status" retry
+  // instead of leaving the UI spinning on a dead poll forever.
   useEffect(() => {
     if (query.isError) {
       failureCount.current += 1;
+      if (failureCount.current >= SETTLEMENT_POLL_MAX_PERSISTENT_FAILURES) {
+        setPollingStalled(true);
+      }
     } else if (query.isSuccess) {
       failureCount.current = 0;
+      setPollingStalled(false);
     }
   }, [query.isError, query.isSuccess, query.errorUpdatedAt, query.dataUpdatedAt]);
 
-  return query;
+  return { ...query, pollingStalled };
 }
 
 // ---------------------------------------------------------------------------
