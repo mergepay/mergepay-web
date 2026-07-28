@@ -13,7 +13,6 @@ import {
   isFreighterAvailable,
   NotInstalledMessage,
   WalletError,
-  WalletNotInstalledError,
 } from "@/lib/stellar";
 import { ApiRequestError } from "@/lib/api";
 
@@ -52,10 +51,13 @@ export default function LoginPage() {
         router.replace(postLoginTarget());
       }
     } catch (e) {
-      if (e instanceof WalletNotInstalledError) toast.error(<NotInstalledMessage />);
-      else if (e instanceof WalletError) toast.error(e.message);
-      else if (e instanceof ApiRequestError) toast.error(e.message);
-      else toast.error("Could not sign in. Please try again.");
+      if (e instanceof WalletError) {
+        toast.error(e.code === "not_installed" ? <NotInstalledMessage /> : e.message);
+      } else if (e instanceof ApiRequestError) {
+        toast.error(e.message);
+      } else {
+        toast.error("Could not sign in. Please try again.");
+      }
     } finally {
       setLoading(false);
     }

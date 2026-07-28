@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { WatchWalletChanges } from "@stellar/freighter-api";
 import { useAuth as useAuthStore } from "@/lib/auth-store";
-import { loginWithWallet, logout as walletLogout, isFreighterAvailable, NotInstalledMessage } from "@/lib/stellar";
+import { loginWithWallet, logout as walletLogout } from "@/lib/stellar";
 import { isSessionExpired, resetSessionExpired } from "@/lib/api";
 
 export function useAuth() {
@@ -28,12 +28,6 @@ export function useAuth() {
   }, [queryClient]);
 
   const login = useCallback(async () => {
-    const available = await isFreighterAvailable();
-    if (!available) {
-      toast.error(<NotInstalledMessage />);
-      return;
-    }
-
     setIsLoading(true);
     try {
       const loggedInUser = await loginWithWallet();

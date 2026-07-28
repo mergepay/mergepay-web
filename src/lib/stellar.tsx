@@ -72,6 +72,13 @@ export class WalletDisconnectedError extends WalletError {
   }
 }
 
+export class WalletNetworkError extends WalletError {
+  constructor(message = "Couldn't reach the wallet. Check Freighter and try again.") {
+    super(message, "network");
+    this.name = "WalletNetworkError";
+  }
+}
+
 // User-facing messages keyed by code. Processed before showing in the UI so
 // raw provider strings — which can include method/path error context — are
 // never rendered verbatim.
@@ -109,12 +116,19 @@ const DISCONNECTED_PATTERNS = [
   /account changed/i,
   /disconnected/i,
 ];
+const NETWORK_PATTERNS = [
+  /network/i,
+  /passphrase/i,
+  /couldn't reach/i,
+  /failed to fetch/i,
+];
 
-function classifyWalletMessage(raw: string): WalletErrorCode {
+export function classifyWalletMessage(raw: string): WalletErrorCode {
   const msg = raw.toLowerCase();
   if (REJECTED_PATTERNS.some((p) => p.test(msg))) return "user_rejected";
   if (LOCKED_PATTERNS.some((p) => p.test(msg))) return "locked";
   if (DISCONNECTED_PATTERNS.some((p) => p.test(msg))) return "disconnected";
+  if (NETWORK_PATTERNS.some((p) => p.test(msg))) return "network";
   return "unknown";
 }
 
@@ -128,6 +142,8 @@ function errorForCode(code: WalletErrorCode, fallbackMessage?: string): WalletEr
       return new UserRejectedError();
     case "disconnected":
       return new WalletDisconnectedError();
+    case "network":
+      return new WalletNetworkError();
     default:
       return new WalletError(
         fallbackMessage ?? MESSAGE_BY_CODE.unknown,
@@ -150,7 +166,11 @@ function extractError(result: Record<string, unknown>): string | undefined {
 function throwOnError(result: unknown): void {
   if (!isObject(result)) return;
   const msg = extractError(result);
-  if (msg) throw new WalletError(msg);
+  if (msg) {
+    const code = classifyWalletMessage(msg);
+    // Don't pass the raw msg to unknown error to avoid leaking internal details
+    throw errorForCode(code);
+  }
 }
 
 export async function isFreighterAvailable(): Promise<boolean> {
