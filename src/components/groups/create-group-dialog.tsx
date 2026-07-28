@@ -7,7 +7,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label, FieldHint } from "@/components/ui/input";
 import { useCreateGroup } from "@/lib/queries";
-import { ApiRequestError } from "@/lib/api";
+import { handleApiError } from "@/lib/errorHandler";
 
 export function CreateGroupDialog({
   open,
@@ -35,7 +35,7 @@ export function CreateGroupDialog({
       setDescription("");
       router.push(`/groups/${group.id}`);
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not create group");
+      handleApiError(e, "Could not create group");
     }
   }
 

@@ -7,8 +7,8 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { api } from "./api";
+import { handleApiError } from "./errorHandler";
 import { useAuth } from "./auth-store";
 import type {
   BalancesResponse,
@@ -540,11 +540,7 @@ export function useCreateExpense(groupId: string) {
       if (context?.previousBalances) {
         qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Failed to create expense. Balances reverted."
-      );
+      handleApiError(err, "Failed to create expense. Balances reverted.");
     },
     // Refetch canonical data on settlement (success or error) so the list,
     // balances and ledger reflect the server's view — an optimistic entry

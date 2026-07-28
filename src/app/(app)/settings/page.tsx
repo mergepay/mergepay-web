@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import CopyButton from "@/components/ui/CopyButton";
 import { useMe, useUpdateMe } from "@/lib/queries";
-import { ApiRequestError } from "@/lib/api";
+import { handleApiError } from "@/lib/errorHandler";
 import { explorerAccountUrl, STELLAR_NETWORK } from "@/lib/constants";
 
 export default function SettingsPage() {
@@ -40,7 +40,7 @@ export default function SettingsPage() {
       });
       toast.success("Profile updated");
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not save");
+      handleApiError(e, "Could not save");
     }
   }
 

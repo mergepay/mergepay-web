@@ -1,21 +1,12 @@
 import type { z } from "zod";
 import { API_URL } from "./constants";
 import { getToken, useAuth } from "./auth-store";
-
-/** Maximum time (ms) to wait for a create-expense request before timing out. */
-export const EXPENSE_CREATE_TIMEOUT_MS = 10_000;
-
-/**
- * Thrown when a fetch request times out (via AbortController).
- * Callers catch this separately from ApiRequestError to offer a
- * safe retry path using the same idempotency key.
- */
-export class ApiTimeoutError extends Error {
-  constructor(message = "Request timed out") {
-    super(message);
-    this.name = "ApiTimeoutError";
-  }
-}
+import {
+  ApiRequestError,
+  ApiValidationError,
+  networkFailure,
+  type HandleApiErrorOptions,
+} from "./errorHandler";
 import {
   AnchorsResponseSchema,
   AnchorSessionResponseSchema,
@@ -86,38 +77,22 @@ import type {
 } from "./types";
 import type { ExpensesPage } from "./expenses";
 
-export class ApiValidationError extends Error {
-  constructor(message?: string) {
-    super(message ?? "Response failed schema validation");
-    this.name = "ApiValidationError";
-  }
-}
+// Re-export so existing consumers can keep importing the error types from
+// "@/lib/api" — the canonical definitions now live in ./errorHandler.
+export { ApiRequestError, ApiValidationError };
 
-export class ApiRequestError extends Error {
-  code: string;
-  status: number;
-
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.name = "ApiRequestError";
-    this.status = status;
-    this.code = code;
-  }
-}
+/** Maximum time (ms) to wait for a create-expense request before timing out. */
+export const EXPENSE_CREATE_TIMEOUT_MS = 10_000;
 
 /**
- * Thrown when a response with a successful HTTP status fails client-side
- * Zod schema validation. Retrying cannot help — the payload shape diverged
- * from the contract the client was built against — so React Query's retry
- * gate treats it as terminal (see providers.tsx).
+ * Thrown when a fetch request times out (via AbortController).
+ * Callers catch this separately from ApiRequestError to offer a
+ * safe retry path using the same idempotency key.
  */
-export class ApiValidationError extends Error {
-  readonly code = "invalid_response";
-  readonly status = 200;
-
-  constructor(message = "Response did not match the expected shape.") {
+export class ApiTimeoutError extends Error {
+  constructor(message = "Request timed out") {
     super(message);
-    this.name = "ApiValidationError";
+    this.name = "ApiTimeoutError";
   }
 }
 
@@ -170,16 +145,9 @@ async function parseErrorBody(
   return { code, message };
 }
 
-export class ApiValidationError extends Error {
-  constructor(message = "The server returned invalid data.") {
-    super(message);
-    this.name = "ApiValidationError";
-  }
-}
-
 async function request<T>(
   path: string,
-  options: RequestInit & { json?: unknown; schema?: z.ZodType<T> } = {}
+  options: RequestInit & { json?: unknown; schema?: z.ZodType<T> } & HandleApiErrorOptions = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
@@ -193,7 +161,15 @@ async function request<T>(
     body = JSON.stringify(options.json);
   }
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers, body });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...options, headers, body });
+  } catch (err) {
+    // fetch only rejects on network-level failures (offline, DNS, CORS)
+    // or intentional aborts. Normalize and report centrally — every call
+    // site gets the same "Network error" toast instead of a raw TypeError.
+    throw networkFailure(err, { silent: options.silent });
+  }
 
   if (res.status === 401 && token && !expiryHandled) {
     expiryHandled = true;
@@ -386,9 +362,15 @@ export const api = {
       );
     }
     const origin = window.location.origin;
-    const res = await fetch(`${origin}/api/expenses?${search.toString()}`, {
-      headers,
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${origin}/api/expenses?${search.toString()}`, {
+        headers,
+      });
+    } catch (err) {
+      // Same centralized network-failure handling as request() above.
+      throw networkFailure(err);
+    }
 
     if (res.status === 401 && token) {
       useAuth.getState().clear();

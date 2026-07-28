@@ -28,7 +28,7 @@ import {
   useTreasuryInfo,
   useTreasuryWithdraw,
 } from "@/lib/queries";
-import { api, ApiRequestError } from "@/lib/api";
+import { handleApiError } from "@/lib/errorHandler";
 import {
   signAndConfirmTreasuryTx,
   WalletError,
@@ -316,7 +316,7 @@ function EnableTreasuryDialog({
       toast.success("Treasury enabled");
       onClose();
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not enable treasury");
+      handleApiError(e, "Could not enable treasury");
     }
   }
 
@@ -419,8 +419,7 @@ function DepositDialog({
     } catch (e) {
       if (e instanceof WalletNotInstalledError) toast.error(<NotInstalledMessage />);
       else if (e instanceof WalletError) toast.error(e.message);
-      else if (e instanceof ApiRequestError) toast.error(e.message);
-      else toast.error("Deposit failed");
+      else handleApiError(e, "Deposit failed");
     } finally {
       setBusy(false);
     }
@@ -531,8 +530,7 @@ function WithdrawDialog({
     } catch (e) {
       if (e instanceof WalletNotInstalledError) toast.error(<NotInstalledMessage />);
       else if (e instanceof WalletError) toast.error(e.message);
-      else if (e instanceof ApiRequestError) toast.error(e.message);
-      else toast.error("Withdrawal failed");
+      else handleApiError(e, "Withdrawal failed");
     } finally {
       setBusy(false);
     }

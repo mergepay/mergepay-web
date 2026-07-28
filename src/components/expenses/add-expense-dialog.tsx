@@ -9,7 +9,8 @@ import { Input, Label, Select, FieldHint } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useCreateExpense } from "@/lib/queries";
-import { api, ApiRequestError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { handleApiError } from "@/lib/errorHandler";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
 import {
@@ -163,7 +164,7 @@ export function AddExpenseDialog({
       setReceiptUrl(res.url);
       toast.success("Receipt attached");
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Upload failed");
+      handleApiError(e, "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -218,7 +219,14 @@ export function AddExpenseDialog({
       reset();
       onClose();
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not add expense");
+      // Leave every entered value in place — the user corrects or retries
+      // from where they were. The central handler owns the toast and the
+      // message; it is also rendered inline inside the dialog.
+      const message = handleApiError(
+        e,
+        "Could not add expense. Your details were kept — try again."
+      );
+      setSubmitError(message);
     } finally {
       setSubmitting(false);
     }

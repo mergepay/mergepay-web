@@ -30,7 +30,7 @@ import {
   EXPECTED_NETWORK_LABEL,
   NETWORK_PASSPHRASE,
 } from "@/lib/constants";
-import { ApiRequestError } from "@/lib/api";
+import { handleApiError } from "@/lib/errorHandler";
 import { inviteJoinPath } from "@/lib/inviteLink";
 
 /**
@@ -106,11 +106,10 @@ export default function LoginPage() {
         // the extension, which takes longer than a toast lives.
         setWalletNetwork(e.walletNetwork);
       } else if (e instanceof WalletError) {
+        // Rich message with an install link — shown instead of plain text.
         toast.error(e.code === "not_installed" ? <NotInstalledMessage /> : e.message);
-      } else if (e instanceof ApiRequestError) {
-        toast.error(e.message);
       } else {
-        toast.error("Could not sign in. Please try again.");
+        handleApiError(e, "Could not sign in. Please try again.");
       }
     } finally {
       setLoading(false);

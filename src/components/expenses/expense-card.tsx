@@ -14,7 +14,7 @@ import {
   type SettleTarget,
 } from "@/components/settle/settle-dialog";
 import { useDeleteExpense } from "@/lib/queries";
-import { ApiRequestError } from "@/lib/api";
+import { handleApiError } from "@/lib/errorHandler";
 import { Timestamp } from "@/components/timestamp";
 import type { Expense, GroupMember } from "@/lib/types";
 
@@ -54,7 +54,7 @@ export function ExpenseCard({
       await del.mutateAsync(expense.id);
       toast.success("Expense deleted");
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not delete");
+      handleApiError(e, "Could not delete");
     }
   }
 

@@ -58,10 +58,9 @@ export function useAuth() {
       resetSessionExpired();
       await queryClient.invalidateQueries();
       return loggedInUser;
-    } catch (err: any) {
-      if (err?.message) {
-        toast.error(err.message);
-      }
+    } catch (err) {
+      // Error display is owned by the caller (via the central error
+      // handler) so a failure is never toasted twice.
       throw err;
     } finally {
       setIsLoading(false);
