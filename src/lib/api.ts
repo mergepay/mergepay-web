@@ -2,16 +2,30 @@ import type { z } from "zod";
 import { API_URL } from "./constants";
 import { getToken, useAuth } from "./auth-store";
 import {
+  AnchorsResponseSchema,
+  AnchorSessionResponseSchema,
+  AnchorSessionsResponseSchema,
+  AnchorStartResponseSchema,
   BalancesResponseSchema,
+  ChallengeResponseSchema,
+  ExpenseResponseSchema,
   ExpensesResponseSchema,
-  GroupsResponseSchema,
   GroupDetailSchema,
+  GroupResponseSchema,
+  GroupsResponseSchema,
   HistoryResponseSchema,
+  InviteResponseSchema,
   LedgerResponseSchema,
+  MeResponseSchema,
+  OkResponseSchema,
   SettlementIntentResponseSchema,
   SettlementResponseSchema,
-  MeResponseSchema,
-  ExpenseResponseSchema,
+  TreasuryHistoryResponseSchema,
+  TreasuryInfoResponseSchema,
+  TreasuryIntentResponseSchema,
+  TreasuryTransactionResponseSchema,
+  UploadResponseSchema,
+  VerifyResponseSchema,
 } from "./schemas";
 import type {
   AnchorCompleteRequest,
@@ -64,6 +78,13 @@ export class ApiRequestError extends Error {
     this.name = "ApiRequestError";
     this.status = status;
     this.code = code;
+  }
+}
+
+export class ApiValidationError extends Error {
+  constructor() {
+    super("Invalid API response format");
+    this.name = "ApiValidationError";
   }
 }
 
@@ -170,23 +191,37 @@ export const api = {
     request<ChallengeResponse>("/auth/challenge", {
       method: "POST",
       json: { account },
+      schema: ChallengeResponseSchema as unknown as z.ZodType<ChallengeResponse>,
     }),
   authVerify: (transaction: string) =>
     request<VerifyResponse>("/auth/verify", {
       method: "POST",
       json: { transaction },
+      schema: VerifyResponseSchema as unknown as z.ZodType<VerifyResponse>,
     }),
-  authLogout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+  authLogout: () =>
+    request<{ ok: boolean }>("/auth/logout", {
+      method: "POST",
+      schema: OkResponseSchema as unknown as z.ZodType<{ ok: boolean }>,
+    }),
   me: () =>
     request<MeResponse>("/me", {
       schema: MeResponseSchema as unknown as z.ZodType<MeResponse>,
     }),
   updateMe: (data: UpdateMeRequest) =>
-    request<MeResponse>("/me", { method: "PATCH", json: data }),
+    request<MeResponse>("/me", {
+      method: "PATCH",
+      json: data,
+      schema: MeResponseSchema as unknown as z.ZodType<MeResponse>,
+    }),
 
   // -- groups ---------------------------------------------------------------
   createGroup: (data: CreateGroupRequest) =>
-    request<GroupResponse>("/groups", { method: "POST", json: data }),
+    request<GroupResponse>("/groups", {
+      method: "POST",
+      json: data,
+      schema: GroupResponseSchema as unknown as z.ZodType<GroupResponse>,
+    }),
   listGroups: () =>
     request<GroupsResponse>("/groups", {
       schema: GroupsResponseSchema as unknown as z.ZodType<GroupsResponse>,
@@ -199,22 +234,36 @@ export const api = {
     request<InviteResponse>(`/groups/${groupId}/invite`, {
       method: "POST",
       json: data,
+      schema: InviteResponseSchema as unknown as z.ZodType<InviteResponse>,
     }),
   joinGroup: (code: string) =>
-    request<JoinGroupResponse>("/groups/join", { method: "POST", json: { code } }),
+    request<JoinGroupResponse>("/groups/join", {
+      method: "POST",
+      json: { code },
+      schema: GroupResponseSchema as unknown as z.ZodType<JoinGroupResponse>,
+    }),
   leaveGroup: (groupId: string) =>
-    request<{ ok: boolean }>(`/groups/${groupId}/leave`, { method: "POST" }),
+    request<{ ok: boolean }>(`/groups/${groupId}/leave`, {
+      method: "POST",
+      schema: OkResponseSchema as unknown as z.ZodType<{ ok: boolean }>,
+    }),
   archiveGroup: (groupId: string) =>
-    request<GroupResponse>(`/groups/${groupId}/archive`, { method: "POST" }),
+    request<GroupResponse>(`/groups/${groupId}/archive`, {
+      method: "POST",
+      schema: GroupResponseSchema as unknown as z.ZodType<GroupResponse>,
+    }),
 
   // -- expenses ---------------------------------------------------------------
   createExpense: (groupId: string, data: CreateExpenseRequest) =>
     request<ExpenseResponse>(`/groups/${groupId}/expenses`, {
       method: "POST",
       json: data,
+      schema: ExpenseResponseSchema as unknown as z.ZodType<ExpenseResponse>,
     }),
   listExpenses: (groupId: string) =>
-    request<ExpensesResponse>(`/groups/${groupId}/expenses`),
+    request<ExpensesResponse>(`/groups/${groupId}/expenses`, {
+      schema: ExpensesResponseSchema as unknown as z.ZodType<ExpensesResponse>,
+    }),
   /**
    * Cursor-paginated variant. Goes through the local web route at
    * /api/expenses so limit & cursor are validated server-side and so
@@ -267,11 +316,21 @@ export const api = {
     }
     return (await res.json()) as ExpensesPage;
   },
-  getExpense: (id: string) => request<ExpenseResponse>(`/expenses/${id}`),
+  getExpense: (id: string) =>
+    request<ExpenseResponse>(`/expenses/${id}`, {
+      schema: ExpenseResponseSchema as unknown as z.ZodType<ExpenseResponse>,
+    }),
   updateExpense: (id: string, data: UpdateExpenseRequest) =>
-    request<ExpenseResponse>(`/expenses/${id}`, { method: "PATCH", json: data }),
+    request<ExpenseResponse>(`/expenses/${id}`, {
+      method: "PATCH",
+      json: data,
+      schema: ExpenseResponseSchema as unknown as z.ZodType<ExpenseResponse>,
+    }),
   deleteExpense: (id: string) =>
-    request<{ ok: boolean }>(`/expenses/${id}`, { method: "DELETE" }),
+    request<{ ok: boolean }>(`/expenses/${id}`, {
+      method: "DELETE",
+      schema: OkResponseSchema as unknown as z.ZodType<{ ok: boolean }>,
+    }),
 
   // -- settlement -------------------------------------------------------------
   settleExpense: (expenseId: string, data: SettleExpenseRequest = {}) =>
@@ -315,45 +374,65 @@ export const api = {
     request<GroupResponse>(`/groups/${groupId}/treasury/enable`, {
       method: "POST",
       json: data,
+      schema: GroupResponseSchema as unknown as z.ZodType<GroupResponse>,
     }),
   treasuryInfo: (groupId: string) =>
-    request<TreasuryInfoResponse>(`/groups/${groupId}/treasury`),
+    request<TreasuryInfoResponse>(`/groups/${groupId}/treasury`, {
+      schema: TreasuryInfoResponseSchema as unknown as z.ZodType<TreasuryInfoResponse>,
+    }),
   treasuryDeposit: (groupId: string, data: TreasuryDepositRequest) =>
     request<TreasuryIntentResponse>(`/groups/${groupId}/treasury/deposit`, {
       method: "POST",
       json: data,
+      schema: TreasuryIntentResponseSchema as unknown as z.ZodType<TreasuryIntentResponse>,
     }),
   treasuryWithdraw: (groupId: string, data: TreasuryWithdrawRequest) =>
     request<TreasuryIntentResponse>(`/groups/${groupId}/treasury/withdraw`, {
       method: "POST",
       json: data,
+      schema: TreasuryIntentResponseSchema as unknown as z.ZodType<TreasuryIntentResponse>,
     }),
   confirmTreasuryTx: (txId: string, data: ConfirmSettlementRequest) =>
     request<TreasuryTransactionResponse>(
       `/treasury-transactions/${txId}/confirm`,
-      { method: "POST", json: data }
+      {
+        method: "POST",
+        json: data,
+        schema: TreasuryTransactionResponseSchema as unknown as z.ZodType<TreasuryTransactionResponse>,
+      }
     ),
   treasuryHistory: (groupId: string) =>
-    request<TreasuryHistoryResponse>(`/groups/${groupId}/treasury/history`),
+    request<TreasuryHistoryResponse>(`/groups/${groupId}/treasury/history`, {
+      schema: TreasuryHistoryResponseSchema as unknown as z.ZodType<TreasuryHistoryResponse>,
+    }),
 
   // -- anchors -------------------------------------------------------------------
-  listAnchors: () => request<AnchorsResponse>("/anchors"),
+  listAnchors: () =>
+    request<AnchorsResponse>("/anchors", {
+      schema: AnchorsResponseSchema as unknown as z.ZodType<AnchorsResponse>,
+    }),
   anchorDeposit: (data: AnchorDepositRequest) =>
     request<AnchorStartResponse>("/anchors/deposit", {
       method: "POST",
       json: data,
+      schema: AnchorStartResponseSchema as unknown as z.ZodType<AnchorStartResponse>,
     }),
   anchorWithdraw: (data: AnchorWithdrawRequest) =>
     request<AnchorStartResponse>("/anchors/withdraw", {
       method: "POST",
       json: data,
+      schema: AnchorStartResponseSchema as unknown as z.ZodType<AnchorStartResponse>,
     }),
   anchorComplete: (sessionId: string, data: AnchorCompleteRequest) =>
     request<AnchorSessionResponse>(`/anchors/sessions/${sessionId}/complete`, {
       method: "POST",
       json: data,
+      schema: AnchorSessionResponseSchema as unknown as z.ZodType<AnchorSessionResponse>,
     }),
-  anchorSessions: () => request<AnchorSessionsResponse>("/anchors/sessions"),
+  anchorSessions: () =>
+    request<AnchorSessionsResponse>("/anchors/sessions", {
+      schema: AnchorSessionsResponseSchema as unknown as z.ZodType<AnchorSessionsResponse>,
+    }),
 
   // -- history & uploads ------------------------------------------------------------
   history: () =>
@@ -366,6 +445,7 @@ export const api = {
     return request<UploadResponse>("/uploads/receipt", {
       method: "POST",
       body: form,
+      schema: UploadResponseSchema as unknown as z.ZodType<UploadResponse>,
     });
   },
 };
