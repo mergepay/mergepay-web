@@ -55,6 +55,13 @@ import type {
 } from "./types";
 import type { ExpensesPage } from "./expenses";
 
+export class ApiValidationError extends Error {
+  constructor(message?: string) {
+    super(message ?? "Response failed schema validation");
+    this.name = "ApiValidationError";
+  }
+}
+
 export class ApiRequestError extends Error {
   code: string;
   status: number;
@@ -118,7 +125,7 @@ async function parseErrorBody(
 
 async function request<T>(
   path: string,
-  options: RequestInit & { json?: unknown } = {}
+  options: RequestInit & { json?: unknown; schema?: z.ZodType<unknown> } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
