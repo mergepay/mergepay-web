@@ -94,6 +94,8 @@ export function useMe() {
     queryKey: qk.me,
     queryFn: api.me,
     enabled: Boolean(token),
+    // Profile data barely changes and is refreshed by `useUpdateMe`
+    // invalidation, so it can stay fresh longer than list data.
     staleTime: 60_000,
   });
 }
@@ -107,10 +109,13 @@ export function useGroup(id: string) {
 }
 
 export function useExpenses(groupId: string) {
+  // Uses the global default staleTime (30s, see src/lib/queryClient.ts):
+  // list data is shown from cache instantly and revalidated in the
+  // background (stale-while-revalidate), while expense mutations still
+  // force a refetch through `invalidateQueries`.
   return useQuery({
     queryKey: qk.expenses(groupId),
     queryFn: () => api.listExpenses(groupId),
-    staleTime: 30_000,
   });
 }
 
@@ -143,7 +148,7 @@ export function useInfiniteExpenses(
     initialPageParam: options.cursor as string | undefined,
     getNextPageParam: (lastPage: ExpensesPage) =>
       lastPage.nextCursor ?? undefined,
-    staleTime: 30_000,
+    // Global default staleTime (30s) — see useExpenses above.
   });
 }
 
@@ -151,6 +156,10 @@ export function useBalances(groupId: string) {
   return useQuery({
     queryKey: qk.balances(groupId),
     queryFn: () => api.getBalances(groupId),
+    // Balances must never be served stale: they back the "settle up"
+    // amounts a user signs on-chain. Always revalidate on mount/focus
+    // (in addition to the invalidation that follows every settlement).
+    staleTime: 0,
   });
 }
 

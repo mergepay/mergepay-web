@@ -1,39 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
-import { ApiRequestError, ApiValidationError, isSessionExpired } from "@/lib/api";
+import { createQueryClient } from "@/lib/queryClient";
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            retry: (failureCount, error) => {
-              if (isSessionExpired()) return false;
-              if (
-                error instanceof ApiRequestError &&
-                error.status >= 400 &&
-                error.status < 500
-              ) {
-                return false;
-              }
-              // A schema-validated 200 response is not going to become
-              // valid on the next attempt. Never retry validation errors
-              // — the next polling tick will surface fresh data.
-              if (error instanceof ApiValidationError) {
-                return false;
-              }
-              return failureCount < 1;
-            },
-            refetchOnWindowFocus: false,
-            staleTime: 15_000,
-          },
-        },
-      })
-  );
+  // One QueryClient per browser session, created lazily inside useState so
+  // SSR never shares a cache between requests.
+  const [queryClient] = useState(createQueryClient);
 
   return (
     <QueryClientProvider client={queryClient}>
