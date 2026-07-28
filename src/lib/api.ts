@@ -22,6 +22,8 @@ import type {
   AnchorStartResponse,
   AnchorWithdrawRequest,
   BalancesResponse,
+  BulkSettleRequest,
+  BulkSettlementIntentResponse,
   ChallengeResponse,
   ConfirmSettlementRequest,
   CreateExpenseRequest,
@@ -280,6 +282,11 @@ export const api = {
       json: data,
       schema: SettlementIntentResponseSchema as unknown as z.ZodType<SettlementIntentResponse>,
     }),
+  bulkSettleExpenses: (groupId: string, data: BulkSettleRequest) =>
+    request<BulkSettlementIntentResponse>(
+      `/groups/${groupId}/settlements/bulk`,
+      { method: "POST", json: data }
+    ),
   createSettlement: (groupId: string, data: CreateSettlementRequest) =>
     request<SettlementIntentResponse>(`/groups/${groupId}/settlements`, {
       method: "POST",

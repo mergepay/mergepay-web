@@ -308,6 +308,28 @@ export interface SettlementsResponse {
   settlements: Settlement[];
 }
 
+// ---------------------------------------------------------------------------
+// Bulk settlement (issue #31)
+// ---------------------------------------------------------------------------
+
+export interface BulkSettleRequest {
+  expenseIds: string[];
+  assetCode?: string;
+  assetIssuer?: string | null;
+}
+
+export interface BulkSettlementIntentResponse {
+  /** The settlement record persisted by the API for this batch. */
+  settlement: Settlement;
+  /** Expense IDs covered by this batched settlement. */
+  expenseIds: string[];
+  /** Total amount being settled in the bulk payment. */
+  totalAmount: string;
+  /** Unsigned batched payment transaction, base64 XDR — sign with your wallet. */
+  xdr: string;
+  networkPassphrase: string;
+}
+
 export type LedgerEntry =
   | { type: "expense"; createdAt: string; expense: Expense }
   | { type: "settlement"; createdAt: string; settlement: Settlement }

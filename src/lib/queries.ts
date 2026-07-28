@@ -12,6 +12,7 @@ import { api } from "./api";
 import { useAuth } from "./auth-store";
 import type {
   BalancesResponse,
+  BulkSettleRequest,
   ConfirmSettlementRequest,
   CreateExpenseRequest,
   CreateGroupRequest,
@@ -416,6 +417,16 @@ export function useSettleExpense() {
       expenseId: string;
       data?: SettleExpenseRequest;
     }) => api.settleExpense(expenseId, data),
+  });
+}
+
+export function useBulkSettle(groupId: string) {
+  // Cache invalidation for bulk settlements happens inside the dialog via
+  // useConfirmSettlement — don't duplicate invalidations here or you'll risk
+  // double-refetching on success.
+  return useMutation({
+    mutationFn: (data: BulkSettleRequest) =>
+      api.bulkSettleExpenses(groupId, data),
   });
 }
 
