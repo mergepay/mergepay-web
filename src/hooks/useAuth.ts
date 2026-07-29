@@ -9,6 +9,22 @@ import { useAuth as useAuthStore } from "@/lib/auth-store";
 import { loginWithWallet, logout as walletLogout } from "@/lib/stellar";
 import { isSessionExpired, resetSessionExpired } from "@/lib/api";
 
+export type WalletChangeAction = "none" | "disconnected" | "changed";
+
+/**
+ * Pure decision for how to react to a `WatchWalletChanges` tick.
+ * Extracted so account-change / disconnect logic is unit-testable without
+ * mocking the Freighter watcher or React lifecycle.
+ */
+export function walletChangeAction(
+  params: { address: string; error?: unknown },
+  currentPublicKey: string
+): WalletChangeAction {
+  if (params.error || !params.address) return "disconnected";
+  if (params.address !== currentPublicKey) return "changed";
+  return "none";
+}
+
 export function useAuth() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -59,8 +75,11 @@ export function useAuth() {
     try {
       watcher = new WatchWalletChanges(2000);
       watcher.watch((params) => {
-        if (params.error) return;
-        if (params.address && params.address !== user.stellarPublicKey) {
+        const action = walletChangeAction(params, user.stellarPublicKey);
+        if (action === "disconnected") {
+          toast.info("Wallet disconnected. Logging out...");
+          logout();
+        } else if (action === "changed") {
           toast.info("Wallet account changed. Logging out...");
           logout();
         }
