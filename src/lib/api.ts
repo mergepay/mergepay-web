@@ -67,6 +67,18 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * Thrown when an otherwise-successful API response fails schema
+ * validation. Kept message-free (no raw payload) — callers show a
+ * generic "something went wrong" state rather than parser internals.
+ */
+export class ApiValidationError extends Error {
+  constructor() {
+    super("Response did not match the expected shape.");
+    this.name = "ApiValidationError";
+  }
+}
+
 let expiryHandled = false;
 
 export function isSessionExpired(): boolean {
@@ -118,7 +130,7 @@ async function parseErrorBody(
 
 async function request<T>(
   path: string,
-  options: RequestInit & { json?: unknown } = {}
+  options: RequestInit & { json?: unknown; schema?: z.ZodType<T> } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
