@@ -1,15 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Upload, AlertTriangle } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label, Select, FieldHint, FormError } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useCreateExpense } from "@/lib/queries";
-import { api, ApiRequestError } from "@/lib/api";
+import { api, ApiRequestError, ApiTimeoutError } from "@/lib/api";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
 import { validateExpenseForm, type FormErrors } from "@/lib/expenseValidation";
@@ -28,6 +28,17 @@ export function AddExpenseDialog({
   currentUserId: string;
 }) {
   const create = useCreateExpense(groupId);
+  // Single idempotency key per logical submission — rotated on success
+  // so a second expense (without closing the dialog) gets a fresh key.
+  const idemKey = useRef(crypto.randomUUID());
+  // Guards state updates after the dialog unmounts mid-flight.
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -48,6 +59,8 @@ export function AddExpenseDialog({
   // in flight. Mirrors `create.isPending` for keyboard paths the native
   // disabled state can't always intercept.
   const [submitting, setSubmitting] = useState(false);
+  // Distinguishes timeout (ambiguous outcome) from a definitive server error.
+  const [hasTimeout, setHasTimeout] = useState(false);
 
   const asset = useMemo(
     () => SETTLEMENT_ASSETS.find((a) => a.code === assetKey) ?? SETTLEMENT_ASSETS[0],
@@ -101,8 +114,8 @@ export function AddExpenseDialog({
     }
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(e?: React.FormEvent) {
+    if (e) e.preventDefault();
 
     // Defense-in-depth: ignore Enter-repeats, double-clicks, and any other
     // re-entry of the submit handler while a request is in flight or has
@@ -123,6 +136,7 @@ export function AddExpenseDialog({
     });
 
     setSubmitting(true);
+    setHasTimeout(false);
     try {
       await create.mutateAsync({
         title: title.trim(),
@@ -135,14 +149,34 @@ export function AddExpenseDialog({
         payerUserId,
         memo: memo.trim() || undefined,
         receiptUrl,
+        // Reuse the same idempotency key on retry so the server
+        // deduplicates the request. A fresh submission (not a retry)
+        // also carries the current key.
+        idempotencyKey: idemKey.current,
       });
+      if (!isMounted.current) return;
       toast.success("Expense added");
       reset();
       onClose();
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not add expense");
+      if (!isMounted.current) return;
+      if (e instanceof ApiTimeoutError) {
+        // Ambiguous outcome: the server may have processed the request
+        // before the timeout fired. Show a retry path that reuses the
+        // same idempotency key so no duplicate expense is created.
+        setHasTimeout(true);
+      } else if (e instanceof ApiRequestError) {
+        // Definitive error response — show the message and keep form
+        // values intact so the user can correct and resubmit.
+        toast.error(e.message);
+        // Validation / semantic errors deserve a fresh idempotency key
+        // because the user is likely changing their input.
+        idemKey.current = crypto.randomUUID();
+      } else {
+        toast.error("Could not add expense");
+      }
     } finally {
-      setSubmitting(false);
+      if (isMounted.current) setSubmitting(false);
     }
   }
 
@@ -163,6 +197,9 @@ export function AddExpenseDialog({
     setMemo("");
     setReceiptUrl(null);
     setParticipants(members.map((m) => m.userId));
+    // Rotate idempotency key on success / explicit reset so a new
+    // logical submission gets a fresh deduplication identity.
+    idemKey.current = crypto.randomUUID();
   }
 
   const equalShare =
@@ -408,19 +445,45 @@ export function AddExpenseDialog({
               You cannot be both payer and participant.
             </div>
           )}
+          {hasTimeout && (
+            <div className="flex items-start gap-2 rounded-xl border-2 border-mango bg-mango/10 px-3 py-2 text-sm text-ink">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-mango" />
+              <div className="min-w-0 flex-1">
+                <p className="font-bold">Request timed out</p>
+                <p className="text-xs text-ink/60">
+                  The expense may have been saved. Retrying with the same
+                  request is safe — a duplicate will not be created.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            type="submit"
-            loading={create.isPending || submitting}
-            disabled={validationErrors !== null || create.isPending || submitting}
-            title={validationErrors ? Object.values(validationErrors)[0] : undefined}
-            aria-busy={create.isPending || submitting}
-          >
-            Add expense
-          </Button>
+          {hasTimeout ? (
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => {
+                setHasTimeout(false);
+                submit();
+              }}
+              aria-label="Retry expense creation safely"
+            >
+              Retry safely
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              loading={create.isPending || submitting}
+              disabled={validationErrors !== null || create.isPending || submitting}
+              title={validationErrors ? Object.values(validationErrors)[0] : undefined}
+              aria-busy={create.isPending || submitting}
+            >
+              Add expense
+            </Button>
+          )}
         </div>
       </form>
     </Dialog>

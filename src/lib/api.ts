@@ -1,6 +1,21 @@
 import type { z } from "zod";
 import { API_URL } from "./constants";
 import { getToken, useAuth } from "./auth-store";
+
+/** Maximum time (ms) to wait for a create-expense request before timing out. */
+export const EXPENSE_CREATE_TIMEOUT_MS = 10_000;
+
+/**
+ * Thrown when a fetch request times out (via AbortController).
+ * Callers catch this separately from ApiRequestError to offer a
+ * safe retry path using the same idempotency key.
+ */
+export class ApiTimeoutError extends Error {
+  constructor(message = "Request timed out") {
+    super(message);
+    this.name = "ApiTimeoutError";
+  }
+}
 import {
   BalancesResponseSchema,
   ExpensesResponseSchema,
@@ -220,11 +235,62 @@ export const api = {
     request<GroupResponse>(`/groups/${groupId}/archive`, { method: "POST" }),
 
   // -- expenses ---------------------------------------------------------------
-  createExpense: (groupId: string, data: CreateExpenseRequest) =>
-    request<ExpenseResponse>(`/groups/${groupId}/expenses`, {
-      method: "POST",
-      json: data,
-    }),
+  /**
+   * Create a new expense with an optional idempotency key.
+   *
+   * When `idempotencyKey` is provided it is stripped from the JSON body
+   * and sent as the `Idempotency-Key` header. The request is guarded by
+   * an `AbortController` timeout — if it fires, an `ApiTimeoutError` is
+   * thrown so callers can retry safely with the same key.
+   */
+  createExpense: async (
+    groupId: string,
+    data: CreateExpenseRequest
+  ): Promise<ExpenseResponse> => {
+    const { idempotencyKey, ...body } = data;
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+    headers["Content-Type"] = "application/json";
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      EXPENSE_CREATE_TIMEOUT_MS
+    );
+
+    try {
+      const res = await fetch(
+        `${API_URL}/groups/${groupId}/expenses`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        }
+      );
+      clearTimeout(timeoutId);
+
+      if (res.status === 401 && token && !expiryHandled) {
+        expiryHandled = true;
+        useAuth.getState().clear();
+      }
+
+      if (!res.ok) {
+        const { code, message } = await parseErrorBody(res);
+        throw new ApiRequestError(res.status, code, message);
+      }
+
+      return (await res.json()) as ExpenseResponse;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiTimeoutError();
+      }
+      throw err;
+    }
+  },
   listExpenses: (groupId: string) =>
     request<ExpensesResponse>(`/groups/${groupId}/expenses`),
   /**

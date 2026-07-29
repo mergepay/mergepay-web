@@ -187,6 +187,13 @@ export interface CreateExpenseRequest {
   payerUserId?: string;
   memo?: string;
   receiptUrl?: string | null;
+  /**
+   * Opaque client-generated UUID sent as the `Idempotency-Key` header.
+   * The server uses it to deduplicate duplicate submissions — if a
+   * request times out and the user retries with the same key, a second
+   * expense is NOT created. Omitted from the JSON body.
+   */
+  idempotencyKey?: string;
 }
 
 export interface UpdateExpenseRequest {
