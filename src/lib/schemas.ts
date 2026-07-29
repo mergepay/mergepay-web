@@ -219,6 +219,7 @@ export const LedgerResponseSchema = z.object({
 export const HistoryResponseSchema = z.object({
   expenses: z.array(ExpenseSchema),
   settlements: z.array(SettlementSchema),
+  nextCursor: z.string().nullable(),
 });
 
 // Anchor sessions — used by polling UI on the anchors screen

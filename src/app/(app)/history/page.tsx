@@ -20,19 +20,46 @@ import { TxLink } from "@/components/tx-link";
 import { Tabs } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
-import { useHistory } from "@/lib/queries";
+import { useInfiniteHistory } from "@/lib/queries";
+import { mergeHistoryPages } from "@/lib/expenses";
 import { exportHistoryCsv, printReceipt } from "@/lib/export";
 import { fullDate } from "@/lib/format";
+import type { Expense, Settlement } from "@/lib/types";
 
 type Filter = "all" | "expenses" | "settlements";
 
 export default function HistoryPage() {
-  const { data, isLoading, isError, refetch } = useHistory();
+  const {
+    data: pages,
+    isLoading,
+    isError,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteHistory();
+
   const [filter, setFilter] = useState<Filter>("all");
 
-  const expenses = useMemo(() => data?.expenses ?? [], [data]);
-  const settlements = useMemo(() => data?.settlements ?? [], [data]);
+  // Accumulate all loaded pages into a single deduplicated set sorted
+  // newest-first — mergeHistoryPages keeps stable order across refetches.
+  const accumulated = useMemo(() => {
+    if (!pages) return { expenses: [] as Expense[], settlements: [] as Settlement[] };
+    return pages.pages.reduce(
+      (acc, page) =>
+        mergeHistoryPages(acc, {
+          expenses: page.expenses,
+          settlements: page.settlements,
+        }),
+      {
+        expenses: [] as Expense[],
+        settlements: [] as Settlement[],
+      }
+    );
+  }, [pages]);
 
+  const expenses = accumulated.expenses;
+  const settlements = accumulated.settlements;
   const hasData = expenses.length > 0 || settlements.length > 0;
 
   return (
@@ -140,6 +167,20 @@ export default function HistoryPage() {
                 </div>
               </Card>
             ))}
+
+          {/* Load-more control — hidden when all pages are loaded */}
+          {hasNextPage && (
+            <div className="flex justify-center pt-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                loading={isFetchingNextPage}
+                aria-label="Load more history"
+              >
+                {isFetchingNextPage ? "Loading…" : "Load More"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </>

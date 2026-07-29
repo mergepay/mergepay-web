@@ -190,7 +190,32 @@ export function useAnchorSessions() {
 }
 
 export function useHistory() {
-  return useQuery({ queryKey: qk.history, queryFn: api.history });
+  return useQuery({ queryKey: qk.history, queryFn: () => api.history() });
+}
+
+/**
+ * Cursor-paginated history backed by GET /history.
+ *
+ * Use this for users with many expenses and settlements — loading the
+ * full dataset at once is slow and burns memory. The first call uses
+ * `options.limit` (default 20); each subsequent page uses the
+ * `nextCursor` returned by the server.
+ *
+ * Pages are accumulated and deduplicated by `id` so overlapping
+ * responses never produce duplicate rows.
+ */
+export function useInfiniteHistory(options: { limit?: number } = {}) {
+  return useInfiniteQuery({
+    queryKey: [...qk.history, "page", options.limit ?? 20],
+    queryFn: ({ pageParam }) =>
+      api.history({
+        limit: options.limit,
+        cursor: pageParam as string | undefined,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
+  });
 }
 
 /**
@@ -398,6 +423,7 @@ export function useCreateExpense(groupId: string) {
         qk.balances(groupId),
         qk.ledger(groupId),
         qk.groups,
+        qk.history,
       ]);
     },
   });
@@ -413,6 +439,7 @@ export function useDeleteExpense(groupId: string) {
         qk.balances(groupId),
         qk.ledger(groupId),
         qk.groups,
+        qk.history,
       ]),
   });
 }
