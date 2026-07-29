@@ -105,9 +105,9 @@ export function InviteDialog({
             </div>
           </div>
           <div>
-            <Label>Share link</Label>
+            <Label htmlFor="i-link">Share link</Label>
             <div className="flex items-center gap-2">
-              <Input readOnly value={invite.url} className="font-mono text-xs" />
+              <Input id="i-link" readOnly value={invite.url} className="font-mono text-xs" />
               <CopyButton text={invite.url} />
             </div>
           </div>
