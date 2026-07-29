@@ -36,7 +36,12 @@ export function JoinGroupDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Join a group">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Join a group"
+      description="Enter an invite code to join an existing group."
+    >
       <form onSubmit={submit} className="space-y-4">
         <div>
           <Label htmlFor="j-code">Invite code</Label>
@@ -46,7 +51,7 @@ export function JoinGroupDialog({
             onChange={(e) => setCode(e.target.value)}
             placeholder="e.g. 7QF3KD2P"
             className="font-mono uppercase tracking-widest"
-            autoFocus
+            data-autofocus
           />
         </div>
         <div className="flex justify-end gap-2 pt-2">

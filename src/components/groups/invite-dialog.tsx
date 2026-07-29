@@ -42,7 +42,12 @@ export function InviteDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Invite members">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Invite members"
+      description="Generate a shareable code and link that lets people join this group."
+    >
       {!invite ? (
         <div className="space-y-4">
           <p className="text-sm text-ink/60">

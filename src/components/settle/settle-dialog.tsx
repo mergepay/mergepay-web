@@ -78,7 +78,13 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
   }, [step, statusQuery.data]);
 
   if (!target) return null;
-  return <Dialog open={open} onClose={close} title={target.label} dismissible={!transactionInFlight}>
+  return <Dialog
+    open={open}
+    onClose={close}
+    title={target.label}
+    description={`Send ${target.amount} ${target.assetCode} to ${target.to.displayName}. You sign the payment in your wallet; Mergepay never holds your keys.`}
+    dismissible={!transactionInFlight}
+  >
     <div className="space-y-5">
       <div className="rounded-2xl border-3 border-ink bg-paper p-5"><div className="flex items-center justify-between"><span className="font-display text-xs uppercase tracking-widest text-ink/50">Paying</span><AssetBadge code={target.assetCode} /></div><div className="mt-3 flex items-center gap-3"><Avatar user={target.to} size="lg" /><div><p className="font-display text-lg uppercase tracking-tight">{target.to.displayName}</p><Money value={target.amount} assetCode={target.assetCode} className="text-2xl" /></div></div></div>
       {step === "review" && <><ol className="space-y-2 text-sm text-ink/70"><StepLine icon={<Wallet className="h-4 w-4" />}>Mergepay builds the payment — your keys never leave your wallet.</StepLine><StepLine icon={<PenLine className="h-4 w-4" />}>You sign it in Freighter.</StepLine><StepLine icon={<Send className="h-4 w-4" />}>It settles on Stellar and the ledger updates with the tx hash.</StepLine></ol>{error && <WalletErrorBanner code={errorCode} message={error} />}<div className="flex justify-end gap-2"><Button variant="ghost" onClick={close}>Cancel</Button><Button onClick={run}><Wallet className="h-4 w-4" /> Settle now</Button></div></>}
