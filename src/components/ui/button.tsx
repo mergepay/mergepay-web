@@ -43,9 +43,25 @@ const sizes: Record<Size, string> = {
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "primary", size = "md", loading, children, disabled, ...props }, ref) => (
+  (
+    {
+      className,
+      variant = "primary",
+      size = "md",
+      loading,
+      children,
+      disabled,
+      // Default to "button" rather than the HTML default of "submit", so a
+      // Cancel or Close control inside a dialog form cannot submit it when
+      // activated with Enter or Space. Submit buttons opt in explicitly.
+      type = "button",
+      ...props
+    },
+    ref
+  ) => (
     <button
       ref={ref}
+      type={type}
       className={cn(base, variants[variant], sizes[size], className)}
       disabled={disabled || loading}
       {...props}

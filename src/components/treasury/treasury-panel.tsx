@@ -431,7 +431,7 @@ function DepositDialog({
             Cancel
           </Button>
           <Button type="submit" loading={busy} disabled={!amount || busy}>
-            Sign & deposit
+            Sign &amp; deposit
           </Button>
         </div>
       </form>
@@ -554,7 +554,7 @@ function WithdrawDialog({
             Cancel
           </Button>
           <Button type="submit" loading={busy} disabled={!amount || !destination || busy}>
-            Sign & withdraw
+            Sign &amp; withdraw
           </Button>
         </div>
       </form>
