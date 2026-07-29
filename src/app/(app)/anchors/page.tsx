@@ -18,7 +18,7 @@ import { ListSkeleton } from "@/components/ui/skeleton";
 import { useAnchors, useAnchorSessions } from "@/lib/queries";
 import { api, ApiRequestError } from "@/lib/api";
 import { signXdr, WalletError, NotInstalledMessage } from "@/lib/stellar";
-import { fullDate } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 import type { AnchorSessionKind } from "@/lib/types";
 
 export default function AnchorsPage() {
@@ -184,7 +184,7 @@ export default function AnchorsPage() {
                     {s.kind} · {s.assetCode}
                   </p>
                   <p className="text-xs text-ink/50">
-                    {s.anchorName} · {fullDate(s.createdAt)}
+                    {s.anchorName} · <Timestamp value={s.createdAt} />
                   </p>
                 </div>
               </div>

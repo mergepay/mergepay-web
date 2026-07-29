@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useLedger } from "@/lib/queries";
-import { fullDate } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 
 export function LedgerPanel({ groupId }: { groupId: string }) {
   const { data, isLoading, isError, refetch } = useLedger(groupId);
@@ -53,7 +53,8 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                 <div>
                   <p className="font-bold">{entry.expense.title}</p>
                   <p className="text-xs text-ink/50">
-                    {entry.expense.payer.displayName} paid · {fullDate(entry.createdAt)}
+                    {entry.expense.payer.displayName} paid ·{" "}
+                    <Timestamp value={entry.createdAt} />
                   </p>
                 </div>
                 <Money
@@ -70,7 +71,9 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                     <ArrowRight className="h-3.5 w-3.5 text-ink/40" />
                     {entry.settlement.to.displayName}
                   </p>
-                  <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
+                  <p className="text-xs text-ink/50">
+                    <Timestamp value={entry.createdAt} />
+                  </p>
                 </div>
                 <div className="text-right">
                   <Money
@@ -95,7 +98,9 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                   <p className="font-bold capitalize">
                     Treasury {entry.treasuryTransaction.direction}
                   </p>
-                  <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
+                  <p className="text-xs text-ink/50">
+                    <Timestamp value={entry.createdAt} />
+                  </p>
                 </div>
                 <div className="text-right">
                   <Money

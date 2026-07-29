@@ -22,7 +22,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { useHistory } from "@/lib/queries";
 import { exportHistoryCsv, printReceipt } from "@/lib/export";
-import { fullDate } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 
 type Filter = "all" | "expenses" | "settlements";
 
@@ -93,7 +93,7 @@ export default function HistoryPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-bold">{e.title}</p>
                   <p className="text-xs text-ink/50">
-                    {e.payer.displayName} paid · {fullDate(e.createdAt)}
+                    {e.payer.displayName} paid · <Timestamp value={e.createdAt} />
                   </p>
                 </div>
                 <div className="text-right">
@@ -114,12 +114,17 @@ export default function HistoryPage() {
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-ink bg-lime">
                   <Zap className="h-4 w-4" />
                 </span>
-                <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <Avatar user={s.from} size="sm" />
-                  <span className="text-sm font-bold">{s.from.displayName}</span>
-                  <ArrowRight className="h-3.5 w-3.5 text-ink/40" />
-                  <Avatar user={s.to} size="sm" />
-                  <span className="text-sm font-bold">{s.to.displayName}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Avatar user={s.from} size="sm" />
+                    <span className="text-sm font-bold">{s.from.displayName}</span>
+                    <ArrowRight className="h-3.5 w-3.5 text-ink/40" />
+                    <Avatar user={s.to} size="sm" />
+                    <span className="text-sm font-bold">{s.to.displayName}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-ink/50">
+                    <Timestamp value={s.createdAt} prefix="Settled" />
+                  </p>
                 </div>
                 <div className="text-right">
                   <Money value={s.amount} assetCode={s.assetCode} />
