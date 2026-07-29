@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowDownToLine,
@@ -37,8 +37,15 @@ import {
 } from "@/lib/stellar";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import { fullDate } from "@/lib/format";
-import { validateAmount, normalizeAmount, exceedsBalance } from "@/lib/money";
+import {
+  validateAmount,
+  normalizeAmount,
+  withdrawalBalanceError,
+} from "@/lib/money";
 import type { Group, GroupDetail } from "@/lib/types";
+
+/** Debounce for the withdrawal balance warning so it doesn't flicker per keystroke. */
+const BALANCE_VALIDATION_DEBOUNCE_MS = 300;
 
 export function TreasuryPanel({
   group,
@@ -260,7 +267,7 @@ export function TreasuryPanel({
         open={withdrawOpen}
         onClose={() => setWithdrawOpen(false)}
         groupId={group.id}
-        balances={info.data?.balances ?? []}
+        balances={info.data?.balances}
       />
     </div>
   );
@@ -448,14 +455,43 @@ function WithdrawDialog({
   open: boolean;
   onClose: () => void;
   groupId: string;
-  /** Treasury balances from TreasuryInfoResponse — used for client-side guard. */
-  balances: { assetCode: string; assetIssuer: string | null; balance: string }[];
+  /**
+   * Treasury balances from TreasuryInfoResponse — used for the inline
+   * insufficient-balance warning. `undefined` while balances are still
+   * loading; the warning stays hidden until they are known.
+   */
+  balances: { assetCode: string; assetIssuer: string | null; balance: string }[] | undefined;
 }) {
   const withdraw = useTreasuryWithdraw(groupId);
   const [amount, setAmount] = useState("");
   const [assetKey, setAssetKey] = useState("XLM");
   const [destination, setDestination] = useState("");
   const [busy, setBusy] = useState(false);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+
+  const assetBalance = balances?.find((b) => b.assetCode === assetKey)?.balance;
+  const xlmBalance = balances?.find((b) => b.assetCode === "XLM")?.balance;
+
+  // Debounced, non-blocking balance check: re-validates whenever the
+  // amount, asset, or balances change. It only warns — submission is
+  // still allowed and the server remains the final authority.
+  useEffect(() => {
+    if (!amount || balances === undefined) {
+      setBalanceError(null);
+      return;
+    }
+    const id = setTimeout(() => {
+      setBalanceError(
+        withdrawalBalanceError({
+          amountRaw: amount,
+          balanceRaw: assetBalance ?? "0",
+          assetCode: assetKey,
+          nativeBalanceRaw: xlmBalance,
+        })
+      );
+    }, BALANCE_VALIDATION_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [amount, assetKey, balances, assetBalance, xlmBalance]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -470,15 +506,6 @@ function WithdrawDialog({
       return;
     }
     const normalised = normalizeAmount(amount);
-    // Client-side balance guard — blocks signing before an opaque Horizon failure.
-    const treasuryBalance = balances.find((b) => b.assetCode === assetKey);
-    if (!treasuryBalance || exceedsBalance(normalised, treasuryBalance.balance)) {
-      const available = treasuryBalance?.balance ?? "0";
-      toast.error(
-        `Insufficient treasury balance. Available: ${available} ${assetKey}.`
-      );
-      return;
-    }
     const asset = SETTLEMENT_ASSETS.find((a) => a.code === assetKey)!;
     setBusy(true);
     try {
@@ -525,7 +552,18 @@ function WithdrawDialog({
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.0000000"
               autoFocus
+              aria-invalid={balanceError ? true : undefined}
+              aria-describedby={balanceError ? "w-amt-balance-error" : undefined}
             />
+            {balanceError && (
+              <p
+                id="w-amt-balance-error"
+                role="alert"
+                className="mt-1 text-xs text-flamingo font-bold"
+              >
+                {balanceError}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="w-asset">Asset</Label>
@@ -535,6 +573,11 @@ function WithdrawDialog({
             </Select>
           </div>
         </div>
+        {balances !== undefined && (
+          <FieldHint>
+            Available: {assetBalance ?? "0"} {assetKey}
+          </FieldHint>
+        )}
         <div>
           <Label htmlFor="w-dest">Destination public key</Label>
           <Input
