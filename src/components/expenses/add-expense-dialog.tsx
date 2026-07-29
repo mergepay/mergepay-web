@@ -169,7 +169,12 @@ export function AddExpenseDialog({
     participants.length > 0 ? total / participants.length : 0;
 
   return (
-    <Dialog open={open} onClose={onClose} title="Add expense">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Add expense"
+      description="Record a shared bill and choose how it is split between group members."
+    >
       <form onSubmit={submit} onKeyDown={handleKeyDown} className="space-y-4">
         <div>
           <Label htmlFor="e-title">Title</Label>
@@ -179,7 +184,7 @@ export function AddExpenseDialog({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Dinner at Terra Kulture"
             maxLength={80}
-            autoFocus
+            data-autofocus
             aria-describedby={validationErrors?.title ? "e-title-error" : undefined}
           />
           {validationErrors?.title && (
