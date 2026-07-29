@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { API_URL } from "./constants";
-import type { Expense } from "./types";
+import type { Expense, Settlement } from "./types";
 
 const expensesPaginationSchema = z.object({
   groupId: z.string().min(1, "groupId is required"),
@@ -134,4 +134,55 @@ export function sortExpensesByDateDesc(expenses: Expense[]): Expense[] {
     const bTime = new Date(b.createdAt).getTime();
     return bTime - aTime;
   });
+}
+
+// ---------------------------------------------------------------------------
+// History pagination helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Accumulated history across all loaded pages.
+ * Both arrays are kept in stable newest-first order regardless of the
+ * order pages arrive in, so the UI never shows re-ordered entries on
+ * re-render.
+ */
+export interface AccumulatedHistory {
+  expenses: Expense[];
+  settlements: Settlement[];
+}
+
+/**
+ * Merge a new page of history into the accumulated set, deduplicating
+ * by `id` so repeated records from overlapping page responses never
+ * appear twice.
+ *
+ * The returned arrays are sorted newest-first by `createdAt` (stable
+ * sort — equal timestamps keep their original relative order).
+ */
+export function mergeHistoryPages(
+  acc: AccumulatedHistory,
+  page: { expenses: Expense[]; settlements: Settlement[] }
+): AccumulatedHistory {
+  const seenExpenses = new Set(acc.expenses.map((e) => e.id));
+  const seenSettlements = new Set(acc.settlements.map((s) => s.id));
+
+  const newExpenses = page.expenses.filter((e) => !seenExpenses.has(e.id));
+  const newSettlements = page.settlements.filter(
+    (s) => !seenSettlements.has(s.id)
+  );
+
+  const mergedExpenses = sortExpensesByDateDesc([
+    ...acc.expenses,
+    ...newExpenses,
+  ]);
+
+  const mergedSettlements = [...acc.settlements, ...newSettlements].sort(
+    (a, b) => {
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return bTime - aTime;
+    }
+  );
+
+  return { expenses: mergedExpenses, settlements: mergedSettlements };
 }

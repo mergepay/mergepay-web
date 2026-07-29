@@ -317,10 +317,18 @@ export const api = {
     request<BalancesResponse>(`/groups/${groupId}/balances`, {
       schema: BalancesResponseSchema as unknown as z.ZodType<BalancesResponse>,
     }),
-  getLedger: (groupId: string) =>
-    request<LedgerResponse>(`/groups/${groupId}/ledger`, {
-      schema: LedgerResponseSchema as unknown as z.ZodType<LedgerResponse>,
-    }),
+  getLedger: (groupId: string, params?: { limit?: number; cursor?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set("limit", String(params.limit));
+    if (params?.cursor !== undefined) search.set("cursor", params.cursor);
+    const qs = search.toString();
+    return request<LedgerResponse>(
+      `/groups/${groupId}/ledger${qs ? `?${qs}` : ""}`,
+      {
+        schema: LedgerResponseSchema as unknown as z.ZodType<LedgerResponse>,
+      }
+    );
+  },
 
   // -- treasury ----------------------------------------------------------------
   enableTreasury: (groupId: string, data: EnableTreasuryRequest) =>
@@ -368,10 +376,24 @@ export const api = {
   anchorSessions: () => request<AnchorSessionsResponse>("/anchors/sessions"),
 
   // -- history & uploads ------------------------------------------------------------
-  history: () =>
-    request<HistoryResponse>("/history", {
+  /**
+   * Fetch the user's global expense + settlement history.
+   *
+   * When `params` are passed the response shape MUST include `nextCursor`
+   * (type `HistoryResponse`), matching the cursor-paginated page contract.
+   * Callers that want the full dataset at once should omit params and rely
+   * on the pre-existing legacy response shape.
+   */
+  history: (params?: { limit?: number; cursor?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set("limit", String(params.limit));
+    if (params?.cursor !== undefined) search.set("cursor", params.cursor);
+    const qs = search.toString();
+    const path = qs ? `/history?${qs}` : "/history";
+    return request<HistoryResponse>(path, {
       schema: HistoryResponseSchema as unknown as z.ZodType<HistoryResponse>,
-    }),
+    });
+  },
   uploadReceipt: async (file: File): Promise<UploadResponse> => {
     const form = new FormData();
     form.append("file", file);

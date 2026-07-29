@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { ArrowRight, Landmark, Receipt, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge, statusTone } from "@/components/ui/badge";
@@ -8,11 +9,24 @@ import { TxLink } from "@/components/tx-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { useLedger } from "@/lib/queries";
+import { useInfiniteLedger, accumulateLedgerPages } from "@/lib/queries";
 import { fullDate } from "@/lib/format";
 
 export function LedgerPanel({ groupId }: { groupId: string }) {
-  const { data, isLoading, isError, refetch } = useLedger(groupId);
+  const {
+    data: pages,
+    isLoading,
+    isError,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteLedger(groupId);
+
+  const entries = useMemo(
+    () => accumulateLedgerPages(pages?.pages),
+    [pages?.pages]
+  );
 
   if (isLoading) return <ListSkeleton rows={4} />;
 
@@ -31,7 +45,6 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
     );
   }
 
-  const entries = data?.entries ?? [];
   if (entries.length === 0) {
     return (
       <EmptyState
@@ -43,80 +56,103 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
   }
 
   return (
-    <div className="relative space-y-3 before:absolute before:left-[21px] before:top-2 before:h-[calc(100%-1rem)] before:w-0.5 before:bg-ink/15">
-      {entries.map((entry, i) => (
-        <div key={i} className="relative flex gap-3">
-          <LedgerIcon type={entry.type} />
-          <Card className="flex-1 p-3">
-            {entry.type === "expense" && (
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="font-bold">{entry.expense.title}</p>
-                  <p className="text-xs text-ink/50">
-                    {entry.expense.payer.displayName} paid · {fullDate(entry.createdAt)}
-                  </p>
-                </div>
-                <Money
-                  value={entry.expense.amount}
-                  assetCode={entry.expense.assetCode}
-                />
-              </div>
-            )}
-            {entry.type === "settlement" && (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="flex items-center gap-1.5 font-bold">
-                    {entry.settlement.from.displayName}
-                    <ArrowRight className="h-3.5 w-3.5 text-ink/40" />
-                    {entry.settlement.to.displayName}
-                  </p>
-                  <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
-                </div>
-                <div className="text-right">
-                  <Money
-                    value={entry.settlement.amount}
-                    assetCode={entry.settlement.assetCode}
-                  />
-                  <div className="mt-1 flex justify-end">
-                    {entry.settlement.stellarTxHash ? (
-                      <TxLink hash={entry.settlement.stellarTxHash} />
-                    ) : (
-                      <Badge tone={statusTone(entry.settlement.status)}>
-                        {entry.settlement.status}
-                      </Badge>
-                    )}
+    <div className="space-y-3">
+      <div className="relative space-y-3 before:absolute before:left-[21px] before:top-2 before:h-[calc(100%-1rem)] before:w-0.5 before:bg-ink/15">
+        {entries.map((entry) => {
+          const entryKey =
+            entry.type === "expense"
+              ? `expense-${entry.expense.id}`
+              : entry.type === "settlement"
+                ? `settlement-${entry.settlement.id}`
+                : `treasury-${entry.treasuryTransaction.id}`;
+          return (
+            <div key={entryKey} className="relative flex gap-3">
+              <LedgerIcon type={entry.type} />
+              <Card className="flex-1 p-3">
+                {entry.type === "expense" && (
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-bold">{entry.expense.title}</p>
+                      <p className="text-xs text-ink/50">
+                        {entry.expense.payer.displayName} paid · {fullDate(entry.createdAt)}
+                      </p>
+                    </div>
+                    <Money
+                      value={entry.expense.amount}
+                      assetCode={entry.expense.assetCode}
+                    />
                   </div>
-                </div>
-              </div>
-            )}
-            {entry.type === "treasury" && (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="font-bold capitalize">
-                    Treasury {entry.treasuryTransaction.direction}
-                  </p>
-                  <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
-                </div>
-                <div className="text-right">
-                  <Money
-                    value={entry.treasuryTransaction.amount}
-                    assetCode={entry.treasuryTransaction.assetCode}
-                  />
-                  <div className="mt-1 flex justify-end">
-                    {entry.treasuryTransaction.stellarTxHash ? (
-                      <TxLink hash={entry.treasuryTransaction.stellarTxHash} />
-                    ) : (
-                      <Badge tone={statusTone(entry.treasuryTransaction.status)}>
-                        {entry.treasuryTransaction.status.replace(/_/g, " ")}
-                      </Badge>
-                    )}
+                )}
+                {entry.type === "settlement" && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="flex items-center gap-1.5 font-bold">
+                        {entry.settlement.from.displayName}
+                        <ArrowRight className="h-3.5 w-3.5 text-ink/40" />
+                        {entry.settlement.to.displayName}
+                      </p>
+                      <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
+                    </div>
+                    <div className="text-right">
+                      <Money
+                        value={entry.settlement.amount}
+                        assetCode={entry.settlement.assetCode}
+                      />
+                      <div className="mt-1 flex justify-end">
+                        {entry.settlement.stellarTxHash ? (
+                          <TxLink hash={entry.settlement.stellarTxHash} />
+                        ) : (
+                          <Badge tone={statusTone(entry.settlement.status)}>
+                            {entry.settlement.status}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
-          </Card>
+                )}
+                {entry.type === "treasury" && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-bold capitalize">
+                        Treasury {entry.treasuryTransaction.direction}
+                      </p>
+                      <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
+                    </div>
+                    <div className="text-right">
+                      <Money
+                        value={entry.treasuryTransaction.amount}
+                        assetCode={entry.treasuryTransaction.assetCode}
+                      />
+                      <div className="mt-1 flex justify-end">
+                        {entry.treasuryTransaction.stellarTxHash ? (
+                          <TxLink hash={entry.treasuryTransaction.stellarTxHash} />
+                        ) : (
+                          <Badge tone={statusTone(entry.treasuryTransaction.status)}>
+                            {entry.treasuryTransaction.status.replace(/_/g, " ")}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </div>
+          );
+        })}
+      </div>
+      {/* Load-more control — hidden when all pages are loaded */}
+      {hasNextPage && (
+        <div className="flex justify-center pt-4">
+          <Button
+            variant="outline"
+            onClick={() => fetchNextPage()}
+            loading={isFetchingNextPage}
+            aria-label="Load more ledger entries"
+          >
+            {isFetchingNextPage ? "Loading…" : "Load More"}
+          </Button>
         </div>
-      ))}
+      )}
     </div>
   );
 }

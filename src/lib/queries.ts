@@ -24,6 +24,9 @@ import type {
   UpdateMeRequest,
 } from "./types";
 import type { ExpensesPage } from "./expenses";
+import { mergeHistoryPages, type AccumulatedHistory } from "./expenses";
+import type { Expense, LedgerEntry, Settlement } from "./types";
+import type { HistoryResponse, LedgerResponse } from "./types";
 
 export const qk = {
   me: ["me"] as const,
@@ -161,6 +164,31 @@ export function useLedger(groupId: string) {
   });
 }
 
+/**
+ * Cursor-paginated ledger backed by GET /groups/:id/ledger.
+ *
+ * Use this for groups with many entries — loading the full dataset
+ * at once is slow and burns memory. The first call uses
+ * `options.limit` (default 20); each subsequent page uses the
+ * `nextCursor` returned by the server.
+ */
+export function useInfiniteLedger(
+  groupId: string,
+  options: { limit?: number } = {}
+) {
+  return useInfiniteQuery({
+    queryKey: [...qk.ledger(groupId), "page", options.limit ?? 20],
+    queryFn: ({ pageParam }) =>
+      api.getLedger(groupId, {
+        limit: options.limit,
+        cursor: pageParam as string | undefined,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
+  });
+}
+
 export function useTreasuryInfo(groupId: string, enabled: boolean) {
   return useQuery({
     queryKey: qk.treasury(groupId),
@@ -189,8 +217,62 @@ export function useAnchorSessions() {
   });
 }
 
-export function useHistory() {
-  return useQuery({ queryKey: qk.history, queryFn: api.history });
+export function useInfiniteHistory(options: { limit?: number } = {}) {
+  return useInfiniteQuery({
+    queryKey: [...qk.history, "page", options.limit ?? 20],
+    queryFn: ({ pageParam }) =>
+      api.history({
+        limit: options.limit,
+        cursor: pageParam as string | undefined,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Pure utility: merge all loaded history pages into a single accumulated
+ * view, deduplicating by id across pages.
+ */
+export function accumulateHistoryPages(
+  pages: HistoryResponse[] | undefined
+): AccumulatedHistory {
+  if (!pages) return { expenses: [], settlements: [] };
+  return pages.reduce(
+    (acc, page) =>
+      mergeHistoryPages(acc, {
+        expenses: page.expenses,
+        settlements: page.settlements,
+      }),
+    { expenses: [] as Expense[], settlements: [] as Settlement[] }
+  );
+}
+
+/**
+ * Pure utility: merge all loaded ledger pages into a single accumulated
+ * array, deduplicating by entry position.
+ */
+export function accumulateLedgerPages(
+  pages: LedgerResponse[] | undefined
+): LedgerEntry[] {
+  if (!pages) return [];
+  const seen = new Set<string>();
+  return pages.flatMap((page) =>
+    page.entries.filter((entry) => {
+      // Use the embedded id for stable deduplication across pages.
+      const id =
+        entry.type === "expense"
+          ? entry.expense.id
+          : entry.type === "settlement"
+            ? entry.settlement.id
+            : entry.treasuryTransaction.id;
+      const key = `${entry.type}-${id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+  );
 }
 
 /**
@@ -398,6 +480,7 @@ export function useCreateExpense(groupId: string) {
         qk.balances(groupId),
         qk.ledger(groupId),
         qk.groups,
+        qk.history,
       ]);
     },
   });
@@ -413,6 +496,7 @@ export function useDeleteExpense(groupId: string) {
         qk.balances(groupId),
         qk.ledger(groupId),
         qk.groups,
+        qk.history,
       ]),
   });
 }
