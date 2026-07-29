@@ -1,4 +1,5 @@
 # Security Policy
+# Security Policy
 
 Mergepay-web is the frontend for [Mergepay](https://github.com/mergepay/mergepay-web),
 a Stellar-native group settlement app. This document covers the reporting process and
