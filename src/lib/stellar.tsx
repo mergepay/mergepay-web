@@ -283,10 +283,6 @@ export async function signAndConfirmTreasuryTx(
   return api.confirmTreasuryTx(txId, { signedXdr });
 }
 
-// Re-export the helper so other modules (e.g. UI) can map codes to messages
-// without depending on internal classifier strings.
-export { classifyWalletMessage };
-
 /** User-friendly message with a link, shown when Freighter is not installed. */
 export function NotInstalledMessage(): ReactNode {
   return (
