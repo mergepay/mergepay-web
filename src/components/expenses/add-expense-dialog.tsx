@@ -32,6 +32,7 @@ import {
   validateExpenseSplit,
 } from "@/lib/expenseValidation";
 import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
+import { useWalletDisconnected } from "@/lib/wallet-store";
 
 export function AddExpenseDialog({
   open,
@@ -83,6 +84,9 @@ export function AddExpenseDialog({
   // themselves reject a second activation that lands in the same tick
   // (double-click, Enter auto-repeat, tap plus synthesised click).
   const gate = useRef(createSubmissionGate());
+  // Expenses are settled on-chain — block submission while the wallet is
+  // disconnected.
+  const walletDisconnected = useWalletDisconnected();
 
   const asset = useMemo(
     () => SETTLEMENT_ASSETS.find((a) => a.code === assetKey) ?? SETTLEMENT_ASSETS[0],
@@ -535,12 +539,14 @@ export function AddExpenseDialog({
           <Button
             type="submit"
             loading={pending}
-            disabled={!validation.valid || pending}
+            disabled={!validation.valid || pending || walletDisconnected}
             title={
-              validation.valid
-                ? undefined
-                : Object.values(validation.errors)[0] ??
-                  Object.values(validation.participantErrors)[0]
+              walletDisconnected
+                ? "Reconnect your wallet to add an expense"
+                : validation.valid
+                  ? undefined
+                  : Object.values(validation.errors)[0] ??
+                    Object.values(validation.participantErrors)[0]
             }
             aria-busy={pending}
             aria-describedby={submitError ? "e-submit-error" : undefined}

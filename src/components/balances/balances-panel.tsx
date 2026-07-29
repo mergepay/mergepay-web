@@ -17,6 +17,7 @@ import { SectionError, SectionLoading } from "@/components/ui/section";
 import { useBalances } from "@/lib/queries";
 import { resolveSectionStatus } from "@/lib/sectionState";
 import { amountToStroops } from "@/lib/currency";
+import { useWalletDisconnected } from "@/lib/wallet-store";
 
 export function BalancesPanel({
   groupId,
@@ -27,6 +28,9 @@ export function BalancesPanel({
 }) {
   const { data, isLoading, isError, error, refetch } = useBalances(groupId);
   const [target, setTarget] = useState<SettleTarget | null>(null);
+  // Settling requires a wallet signature — lock the action while the
+  // wallet is disconnected.
+  const walletDisconnected = useWalletDisconnected();
 
   const status = resolveSectionStatus({
     isLoading,
@@ -125,6 +129,12 @@ export function BalancesPanel({
                         <Button
                           size="sm"
                           onClick={() => setTarget(suggestionToTarget(s))}
+                          disabled={walletDisconnected}
+                          title={
+                            walletDisconnected
+                              ? "Reconnect your wallet to settle"
+                              : undefined
+                          }
                         >
                           Settle
                         </Button>
