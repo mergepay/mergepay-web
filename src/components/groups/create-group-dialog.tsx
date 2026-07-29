@@ -40,7 +40,12 @@ export function CreateGroupDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="New group">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="New group"
+      description="Name a new circle. You can invite members once it exists."
+    >
       <form onSubmit={submit} className="space-y-4">
         <div>
           <Label htmlFor="g-name">Group name</Label>
@@ -50,7 +55,7 @@ export function CreateGroupDialog({
             onChange={(e) => setName(e.target.value)}
             placeholder="Apartment 4B, Lagos trip…"
             maxLength={60}
-            autoFocus
+            data-autofocus
           />
         </div>
         <div>
