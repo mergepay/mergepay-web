@@ -257,10 +257,45 @@ export function useSettlementStatus(settlementId: string | null, enabled = true)
 // Mutations
 // ---------------------------------------------------------------------------
 
+/**
+ * A query key to invalidate. React Query matches keys by prefix, so
+ * `exact` is available for keys that are a prefix of unrelated keys —
+ * `qk.groups` (`["groups"]`) otherwise sweeps every group-scoped query.
+ */
+export type InvalidationTarget =
+  | readonly unknown[]
+  | { queryKey: readonly unknown[]; exact?: boolean };
+
+/** Normalise an `InvalidationTarget` into React Query filters. */
+export function invalidationFilters(target: InvalidationTarget): {
+  queryKey: readonly unknown[];
+  exact?: boolean;
+} {
+  return "queryKey" in target ? target : { queryKey: target };
+}
+
 function useInvalidator() {
   const qc = useQueryClient();
-  return (keys: readonly (readonly unknown[])[]) =>
-    Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
+  return (targets: readonly InvalidationTarget[]) =>
+    Promise.all(targets.map((t) => qc.invalidateQueries(invalidationFilters(t))));
+}
+
+/**
+ * The queries whose data an expense mutation can change: the group's
+ * expense list (including its paginated variants, matched by prefix), the
+ * group's balances and ledger, and the group list whose `yourNet` totals
+ * are derived from them.
+ *
+ * The group list is invalidated exactly: `["groups"]` is a prefix of every
+ * per-group key, so a non-exact match would refetch unrelated groups.
+ */
+export function expenseCacheKeys(groupId: string): InvalidationTarget[] {
+  return [
+    qk.expenses(groupId),
+    qk.balances(groupId),
+    qk.ledger(groupId),
+    { queryKey: qk.groups, exact: true },
+  ];
 }
 
 export function useCreateGroup() {
@@ -391,14 +426,11 @@ export function useCreateExpense(groupId: string) {
           : "Failed to create expense. Balances reverted."
       );
     },
-    // Refetch canonical data on settlement (success or error)
+    // Refetch canonical data on settlement (success or error) so the list,
+    // balances and ledger reflect the server's view — an optimistic entry
+    // is never left alongside the persisted one.
     onSettled: () => {
-      invalidate([
-        qk.expenses(groupId),
-        qk.balances(groupId),
-        qk.ledger(groupId),
-        qk.groups,
-      ]);
+      invalidate(expenseCacheKeys(groupId));
     },
   });
 }
@@ -407,13 +439,7 @@ export function useDeleteExpense(groupId: string) {
   const invalidate = useInvalidator();
   return useMutation({
     mutationFn: (expenseId: string) => api.deleteExpense(expenseId),
-    onSuccess: () =>
-      invalidate([
-        qk.expenses(groupId),
-        qk.balances(groupId),
-        qk.ledger(groupId),
-        qk.groups,
-      ]),
+    onSuccess: () => invalidate(expenseCacheKeys(groupId)),
   });
 }
 
