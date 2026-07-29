@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, ShieldCheck, Wallet, Zap } from "lucide-react";
+import { ArrowLeft, Loader2, ShieldCheck, Wallet, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
@@ -134,9 +134,19 @@ export default function LoginPage() {
               className="mt-7 w-full"
               size="lg"
               onClick={handleConnect}
-              loading={loading || authLoading}
+              disabled={loading || authLoading}
             >
-              <Wallet className="h-5 w-5" /> Connect Freighter
+              {loading || authLoading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Connecting...
+                </>
+              ) : (
+                <>
+                  <Wallet className="h-5 w-5" />
+                  Connect Freighter
+                </>
+              )}
             </Button>
 
             {hasFreighter === false && (
