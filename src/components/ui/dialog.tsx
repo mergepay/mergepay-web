@@ -49,11 +49,9 @@ export function Dialog({
           e.preventDefault();
           last.focus();
         }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
+      } else if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
       }
     },
     [getFocusableElements]
@@ -61,9 +59,7 @@ export function Dialog({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape" && dismissible) {
-        onClose();
-      }
+      if (e.key === "Escape" && dismissible) onClose();
       trapFocus(e);
     },
     [dismissible, onClose, trapFocus]
@@ -77,19 +73,13 @@ export function Dialog({
     window.addEventListener("keydown", handleKeyDown);
     requestAnimationFrame(() => {
       const focusable = getFocusableElements();
-      if (focusable.length > 0) {
-        focusable[0].focus();
-      }
+      if (focusable.length > 0) focusable[0].focus();
     });
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       dialogCount--;
-      if (dialogCount <= 0) {
-        document.body.style.overflow = "";
-      }
-      requestAnimationFrame(() => {
-        previousFocusRef.current?.focus();
-      });
+      if (dialogCount <= 0) document.body.style.overflow = "";
+      requestAnimationFrame(() => previousFocusRef.current?.focus());
     };
   }, [open, handleKeyDown, getFocusableElements]);
 
@@ -127,17 +117,14 @@ export function Dialog({
               <h2 className="font-display text-base uppercase tracking-tight">{title}</h2>
               <button
                 onClick={onClose}
+                disabled={!dismissible}
                 aria-label="Close dialog"
-                className="border-2 border-ink rounded-lg bg-cream p-1 shadow-brutal-sm hover:bg-flamingo transition-colors"
+                className="border-2 border-ink rounded-lg bg-cream p-1 shadow-brutal-sm hover:bg-flamingo transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-cream"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            {description && (
-              <div id="dialog-description" className="sr-only">
-                {description}
-              </div>
-            )}
+            {description && <div id="dialog-description" className="sr-only">{description}</div>}
             <div className="p-5">{children}</div>
           </motion.div>
         </motion.div>

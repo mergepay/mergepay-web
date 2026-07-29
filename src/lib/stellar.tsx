@@ -7,6 +7,7 @@
  * envelopes; the user's wallet signs them; the API submits and verifies.
  */
 
+import type { ReactNode } from "react";
 import {
   isConnected,
   requestAccess,
@@ -17,6 +18,8 @@ import { api } from "./api";
 import { useAuth } from "./auth-store";
 import { NETWORK_PASSPHRASE } from "./constants";
 import type { User } from "./types";
+
+export const FREIGHTER_INSTALL_URL = "https://freighter.app";
 
 /**
  * Code representing a wallet-side failure mode. Codes are stable strings —
@@ -40,7 +43,9 @@ export class WalletError extends Error {
 }
 
 export class WalletNotInstalledError extends WalletError {
-  constructor(message = "Freighter wallet not found. Install it from freighter.app and refresh.") {
+  constructor(
+    message = "Stellar Freighter extension not found. Please install it from freighter.app."
+  ) {
     super(message, "not_installed");
     this.name = "WalletNotInstalledError";
   }
@@ -67,11 +72,19 @@ export class WalletDisconnectedError extends WalletError {
   }
 }
 
+export class WalletNetworkError extends WalletError {
+  constructor(message = "Couldn't reach the wallet. Check Freighter and try again.") {
+    super(message, "network");
+    this.name = "WalletNetworkError";
+  }
+}
+
 // User-facing messages keyed by code. Processed before showing in the UI so
 // raw provider strings — which can include method/path error context — are
 // never rendered verbatim.
 const MESSAGE_BY_CODE: Record<WalletErrorCode, string> = {
-  not_installed: "Freighter wallet not found. Install it from freighter.app and refresh.",
+  not_installed:
+    "Stellar Freighter extension not found. Please install it from freighter.app.",
   locked: "Your Freighter wallet is locked. Unlock it and try again.",
   user_rejected: "You cancelled the request. No transaction was submitted.",
   disconnected: "Wallet connection was lost. Reconnect Freighter to continue.",
@@ -103,12 +116,19 @@ const DISCONNECTED_PATTERNS = [
   /account changed/i,
   /disconnected/i,
 ];
+const NETWORK_PATTERNS = [
+  /network/i,
+  /passphrase/i,
+  /couldn't reach/i,
+  /failed to fetch/i,
+];
 
-function classifyWalletMessage(raw: string): WalletErrorCode {
+export function classifyWalletMessage(raw: string): WalletErrorCode {
   const msg = raw.toLowerCase();
   if (REJECTED_PATTERNS.some((p) => p.test(msg))) return "user_rejected";
   if (LOCKED_PATTERNS.some((p) => p.test(msg))) return "locked";
   if (DISCONNECTED_PATTERNS.some((p) => p.test(msg))) return "disconnected";
+  if (NETWORK_PATTERNS.some((p) => p.test(msg))) return "network";
   return "unknown";
 }
 
@@ -122,6 +142,8 @@ function errorForCode(code: WalletErrorCode, fallbackMessage?: string): WalletEr
       return new UserRejectedError();
     case "disconnected":
       return new WalletDisconnectedError();
+    case "network":
+      return new WalletNetworkError();
     default:
       return new WalletError(
         fallbackMessage ?? MESSAGE_BY_CODE.unknown,
@@ -144,7 +166,11 @@ function extractError(result: Record<string, unknown>): string | undefined {
 function throwOnError(result: unknown): void {
   if (!isObject(result)) return;
   const msg = extractError(result);
-  if (msg) throw new WalletError(msg);
+  if (msg) {
+    const code = classifyWalletMessage(msg);
+    // Don't pass the raw msg to unknown error to avoid leaking internal details
+    throw errorForCode(code);
+  }
 }
 
 export async function isFreighterAvailable(): Promise<boolean> {
@@ -257,6 +283,20 @@ export async function signAndConfirmTreasuryTx(
   return api.confirmTreasuryTx(txId, { signedXdr });
 }
 
-// Re-export the helper so other modules (e.g. UI) can map codes to messages
-// without depending on internal classifier strings.
-export { classifyWalletMessage };
+/** User-friendly message with a link, shown when Freighter is not installed. */
+export function NotInstalledMessage(): ReactNode {
+  return (
+    <>
+      Stellar Freighter extension not found. Please{" "}
+      <a
+        href={FREIGHTER_INSTALL_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline"
+      >
+        install it
+      </a>{" "}
+      and refresh the page.
+    </>
+  );
+}

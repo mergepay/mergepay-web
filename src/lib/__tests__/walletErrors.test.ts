@@ -8,6 +8,7 @@ import {
   WalletLockedError,
   WalletNotInstalledError,
   walletMessage,
+  FREIGHTER_INSTALL_URL,
 } from "../stellar";
 
 describe("wallet error classifier (#87)", () => {
@@ -62,6 +63,22 @@ describe("wallet error classifier (#87)", () => {
     }
   });
 
+  it("classifies network errors", () => {
+    const samples = [
+      "Network error",
+      "Invalid network passphrase",
+      "Couldn't reach wallet",
+      "Failed to fetch",
+    ];
+    for (const s of samples) {
+      assert.equal(
+        classifyWalletMessage(s),
+        "network",
+        `expected network for "${s}"`
+      );
+    }
+  });
+
   it("falls back to unknown for unrecognized messages", () => {
     assert.equal(classifyWalletMessage("Something exploded"), "unknown");
     assert.equal(classifyWalletMessage(""), "unknown");
@@ -109,5 +126,11 @@ describe("WalletError subclasses (#87)", () => {
     ]) {
       assert.doesNotMatch(m, /private|secret|token|signedTxXdr|JWT/i);
     }
+  });
+});
+
+describe("FREIGHTER_INSTALL_URL", () => {
+  it("points to the official Freighter website", () => {
+    assert.equal(FREIGHTER_INSTALL_URL, "https://freighter.app");
   });
 });

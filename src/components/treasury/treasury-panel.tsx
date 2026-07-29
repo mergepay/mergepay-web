@@ -29,7 +29,12 @@ import {
   useTreasuryWithdraw,
 } from "@/lib/queries";
 import { api, ApiRequestError } from "@/lib/api";
-import { signAndConfirmTreasuryTx, WalletError } from "@/lib/stellar";
+import {
+  signAndConfirmTreasuryTx,
+  WalletError,
+  WalletNotInstalledError,
+  NotInstalledMessage,
+} from "@/lib/stellar";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import { fullDate } from "@/lib/format";
 import { validateAmount, normalizeAmount, exceedsBalance } from "@/lib/money";
@@ -388,7 +393,8 @@ function DepositDialog({
       onClose();
       setAmount("");
     } catch (e) {
-      if (e instanceof WalletError) toast.error(e.message);
+      if (e instanceof WalletNotInstalledError) toast.error(<NotInstalledMessage />);
+      else if (e instanceof WalletError) toast.error(e.message);
       else if (e instanceof ApiRequestError) toast.error(e.message);
       else toast.error("Deposit failed");
     } finally {
@@ -397,7 +403,7 @@ function DepositDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Deposit to treasury">
+    <Dialog open={open} onClose={onClose} title="Deposit to treasury" dismissible={!busy}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -421,11 +427,11 @@ function DepositDialog({
         </div>
         <FieldHint>You will sign this payment from your wallet to the treasury.</FieldHint>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" loading={busy} disabled={!amount}>
-            Sign & deposit
+          <Button type="submit" loading={busy} disabled={!amount || busy}>
+            Sign &amp; deposit
           </Button>
         </div>
       </form>
@@ -497,7 +503,8 @@ function WithdrawDialog({
       setAmount("");
       setDestination("");
     } catch (e) {
-      if (e instanceof WalletError) toast.error(e.message);
+      if (e instanceof WalletNotInstalledError) toast.error(<NotInstalledMessage />);
+      else if (e instanceof WalletError) toast.error(e.message);
       else if (e instanceof ApiRequestError) toast.error(e.message);
       else toast.error("Withdrawal failed");
     } finally {
@@ -506,7 +513,7 @@ function WithdrawDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Withdraw from treasury">
+    <Dialog open={open} onClose={onClose} title="Withdraw from treasury" dismissible={!busy}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -543,11 +550,11 @@ function WithdrawDialog({
           every required signer to approve.
         </FieldHint>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" loading={busy} disabled={!amount || !destination}>
-            Sign & withdraw
+          <Button type="submit" loading={busy} disabled={!amount || !destination || busy}>
+            Sign &amp; withdraw
           </Button>
         </div>
       </form>
