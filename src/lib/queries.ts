@@ -24,6 +24,9 @@ import type {
   UpdateMeRequest,
 } from "./types";
 import type { ExpensesPage } from "./expenses";
+import { mergeHistoryPages, type AccumulatedHistory } from "./expenses";
+import type { Expense, LedgerEntry, Settlement } from "./types";
+import type { HistoryResponse, LedgerResponse } from "./types";
 
 export const qk = {
   me: ["me"] as const,
@@ -161,6 +164,31 @@ export function useLedger(groupId: string) {
   });
 }
 
+/**
+ * Cursor-paginated ledger backed by GET /groups/:id/ledger.
+ *
+ * Use this for groups with many entries — loading the full dataset
+ * at once is slow and burns memory. The first call uses
+ * `options.limit` (default 20); each subsequent page uses the
+ * `nextCursor` returned by the server.
+ */
+export function useInfiniteLedger(
+  groupId: string,
+  options: { limit?: number } = {}
+) {
+  return useInfiniteQuery({
+    queryKey: [...qk.ledger(groupId), "page", options.limit ?? 20],
+    queryFn: ({ pageParam }) =>
+      api.getLedger(groupId, {
+        limit: options.limit,
+        cursor: pageParam as string | undefined,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
+  });
+}
+
 export function useTreasuryInfo(groupId: string, enabled: boolean) {
   return useQuery({
     queryKey: qk.treasury(groupId),
@@ -189,21 +217,6 @@ export function useAnchorSessions() {
   });
 }
 
-export function useHistory() {
-  return useQuery({ queryKey: qk.history, queryFn: () => api.history() });
-}
-
-/**
- * Cursor-paginated history backed by GET /history.
- *
- * Use this for users with many expenses and settlements — loading the
- * full dataset at once is slow and burns memory. The first call uses
- * `options.limit` (default 20); each subsequent page uses the
- * `nextCursor` returned by the server.
- *
- * Pages are accumulated and deduplicated by `id` so overlapping
- * responses never produce duplicate rows.
- */
 export function useInfiniteHistory(options: { limit?: number } = {}) {
   return useInfiniteQuery({
     queryKey: [...qk.history, "page", options.limit ?? 20],
@@ -216,6 +229,50 @@ export function useInfiniteHistory(options: { limit?: number } = {}) {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 30_000,
   });
+}
+
+/**
+ * Pure utility: merge all loaded history pages into a single accumulated
+ * view, deduplicating by id across pages.
+ */
+export function accumulateHistoryPages(
+  pages: HistoryResponse[] | undefined
+): AccumulatedHistory {
+  if (!pages) return { expenses: [], settlements: [] };
+  return pages.reduce(
+    (acc, page) =>
+      mergeHistoryPages(acc, {
+        expenses: page.expenses,
+        settlements: page.settlements,
+      }),
+    { expenses: [] as Expense[], settlements: [] as Settlement[] }
+  );
+}
+
+/**
+ * Pure utility: merge all loaded ledger pages into a single accumulated
+ * array, deduplicating by entry position.
+ */
+export function accumulateLedgerPages(
+  pages: LedgerResponse[] | undefined
+): LedgerEntry[] {
+  if (!pages) return [];
+  const seen = new Set<string>();
+  return pages.flatMap((page) =>
+    page.entries.filter((entry) => {
+      // Use the embedded id for stable deduplication across pages.
+      const id =
+        entry.type === "expense"
+          ? entry.expense.id
+          : entry.type === "settlement"
+            ? entry.settlement.id
+            : entry.treasuryTransaction.id;
+      const key = `${entry.type}-${id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+  );
 }
 
 /**
@@ -282,10 +339,45 @@ export function useSettlementStatus(settlementId: string | null, enabled = true)
 // Mutations
 // ---------------------------------------------------------------------------
 
+/**
+ * A query key to invalidate. React Query matches keys by prefix, so
+ * `exact` is available for keys that are a prefix of unrelated keys —
+ * `qk.groups` (`["groups"]`) otherwise sweeps every group-scoped query.
+ */
+export type InvalidationTarget =
+  | readonly unknown[]
+  | { queryKey: readonly unknown[]; exact?: boolean };
+
+/** Normalise an `InvalidationTarget` into React Query filters. */
+export function invalidationFilters(target: InvalidationTarget): {
+  queryKey: readonly unknown[];
+  exact?: boolean;
+} {
+  return "queryKey" in target ? target : { queryKey: target };
+}
+
 function useInvalidator() {
   const qc = useQueryClient();
-  return (keys: readonly (readonly unknown[])[]) =>
-    Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
+  return (targets: readonly InvalidationTarget[]) =>
+    Promise.all(targets.map((t) => qc.invalidateQueries(invalidationFilters(t))));
+}
+
+/**
+ * The queries whose data an expense mutation can change: the group's
+ * expense list (including its paginated variants, matched by prefix), the
+ * group's balances and ledger, and the group list whose `yourNet` totals
+ * are derived from them.
+ *
+ * The group list is invalidated exactly: `["groups"]` is a prefix of every
+ * per-group key, so a non-exact match would refetch unrelated groups.
+ */
+export function expenseCacheKeys(groupId: string): InvalidationTarget[] {
+  return [
+    qk.expenses(groupId),
+    qk.balances(groupId),
+    qk.ledger(groupId),
+    { queryKey: qk.groups, exact: true },
+  ];
 }
 
 export function useCreateGroup() {
@@ -416,15 +508,11 @@ export function useCreateExpense(groupId: string) {
           : "Failed to create expense. Balances reverted."
       );
     },
-    // Refetch canonical data on settlement (success or error)
+    // Refetch canonical data on settlement (success or error) so the list,
+    // balances and ledger reflect the server's view — an optimistic entry
+    // is never left alongside the persisted one.
     onSettled: () => {
-      invalidate([
-        qk.expenses(groupId),
-        qk.balances(groupId),
-        qk.ledger(groupId),
-        qk.groups,
-        qk.history,
-      ]);
+      invalidate(expenseCacheKeys(groupId));
     },
   });
 }
@@ -433,14 +521,7 @@ export function useDeleteExpense(groupId: string) {
   const invalidate = useInvalidator();
   return useMutation({
     mutationFn: (expenseId: string) => api.deleteExpense(expenseId),
-    onSuccess: () =>
-      invalidate([
-        qk.expenses(groupId),
-        qk.balances(groupId),
-        qk.ledger(groupId),
-        qk.groups,
-        qk.history,
-      ]),
+    onSuccess: () => invalidate(expenseCacheKeys(groupId)),
   });
 }
 
