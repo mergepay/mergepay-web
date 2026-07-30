@@ -43,3 +43,7 @@ thread, and link your PR to the issue (`Closes #NN`).
 ## Commit messages
 
 Conventional-ish prefixes: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`.
+
+<!-- ## Commit messages
+
+Conventional-ish prefixes: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`. -->
