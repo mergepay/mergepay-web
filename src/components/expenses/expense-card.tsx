@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { SettleDialog, type SettleTarget } from "@/components/settle/settle-dialog";
 import { useDeleteExpense } from "@/lib/queries";
 import { ApiRequestError } from "@/lib/api";
-import { timeAgo } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 import type { Expense, GroupMember } from "@/lib/types";
 
 export function ExpenseCard({
@@ -77,7 +77,8 @@ export function ExpenseCard({
           </div>
           <p className="text-xs text-ink/50">
             {expense.payer.displayName}
-            {isPayer && " (you)"} paid · {timeAgo(expense.createdAt)} ·{" "}
+            {isPayer && " (you)"} paid ·{" "}
+            <Timestamp value={expense.createdAt} mode="relative" prefix="Paid" /> ·{" "}
             <span className="capitalize">{expense.splitType}</span>
           </p>
         </div>
