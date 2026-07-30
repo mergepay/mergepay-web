@@ -5,10 +5,11 @@ import {
   decodeCursor,
   encodeCursor,
   fetchExpensesPage,
+  mergeHistoryPages,
   parseExpensesQuery,
   sortExpensesByDateDesc,
 } from "../expenses";
-import type { Expense } from "../types";
+import type { Expense, Settlement } from "../types";
 
 function makeExpense(id: string, createdAt: string): Expense {
   return {
@@ -228,7 +229,7 @@ describe("fetchExpensesPage", () => {
     );
   });
 
-  /**
+/**
    * Walks the pagination contract end-to-end: drive `fetchExpensesPage`
    * with a stateful stub that hands out pages until `nextCursor` is
    * null, and verify the upstream requests carry the cursor forward
@@ -336,5 +337,173 @@ describe("fetchExpensesPage", () => {
       walked.map((e) => e.id),
       all.map((e) => e.id)
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// History pagination helpers
+// ---------------------------------------------------------------------------
+
+function makeSettlement(
+  id: string,
+  createdAt: string,
+  fromName = "Alice",
+  toName = "Bob"
+): Settlement {
+  return {
+    id,
+    groupId: "group-1",
+    fromUserId: "user-1",
+    from: {
+      id: "user-1",
+      displayName: fromName,
+      stellarPublicKey: "G1...",
+      avatarUrl: null,
+      createdAt: "2026-01-01",
+    },
+    toUserId: "user-2",
+    to: {
+      id: "user-2",
+      displayName: toName,
+      stellarPublicKey: "G2...",
+      avatarUrl: null,
+      createdAt: "2026-01-01",
+    },
+    amount: "10",
+    assetCode: "XLM",
+    assetIssuer: null,
+    stellarTxHash: null,
+    status: "confirmed",
+    memo: null,
+    expenseId: null,
+    createdAt,
+  };
+}
+
+describe("mergeHistoryPages", () => {
+  it("accumulates expenses and settlements from a second page", () => {
+    const acc = {
+      expenses: [makeExpense("e-1", "2026-07-01T00:00:00.000Z")],
+      settlements: [makeSettlement("s-1", "2026-07-01T00:00:00.000Z")],
+    };
+    const page = {
+      expenses: [makeExpense("e-2", "2026-07-02T00:00:00.000Z")],
+      settlements: [makeSettlement("s-2", "2026-07-02T00:00:00.000Z")],
+    };
+    const merged = mergeHistoryPages(acc, page);
+    assert.equal(merged.expenses.length, 2);
+    assert.equal(merged.settlements.length, 2);
+    // Newest first
+    assert.equal(merged.expenses[0]?.id, "e-2");
+    assert.equal(merged.settlements[0]?.id, "s-2");
+  });
+
+  it("deduplicates overlapping expense ids", () => {
+    const acc = {
+      expenses: [makeExpense("e-1", "2026-07-01T00:00:00.000Z")],
+      settlements: [],
+    };
+    const page = {
+      expenses: [
+        makeExpense("e-1", "2026-07-01T00:00:00.000Z"),
+        makeExpense("e-2", "2026-07-02T00:00:00.000Z"),
+      ],
+      settlements: [],
+    };
+    const merged = mergeHistoryPages(acc, page);
+    assert.equal(merged.expenses.length, 2);
+    assert.equal(merged.expenses[0]?.id, "e-2");
+    assert.equal(merged.expenses[1]?.id, "e-1");
+  });
+
+  it("deduplicates overlapping settlement ids", () => {
+    const acc = {
+      expenses: [],
+      settlements: [makeSettlement("s-1", "2026-07-01T00:00:00.000Z")],
+    };
+    const page = {
+      expenses: [],
+      settlements: [
+        makeSettlement("s-1", "2026-07-01T00:00:00.000Z"),
+        makeSettlement("s-2", "2026-07-02T00:00:00.000Z"),
+      ],
+    };
+    const merged = mergeHistoryPages(acc, page);
+    assert.equal(merged.settlements.length, 2);
+    assert.equal(merged.settlements[0]?.id, "s-2");
+    assert.equal(merged.settlements[1]?.id, "s-1");
+  });
+
+  it("starts from empty accumulator gracefully", () => {
+    const page = {
+      expenses: [makeExpense("e-1", "2026-07-01T00:00:00.000Z")],
+      settlements: [makeSettlement("s-1", "2026-07-01T00:00:00.000Z")],
+    };
+    const merged = mergeHistoryPages(
+      { expenses: [], settlements: [] },
+      page
+    );
+    assert.equal(merged.expenses.length, 1);
+    assert.equal(merged.settlements.length, 1);
+  });
+
+  it("handles empty pages", () => {
+    const acc = {
+      expenses: [makeExpense("e-1", "2026-07-01T00:00:00.000Z")],
+      settlements: [makeSettlement("s-1", "2026-07-01T00:00:00.000Z")],
+    };
+    const merged = mergeHistoryPages(acc, {
+      expenses: [],
+      settlements: [],
+    });
+    assert.equal(merged.expenses.length, 1);
+    assert.equal(merged.settlements.length, 1);
+  });
+
+  it("sorts expenses newest-first across pages", () => {
+    const acc = {
+      expenses: [makeExpense("e-1", "2026-07-01T00:00:00.000Z")],
+      settlements: [],
+    };
+    const page = {
+      expenses: [makeExpense("e-2", "2026-06-30T00:00:00.000Z")],
+      settlements: [],
+    };
+    const merged = mergeHistoryPages(acc, page);
+    assert.equal(merged.expenses.length, 2);
+    assert.equal(merged.expenses[0]?.id, "e-1");
+    assert.equal(merged.expenses[1]?.id, "e-2");
+  });
+
+  it("sorts settlements newest-first across pages", () => {
+    const acc = {
+      expenses: [],
+      settlements: [makeSettlement("s-1", "2026-07-01T00:00:00.000Z")],
+    };
+    const page = {
+      expenses: [],
+      settlements: [makeSettlement("s-2", "2026-07-02T00:00:00.000Z")],
+    };
+    const merged = mergeHistoryPages(acc, page);
+    assert.equal(merged.settlements.length, 2);
+    assert.equal(merged.settlements[0]?.id, "s-2");
+    assert.equal(merged.settlements[1]?.id, "s-1");
+  });
+
+  it("keeps stable order for equal timestamps", () => {
+    const sameTime = "2026-07-01T00:00:00.000Z";
+    const acc = {
+      expenses: [makeExpense("e-first", sameTime)],
+      settlements: [],
+    };
+    const page = {
+      expenses: [makeExpense("e-second", sameTime)],
+      settlements: [],
+    };
+    const merged = mergeHistoryPages(acc, page);
+    assert.equal(merged.expenses.length, 2);
+    // Original order preserved for ties (stable sort)
+    assert.equal(merged.expenses[0]?.id, "e-first");
+    assert.equal(merged.expenses[1]?.id, "e-second");
   });
 });
