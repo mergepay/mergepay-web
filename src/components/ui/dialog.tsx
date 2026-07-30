@@ -229,7 +229,7 @@ export function Dialog({
                 onClick={onClose}
                 disabled={!dismissible}
                 aria-label={`Close ${title}`}
-                className="border-2 border-ink rounded-lg bg-cream p-1 shadow-brutal-sm hover:bg-flamingo transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-cream"
+                className="border-2 border-ink rounded-lg bg-cream p-1 shadow-brutal-sm hover:bg-flamingo transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-cream focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
               >
                 <X className="h-4 w-4" />
               </button>
