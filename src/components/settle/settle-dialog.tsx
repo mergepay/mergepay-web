@@ -10,6 +10,7 @@ import { Money } from "@/components/amount";
 import { AssetBadge } from "@/components/asset-badge";
 import { TxLink } from "@/components/tx-link";
 import { api, ApiRequestError } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
 import { signXdr, WalletError, WalletErrorCode, NotInstalledMessage } from "@/lib/stellar";
 import { useConfirmSettlement, useSettlementStatus } from "@/lib/queries";
 import { validateSettlementInput } from "@/lib/paymentValidation";
@@ -82,7 +83,7 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
     open={open}
     onClose={close}
     title={target.label}
-    description={`Send ${target.amount} ${target.assetCode} to ${target.to.displayName}. You sign the payment in your wallet; Mergepay never holds your keys.`}
+    description={`Send ${formatMoney(target.amount, target.assetCode)} to ${target.to.displayName}. You sign the payment in your wallet; Mergepay never holds your keys.`}
     dismissible={!transactionInFlight}
   >
     <div className="space-y-5">

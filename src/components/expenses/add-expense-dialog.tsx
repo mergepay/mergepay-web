@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Upload, AlertTriangle } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label, Select, FieldHint, FormError } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
+import { Money } from "@/components/amount";
+import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { shouldBlockExpenseSubmit, useCreateExpense } from "@/lib/queries";
 import {
@@ -356,9 +358,11 @@ export function AddExpenseDialog({
                     )}
                   </span>
                   {on && splitType === "equal" && (
-                    <span className="font-mono text-xs text-ink/60">
-                      {equalShare.toFixed(2)}
-                    </span>
+                    <Money
+                      value={equalShare}
+                      assetCode={asset.code}
+                      className="text-xs font-normal text-ink/60"
+                    />
                   )}
                   {on && splitType === "custom" && (
                     <Input
@@ -401,7 +405,8 @@ export function AddExpenseDialog({
           )}
           {splitType === "custom" && (
             <FieldHint>
-              Sum: {customSum.toFixed(2)} / {total.toFixed(2)}{" "}
+              Sum: {formatMoney(customSum, asset.code)} /{" "}
+              {formatMoney(total, asset.code)}{" "}
               {validationErrors?.custom ? (
                 <span className="text-flamingo font-bold">· {validationErrors.custom}</span>
               ) : (
