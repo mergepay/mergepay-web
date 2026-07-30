@@ -101,13 +101,17 @@ export function filterUnsettledShares(
 }
 
 /**
- * Validate that every selected share resolves to the same recipient — i.e.
- * the same `payerUserId`. This is the constraint called for by issue #31
- * ("same payer to same recipient") and what makes a single batched Stellar
- * payment well-defined.
+ * Validate that every selected share resolves to the same settlement recipient.
  *
- * Returns `null` on success, otherwise a structured error with a user-facing
- * message.
+ * In Mergepay's data model the original `Expense.payerUserId` and the
+ * `Settlement.toUserId` are the same user — the debtor (the caller) is
+ * settling their share *to* the person who originally paid the bill.
+ * Enforcing "all `payerUserId`s are equal" is therefore exactly the
+ * "all selected expenses go to the same recipient" constraint called for
+ * by issue #31.
+ *
+ * Returns `null` on success, otherwise a structured error with a
+ * user-facing message safe to render in the bulk-settle bar/dialog.
  */
 export function validateSameRecipient(
   selected: UnsettledShare[]

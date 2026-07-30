@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it } from "node:test";
+import * as assert from "node:assert/strict";
 import {
   estimateBulkFee,
   filterUnsettledShares,
@@ -23,13 +24,22 @@ const alice = user("user-alice", "Alice");
 const bob = user("user-bob", "Bob");
 const charlie = user("user-charlie", "Charlie");
 
-type ShareInput = Partial<ExpenseShare> & { userId: string; status: ExpenseShare["status"]; shareAmount: string };
+type ShareInput = Partial<ExpenseShare> & {
+  userId: string;
+  status: ExpenseShare["status"];
+  shareAmount: string;
+};
 
 function share(s: ShareInput): ExpenseShare {
   return {
     id: `share-${s.userId}-${Math.random()}`,
     expenseId: "expense-x",
-    user: s.userId === alice.id ? alice : s.userId === bob.id ? bob : charlie,
+    user:
+      s.userId === alice.id
+        ? alice
+        : s.userId === bob.id
+          ? bob
+          : charlie,
     shareAmount: s.shareAmount,
     status: s.status,
     userId: s.userId,
@@ -114,13 +124,19 @@ describe("filterUnsettledShares", () => {
       }),
     ];
     const result = filterUnsettledShares(expenses, alice.id);
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      expenseId: "exp-1",
-      payerUserId: bob.id,
-      payer: bob,
-      amount: "50.0000000",
-    });
+    assert.strictEqual(result.length, 1);
+    // Subset match (toMatchObject equivalent): extract only the fields the
+    // original assertion checked so deepStrictEqual holds even though
+    // UnsettledShare has more fields.
+    assert.deepStrictEqual(
+      {
+        expenseId: result[0].expenseId,
+        payerUserId: result[0].payerUserId,
+        payer: result[0].payer,
+        amount: result[0].amount,
+      },
+      { expenseId: "exp-1", payerUserId: bob.id, payer: bob, amount: "50.0000000" }
+    );
   });
 
   it("excludes expenses where the current user is the payer", () => {
@@ -133,7 +149,7 @@ describe("filterUnsettledShares", () => {
         myStatus: "pending",
       }),
     ];
-    expect(filterUnsettledShares(expenses, alice.id)).toEqual([]);
+    assert.deepStrictEqual(filterUnsettledShares(expenses, alice.id), []);
   });
 
   it("excludes already-settled shares", () => {
@@ -154,8 +170,8 @@ describe("filterUnsettledShares", () => {
       }),
     ];
     const result = filterUnsettledShares(expenses, alice.id);
-    expect(result).toHaveLength(1);
-    expect(result[0].expenseId).toBe("exp-2");
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].expenseId, "exp-2");
   });
 
   it("excludes expenses with no share for the current user", () => {
@@ -164,12 +180,20 @@ describe("filterUnsettledShares", () => {
         id: "no-share",
         payerUserId: bob.id,
         shares: [
-          share({ userId: bob.id, shareAmount: "100.0000000", status: "pending" }),
-          share({ userId: charlie.id, shareAmount: "100.0000000", status: "pending" }),
+          share({
+            userId: bob.id,
+            shareAmount: "100.0000000",
+            status: "pending",
+          }),
+          share({
+            userId: charlie.id,
+            shareAmount: "100.0000000",
+            status: "pending",
+          }),
         ],
       }),
     ];
-    expect(filterUnsettledShares(expenses, alice.id)).toEqual([]);
+    assert.deepStrictEqual(filterUnsettledShares(expenses, alice.id), []);
   });
 
   it("treats 'settling' status as still unsettleable", () => {
@@ -182,7 +206,7 @@ describe("filterUnsettledShares", () => {
         myStatus: "settling",
       }),
     ];
-    expect(filterUnsettledShares(expenses, alice.id)).toHaveLength(1);
+    assert.strictEqual(filterUnsettledShares(expenses, alice.id).length, 1);
   });
 });
 
@@ -192,7 +216,12 @@ describe("validateSameRecipient", () => {
       expenseId: `e-${payerUserId}-${Math.random()}`,
       expenseTitle: `t-${payerUserId}`,
       payerUserId,
-      payer: payerUserId === alice.id ? alice : payerUserId === bob.id ? bob : charlie,
+      payer:
+        payerUserId === alice.id
+          ? alice
+          : payerUserId === bob.id
+            ? bob
+            : charlie,
       amount: "1.0000000",
       assetCode: "XLM",
       assetIssuer: null,
@@ -205,20 +234,20 @@ describe("validateSameRecipient", () => {
       makeShare(bob.id),
       makeShare(bob.id),
     ];
-    expect(validateSameRecipient(selected)).toBeNull();
+    assert.strictEqual(validateSameRecipient(selected), null);
   });
 
   it("rejects with mismatched_recipient when payers differ", () => {
     const selected = [makeShare(bob.id), makeShare(charlie.id)];
     const err = validateSameRecipient(selected);
-    expect(err).not.toBeNull();
-    expect(err?.code).toBe("mismatched_recipient");
-    expect(err?.message).toMatch(/same recipient/i);
+    assert.ok(err !== null);
+    assert.strictEqual(err?.code, "mismatched_recipient");
+    assert.match(err?.message ?? "", /same recipient/i);
   });
 
   it("rejects with no_selection when selection is empty", () => {
     const err = validateSameRecipient([]);
-    expect(err?.code).toBe("no_selection");
+    assert.strictEqual(err?.code, "no_selection");
   });
 });
 
@@ -236,37 +265,52 @@ describe("sumSelectedAmounts", () => {
   }
 
   it("sums integer stroops exactly with no rounding", () => {
-    expect(sumSelectedAmounts([makeShare("33.3333333"), makeShare("33.3333333"), makeShare("33.3333334")]))
-      .toBe("100.0000000");
+    assert.strictEqual(
+      sumSelectedAmounts([
+        makeShare("33.3333333"),
+        makeShare("33.3333333"),
+        makeShare("33.3333334"),
+      ]),
+      "100.0000000"
+    );
   });
 
   it("returns 0.0000000 for an empty selection", () => {
-    expect(sumSelectedAmounts([])).toBe("0.0000000");
+    assert.strictEqual(sumSelectedAmounts([]), "0.0000000");
   });
 
   it("handles a single share", () => {
-    expect(sumSelectedAmounts([makeShare("42.5000000")])).toBe("42.5000000");
+    assert.strictEqual(sumSelectedAmounts([makeShare("42.5000000")]), "42.5000000");
   });
 });
 
 describe("estimateBulkFee", () => {
   it("adds 100 stroops for envelope + 100 stroops per payment", () => {
     // 1 op → 200 stroops
-    expect(estimateBulkFee(1)).toBe("0.0000200");
+    assert.strictEqual(estimateBulkFee(1), "0.0000200");
     // 5 ops → 600 stroops
-    expect(estimateBulkFee(5)).toBe("0.0000600");
-    // 0 ops → 1 (clamped)
-    expect(estimateBulkFee(0)).toBe("0.0000200");
+    assert.strictEqual(estimateBulkFee(5), "0.0000600");
+    // 0 ops → clamped to 1
+    assert.strictEqual(estimateBulkFee(0), "0.0000200");
   });
 });
 
 describe("buildBulkTarget", () => {
-  function makeShare(payerUserId: string, amount: string, id: string): UnsettledShare {
+  function makeShare(
+    payerUserId: string,
+    amount: string,
+    id: string
+  ): UnsettledShare {
     return {
       expenseId: id,
       expenseTitle: id,
       payerUserId,
-      payer: payerUserId === alice.id ? alice : payerUserId === bob.id ? bob : charlie,
+      payer:
+        payerUserId === alice.id
+          ? alice
+          : payerUserId === bob.id
+            ? bob
+            : charlie,
       amount,
       assetCode: "XLM",
       assetIssuer: null,
@@ -279,8 +323,8 @@ describe("buildBulkTarget", () => {
       makeShare(charlie.id, "20.0000000", "e2"),
     ];
     const { target, error } = buildBulkTarget(selected);
-    expect(target).toBeNull();
-    expect(error?.code).toBe("mismatched_recipient");
+    assert.strictEqual(target, null);
+    assert.strictEqual(error?.code, "mismatched_recipient");
   });
 
   it("returns a valid BulkSettleTarget when selection is uniform", () => {
@@ -289,10 +333,10 @@ describe("buildBulkTarget", () => {
       makeShare(bob.id, "5.2500000", "e2"),
     ];
     const { target, error } = buildBulkTarget(selected);
-    expect(error).toBeNull();
-    expect(target).not.toBeNull();
-    expect(target?.expenseIds).toEqual(["e1", "e2"]);
-    expect(target?.amount).toBe("15.7500000");
-    expect(target?.to.displayName).toBe("Bob");
+    assert.strictEqual(error, null);
+    assert.ok(target !== null);
+    assert.deepStrictEqual(target?.expenseIds, ["e1", "e2"]);
+    assert.strictEqual(target?.amount, "15.7500000");
+    assert.strictEqual(target?.to.displayName, "Bob");
   });
 });

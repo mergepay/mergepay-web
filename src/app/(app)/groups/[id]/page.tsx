@@ -20,6 +20,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
 import { ExpenseCard } from "@/components/expenses/expense-card";
+import { SettleDialog, type BulkSettleTarget } from "@/components/settle/settle-dialog";
+import { BulkSettleBar } from "@/components/settle/bulk-settle-bar";
+import { buildBulkTarget, type UnsettledShare } from "@/lib/bulkSettle";
 import { BalancesPanel } from "@/components/balances/balances-panel";
 import { LedgerPanel } from "@/components/ledger/ledger-panel";
 import { TreasuryPanel } from "@/components/treasury/treasury-panel";
@@ -184,6 +187,40 @@ function ExpensesTab({
   members: GroupMember[];
   onAdd: () => void;
 }) {
+  // Bulk-settle selection state. Kept local to this tab so leaving the
+  // expenses tab (e.g. to balances) automatically drops the selection.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkTarget, setBulkTarget] = useState<BulkSettleTarget | null>(null);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds([]);
+  }
+  function openBulkDialog(shares: UnsettledShare[]) {
+    // Mirror the bar's own validation, but build the dialog-bound target
+    // so the receipt can list per-expense rows by their on-page title.
+    const { target, error } = buildBulkTarget(shares);
+    if (error || !target) return;
+    const titleById = new Map(expenses.map((e) => [e.id, e.title]));
+    setBulkTarget({
+      ...target,
+      rows: target.expenseIds.map((id) => ({
+        expenseId: id,
+        title: titleById.get(id) ?? id,
+        amount:
+          shares.find((s) => s.expenseId === id)?.amount ?? "0.0000000",
+      })),
+    });
+    setBulkOpen(true);
+  }
+
   const { data, isLoading, isError, error, refetch } = useExpenses(groupId);
 
   const status = resolveSectionStatus({
