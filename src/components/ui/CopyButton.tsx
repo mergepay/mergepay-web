@@ -24,7 +24,7 @@ export default function CopyButton({
   return (
     <button
       type="button"
-      aria-label="Copy address"
+      aria-label={`Copy ${label || "to clipboard"}`}
       onClick={async () => {
         await navigator.clipboard.writeText(text);
         setCopied(true);
