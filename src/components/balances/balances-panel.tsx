@@ -13,7 +13,18 @@ import {
   suggestionToTarget,
   type SettleTarget,
 } from "@/components/settle/settle-dialog";
+import {
+  QueryErrorState,
+  RefreshingBadge,
+  StaleDataNotice,
+} from "@/components/ui/query-state";
 import { useBalances } from "@/lib/queries";
+import {
+  resolveQueryView,
+  showsErrorPanel,
+  showsRefreshHint,
+  showsSkeleton,
+} from "@/lib/queryState";
 
 export function BalancesPanel({
   groupId,
@@ -22,38 +33,59 @@ export function BalancesPanel({
   groupId: string;
   currentUserId: string;
 }) {
-  const { data, isLoading, isError, refetch } = useBalances(groupId);
+  const balancesQuery = useBalances(groupId);
+  const { data } = balancesQuery;
   const [target, setTarget] = useState<SettleTarget | null>(null);
 
-  if (isLoading) return <ListSkeleton rows={3} />;
+  const balances = data?.balances ?? [];
+  const suggestions = data?.suggestions ?? [];
 
-  if (isError) {
+  const view = resolveQueryView({
+    status: balancesQuery.status,
+    fetchStatus: balancesQuery.fetchStatus,
+    hasData: data !== undefined,
+    isEmpty: balances.length === 0,
+    isPlaceholder: balancesQuery.isPlaceholderData,
+    enabled: balancesQuery.isEnabled,
+  });
+
+  // Never render a settled-up verdict from data we do not have — an empty
+  // balances array during loading or after a failure is not "everyone's square".
+  if (showsSkeleton(view)) return <ListSkeleton rows={3} />;
+
+  if (showsErrorPanel(view)) {
     return (
-      <EmptyState
-        icon={<HandCoins className="h-7 w-7 text-red-500" />}
-        title="Error loading balances"
-        description="We couldn't load the net balances for this group."
-        action={
-          <Button onClick={() => refetch()} variant="outline">
-            Retry
-          </Button>
-        }
+      <QueryErrorState
+        icon={<HandCoins className="h-6 w-6" />}
+        title="Couldn't load balances"
+        description="The request didn't get through, so we can't show who owes what yet. Try again in a moment."
+        onRetry={() => balancesQuery.refetch()}
+        retrying={balancesQuery.isFetching}
       />
     );
   }
 
-  const balances = data?.balances ?? [];
-  const suggestions = data?.suggestions ?? [];
   const allSettled = balances.every(
     (b) => Math.abs(parseFloat(b.net)) < 0.0000001
   );
 
   return (
     <div className="space-y-6">
+      {view === "stale-error" && (
+        <StaleDataNotice
+          onRetry={() => balancesQuery.refetch()}
+          retrying={balancesQuery.isFetching}
+        >
+          Showing the balances we loaded earlier — the latest refresh failed.
+        </StaleDataNotice>
+      )}
       <div>
-        <h3 className="mb-3 font-display text-sm uppercase tracking-widest text-ink/60">
-          Net balances
-        </h3>
+        <div className="mb-3 flex items-center gap-2">
+          <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
+            Net balances
+          </h3>
+          <RefreshingBadge show={showsRefreshHint(view)} />
+        </div>
         {balances.length === 0 ? (
           <EmptyState
             icon={<HandCoins className="h-7 w-7" />}

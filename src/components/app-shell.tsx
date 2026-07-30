@@ -18,6 +18,7 @@ import { Logo, LogoMark } from "./logo";
 import { Avatar } from "./ui/avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { useWalletScopedCache } from "@/lib/queries";
 import { shortKey } from "@/lib/format";
 
 const NAV = [
@@ -33,6 +34,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Group content must never survive a switch to a different wallet.
+  useWalletScopedCache();
 
   async function handleLogout() {
     await logout();

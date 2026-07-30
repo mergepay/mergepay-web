@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useGroupStore } from "@/lib/group-store";
+import { ApiRequestError } from "@/lib/api";
 import {
   Landmark,
   Plus,
@@ -23,15 +24,28 @@ import { BalancesPanel } from "@/components/balances/balances-panel";
 import { LedgerPanel } from "@/components/ledger/ledger-panel";
 import { TreasuryPanel } from "@/components/treasury/treasury-panel";
 import { MembersPanel } from "@/components/groups/members-panel";
+import {
+  QueryErrorState,
+  RefreshingBadge,
+  StaleDataNotice,
+} from "@/components/ui/query-state";
 import { useExpenses, useGroup, useMe } from "@/lib/queries";
+import {
+  resolveQueryView,
+  showsEmptyState,
+  showsErrorPanel,
+  showsRefreshHint,
+  showsSkeleton,
+} from "@/lib/queryState";
 import { sortExpensesByDateDesc } from "@/lib/expenses";
 
 type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
 
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: me, isError: isMeError, error: meError } = useMe();
-  const { data: detail, isLoading, isError } = useGroup(id);
+  const me = useMe();
+  const groupQuery = useGroup(id);
+  const { data: detail } = groupQuery;
   const [tab, setTab] = useState<Tab>("expenses");
   const [addOpen, setAddOpen] = useState(false);
   const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
@@ -40,13 +54,14 @@ export default function GroupDetailPage() {
     setSelectedGroup(id);
   }, [id, setSelectedGroup]);
 
-  if (isMeError) {
-    throw meError || new Error("Failed to load user information");
-  }
+  const currentUserId = me.data?.user.id ?? "";
 
-  const currentUserId = me?.user.id ?? "";
+  // A 404 is a different situation from a failed request: one is not
+  // recoverable by retrying, the other is.
+  const notFound =
+    groupQuery.error instanceof ApiRequestError && groupQuery.error.status === 404;
 
-  if (isError) {
+  if (groupQuery.isError && notFound) {
     return (
       <EmptyState
         icon={<Users className="h-7 w-7" />}
@@ -61,7 +76,19 @@ export default function GroupDetailPage() {
     );
   }
 
-  if (isLoading || !detail) {
+  if (groupQuery.isError && !detail) {
+    return (
+      <QueryErrorState
+        icon={<Users className="h-6 w-6" />}
+        title="Couldn't load this group"
+        description="The request didn't get through. Check your connection and try again."
+        onRetry={() => groupQuery.refetch()}
+        retrying={groupQuery.isFetching}
+      />
+    );
+  }
+
+  if (!detail) {
     return (
       <>
         <div className="mb-8 h-10 w-48 animate-pulse rounded-xl bg-ink/10" />
@@ -145,27 +172,34 @@ function ExpensesTab({
   members: import("@/lib/types").GroupMember[];
   onAdd: () => void;
 }) {
-  const { data, isLoading, isError, refetch } = useExpenses(groupId);
+  const expensesQuery = useExpenses(groupId);
+  const { data } = expensesQuery;
+  const expenses = sortExpensesByDateDesc(data?.expenses ?? []);
 
-  if (isLoading) return <ListSkeleton rows={4} />;
+  const view = resolveQueryView({
+    status: expensesQuery.status,
+    fetchStatus: expensesQuery.fetchStatus,
+    hasData: data !== undefined,
+    isEmpty: expenses.length === 0,
+    isPlaceholder: expensesQuery.isPlaceholderData,
+    enabled: expensesQuery.isEnabled,
+  });
 
-  if (isError) {
+  if (showsSkeleton(view)) return <ListSkeleton rows={4} />;
+
+  if (showsErrorPanel(view)) {
     return (
-      <EmptyState
-        icon={<Receipt className="h-7 w-7 text-red-500" />}
-        title="Error loading expenses"
-        description="We couldn't load the expenses for this group."
-        action={
-          <Button onClick={() => refetch()} variant="outline">
-            Retry
-          </Button>
-        }
+      <QueryErrorState
+        icon={<Receipt className="h-6 w-6" />}
+        title="Couldn't load expenses"
+        description="The request didn't get through. Your expenses are safe — try again in a moment."
+        onRetry={() => expensesQuery.refetch()}
+        retrying={expensesQuery.isFetching}
       />
     );
   }
 
-  const expenses = sortExpensesByDateDesc(data?.expenses ?? []);
-  if (expenses.length === 0) {
+  if (showsEmptyState(view)) {
     return (
       <EmptyState
         icon={<Receipt className="h-7 w-7" />}
@@ -182,6 +216,19 @@ function ExpensesTab({
 
   return (
     <div className="space-y-3">
+      {view === "stale-error" && (
+        <StaleDataNotice
+          onRetry={() => expensesQuery.refetch()}
+          retrying={expensesQuery.isFetching}
+        >
+          Showing the expenses we loaded earlier — the latest refresh failed.
+        </StaleDataNotice>
+      )}
+      {showsRefreshHint(view) && (
+        <div className="flex justify-end">
+          <RefreshingBadge show />
+        </div>
+      )}
       {expenses.map((e) => (
         <ExpenseCard
           key={e.id}
