@@ -283,7 +283,6 @@ export async function signAndConfirmTreasuryTx(
   return api.confirmTreasuryTx(txId, { signedXdr });
 }
 
-
 /** User-friendly message with a link, shown when Freighter is not installed. */
 export function NotInstalledMessage(): ReactNode {
   return (

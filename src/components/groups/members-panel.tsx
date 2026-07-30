@@ -12,7 +12,7 @@ import { PubkeyChip } from "@/components/tx-link";
 import { InviteDialog } from "./invite-dialog";
 import { useArchiveGroup, useLeaveGroup } from "@/lib/queries";
 import { ApiRequestError } from "@/lib/api";
-import { timeAgo } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 import type { GroupDetail } from "@/lib/types";
 
 export function MembersPanel({
@@ -72,7 +72,10 @@ export function MembersPanel({
                     <span className="ml-1 text-ink/40">(you)</span>
                   )}
                 </p>
-                <p className="text-xs text-ink/50">joined {timeAgo(m.joinedAt)}</p>
+                <p className="text-xs text-ink/50">
+                  joined{" "}
+                  <Timestamp value={m.joinedAt} mode="relative" prefix="Joined" />
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">

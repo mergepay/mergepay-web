@@ -19,6 +19,7 @@ import { AssetBadge } from "@/components/asset-badge";
 import { PubkeyChip, TxLink } from "@/components/tx-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar } from "@/components/ui/avatar";
 import { StrKey } from "@/lib/strkey";
 import {
   useEnableTreasury,
@@ -35,7 +36,7 @@ import {
   NotInstalledMessage,
 } from "@/lib/stellar";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
-import { fullDate } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 import { validateAmount, normalizeAmount, exceedsBalance } from "@/lib/money";
 import type { Group, GroupDetail } from "@/lib/types";
 
@@ -129,7 +130,7 @@ export function TreasuryPanel({
             <div className="rounded-xl border-2 border-flamingo bg-flamingo-pale px-4 py-3 text-xs">
               ⚠ Treasury misconfigured: on-chain thresholds require{" "}
               {info.data.thresholds.med} signers, but Mergepay expects{" "}
-              {group.treasuryRequiredSigners}. Update signer weights & thresholds
+              {group.treasuryRequiredSigners}. Update signer weights &amp; thresholds
               in your wallet.
             </div>
           )}
@@ -229,7 +230,9 @@ export function TreasuryPanel({
                   </span>
                   <div>
                     <p className="font-bold capitalize">{t.direction}</p>
-                    <p className="text-xs text-ink/50">{fullDate(t.createdAt)}</p>
+                    <p className="text-xs text-ink/50">
+                      <Timestamp value={t.createdAt} />
+                    </p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -402,7 +405,7 @@ function DepositDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Deposit to treasury">
+    <Dialog open={open} onClose={onClose} title="Deposit to treasury" dismissible={!busy}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -426,11 +429,11 @@ function DepositDialog({
         </div>
         <FieldHint>You will sign this payment from your wallet to the treasury.</FieldHint>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" loading={busy} disabled={!amount}>
-            Sign & deposit
+          <Button type="submit" loading={busy} disabled={!amount || busy}>
+            Sign &amp; deposit
           </Button>
         </div>
       </form>
@@ -512,7 +515,7 @@ function WithdrawDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Withdraw from treasury">
+    <Dialog open={open} onClose={onClose} title="Withdraw from treasury" dismissible={!busy}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -549,11 +552,11 @@ function WithdrawDialog({
           every required signer to approve.
         </FieldHint>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" loading={busy} disabled={!amount || !destination}>
-            Sign & withdraw
+          <Button type="submit" loading={busy} disabled={!amount || !destination || busy}>
+            Sign &amp; withdraw
           </Button>
         </div>
       </form>
