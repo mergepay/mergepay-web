@@ -29,6 +29,10 @@ import {
   RefreshingBadge,
   StaleDataNotice,
 } from "@/components/ui/query-state";
+  SectionBoundary,
+  SectionError,
+  SectionLoading,
+} from "@/components/ui/section";
 import { useExpenses, useGroup, useMe } from "@/lib/queries";
 import {
   resolveQueryView,
@@ -38,6 +42,7 @@ import {
   showsSkeleton,
 } from "@/lib/queryState";
 import { sortExpensesByDateDesc } from "@/lib/expenses";
+import { resolveSectionStatus } from "@/lib/sectionState";
 
 type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
 
@@ -46,6 +51,10 @@ export default function GroupDetailPage() {
   const me = useMe();
   const groupQuery = useGroup(id);
   const { data: detail } = groupQuery;
+  // The profile request only supplies "(you)" markers; a failure must not
+  // take the whole group page down with it.
+  const { data: me } = useMe();
+  const { data: detail, isLoading, isError, error, refetch } = useGroup(id);
   const [tab, setTab] = useState<Tab>("expenses");
   const [addOpen, setAddOpen] = useState(false);
   const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
@@ -62,16 +71,14 @@ export default function GroupDetailPage() {
     groupQuery.error instanceof ApiRequestError && groupQuery.error.status === 404;
 
   if (groupQuery.isError && notFound) {
+  const currentUserId = me?.user.id ?? "";
+
+  if (isError && !detail) {
     return (
-      <EmptyState
-        icon={<Users className="h-7 w-7" />}
-        title="Group not found"
-        description="You may not have access to this group, or it doesn't exist."
-        action={
-          <Button onClick={() => history.back()} variant="outline">
-            Go back
-          </Button>
-        }
+      <SectionError
+        subject="this group"
+        error={error}
+        onRetry={() => refetch()}
       />
     );
   }
@@ -90,10 +97,10 @@ export default function GroupDetailPage() {
 
   if (!detail) {
     return (
-      <>
+      <SectionLoading label="Loading this group" minHeight="min-h-[24rem]">
         <div className="mb-8 h-10 w-48 animate-pulse rounded-xl bg-ink/10" />
         <ListSkeleton rows={4} />
-      </>
+      </SectionLoading>
     );
   }
 
@@ -133,21 +140,38 @@ export default function GroupDetailPage() {
         ]}
       />
 
+      {/* Each panel owns its own request and its own failure state, and
+          each is wrapped so an unexpected render error is contained to
+          the panel instead of blanking the group page. */}
       {tab === "expenses" && (
-        <ExpensesTab
-          groupId={id}
-          currentUserId={currentUserId}
-          members={detail.members}
-          onAdd={() => setAddOpen(true)}
-        />
+        <SectionBoundary subject="the expense list">
+          <ExpensesTab
+            groupId={id}
+            currentUserId={currentUserId}
+            members={detail.members}
+            onAdd={() => setAddOpen(true)}
+          />
+        </SectionBoundary>
       )}
       {tab === "balances" && (
-        <BalancesPanel groupId={id} currentUserId={currentUserId} />
+        <SectionBoundary subject="the balances panel">
+          <BalancesPanel groupId={id} currentUserId={currentUserId} />
+        </SectionBoundary>
       )}
-      {tab === "ledger" && <LedgerPanel groupId={id} />}
-      {tab === "treasury" && <TreasuryPanel group={group} detail={detail} />}
+      {tab === "ledger" && (
+        <SectionBoundary subject="the ledger">
+          <LedgerPanel groupId={id} />
+        </SectionBoundary>
+      )}
+      {tab === "treasury" && (
+        <SectionBoundary subject="the treasury panel">
+          <TreasuryPanel group={group} detail={detail} />
+        </SectionBoundary>
+      )}
       {tab === "members" && (
-        <MembersPanel detail={detail} currentUserId={currentUserId} />
+        <SectionBoundary subject="the member list">
+          <MembersPanel detail={detail} currentUserId={currentUserId} />
+        </SectionBoundary>
       )}
 
       <AddExpenseDialog
@@ -195,6 +219,29 @@ function ExpensesTab({
         description="The request didn't get through. Your expenses are safe — try again in a moment."
         onRetry={() => expensesQuery.refetch()}
         retrying={expensesQuery.isFetching}
+  const { data, isLoading, isError, error, refetch } = useExpenses(groupId);
+
+  const status = resolveSectionStatus({
+    isLoading,
+    isError,
+    hasData: data !== undefined,
+    isEmpty: (data?.expenses ?? []).length === 0,
+  });
+
+  if (status === "loading") {
+    return (
+      <SectionLoading label="Loading expenses" minHeight="min-h-[18rem]">
+        <ListSkeleton rows={4} />
+      </SectionLoading>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <SectionError
+        subject="the expenses for this group"
+        error={error}
+        onRetry={() => refetch()}
       />
     );
   }

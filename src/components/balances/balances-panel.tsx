@@ -25,6 +25,9 @@ import {
   showsRefreshHint,
   showsSkeleton,
 } from "@/lib/queryState";
+import { SectionError, SectionLoading } from "@/components/ui/section";
+import { useBalances } from "@/lib/queries";
+import { resolveSectionStatus } from "@/lib/sectionState";
 
 export function BalancesPanel({
   groupId,
@@ -61,6 +64,32 @@ export function BalancesPanel({
         description="The request didn't get through, so we can't show who owes what yet. Try again in a moment."
         onRetry={() => balancesQuery.refetch()}
         retrying={balancesQuery.isFetching}
+  const { data, isLoading, isError, error, refetch } = useBalances(groupId);
+  const [target, setTarget] = useState<SettleTarget | null>(null);
+
+  const status = resolveSectionStatus({
+    isLoading,
+    isError,
+    hasData: data !== undefined,
+  });
+
+  if (status === "loading") {
+    return (
+      <SectionLoading label="Loading balances" minHeight="min-h-[14rem]">
+        <ListSkeleton rows={3} />
+      </SectionLoading>
+    );
+  }
+
+  // Never fall through to `?? []` on a failed request: an empty balance
+  // list renders as "everyone's square", which is a different — and
+  // financially misleading — statement from "we could not load this".
+  if (status === "error") {
+    return (
+      <SectionError
+        subject="the balances for this group"
+        error={error}
+        onRetry={() => refetch()}
       />
     );
   }

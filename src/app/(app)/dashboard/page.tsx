@@ -24,6 +24,12 @@ import {
   StaleDataNotice,
   StatValue,
 } from "@/components/ui/query-state";
+import { ListSkeleton, Skeleton } from "@/components/ui/skeleton";
+import {
+  SectionBoundary,
+  SectionError,
+  SectionLoading,
+} from "@/components/ui/section";
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { useGroups, useMe } from "@/lib/queries";
@@ -37,12 +43,21 @@ import {
 } from "@/lib/queryState";
 import { useGroupStore } from "@/lib/group-store";
 import { formatAmount } from "@/lib/format";
+import {
+  UNAVAILABLE_VALUE_LABEL,
+  financialValue,
+  resolveSectionStatus,
+} from "@/lib/sectionState";
 import type { GroupSummary } from "@/lib/types";
 
 export default function DashboardPage() {
   const router = useRouter();
   const me = useMe();
   const groupsQuery = useGroups();
+  // A failed profile request must not blank the dashboard: the greeting
+  // degrades to a generic one while every data section keeps working.
+  const { data: me } = useMe();
+  const { data, isLoading, isError, error, refetch } = useGroups();
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const selectedGroupId = useGroupStore((s) => s.selectedGroupId);
@@ -70,6 +85,7 @@ export default function DashboardPage() {
       useGroupStore.getState().clear();
     }
   }, [restored, selectedGroupId, data, router]);
+  }, [restored, selectedGroupId, isLoading, data, router]);
 
   const groups = useMemo(
     () => (data?.groups ?? []).filter((g) => !g.archived),
@@ -92,6 +108,17 @@ export default function DashboardPage() {
   }, [groups, view]);
 
   const firstName = me.data?.user.displayName.split(/\s+/)[0] ?? "there";
+
+  // Totals are derived from the group list, so they are only meaningful
+  // once that request has succeeded. While it is loading or failed they
+  // must not render as zero — that reads as "you are square".
+  const totalsAvailable = !isLoading && !isError && data !== undefined;
+  const groupsStatus = resolveSectionStatus({
+    isLoading,
+    isError,
+    hasData: data !== undefined,
+    isEmpty: groups.length === 0,
+  });
 
   return (
     <>
@@ -143,6 +170,34 @@ export default function DashboardPage() {
           icon={<Scale className="h-5 w-5" />}
         />
       </div>
+      <SectionBoundary subject="your balance totals">
+        <div className="mb-8 grid gap-4 sm:grid-cols-3">
+          <StatCard
+            label="You are owed"
+            value={formatAmount(totals.owed)}
+            available={totalsAvailable}
+            loading={isLoading}
+            tone="bg-lime"
+            icon={<ArrowDownRight className="h-5 w-5" />}
+          />
+          <StatCard
+            label="You owe"
+            value={formatAmount(totals.owe)}
+            available={totalsAvailable}
+            loading={isLoading}
+            tone="bg-flamingo"
+            icon={<ArrowUpRight className="h-5 w-5" />}
+          />
+          <StatCard
+            label="Net position"
+            value={`${totals.net >= 0 ? "+" : ""}${formatAmount(totals.net)}`}
+            available={totalsAvailable}
+            loading={isLoading}
+            tone="bg-grape text-white"
+            icon={<Scale className="h-5 w-5" />}
+          />
+        </div>
+      </SectionBoundary>
 
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -198,6 +253,36 @@ export default function DashboardPage() {
           ))}
         </div>
       )}
+      <SectionBoundary subject="your groups">
+        {groupsStatus === "loading" ? (
+          <SectionLoading label="Loading your groups">
+            <ListSkeleton rows={3} />
+          </SectionLoading>
+        ) : groupsStatus === "error" ? (
+          <SectionError
+            subject="your groups"
+            error={error}
+            onRetry={() => refetch()}
+          />
+        ) : groupsStatus === "empty" ? (
+          <EmptyState
+            icon={<Users className="h-7 w-7" />}
+            title="No groups yet"
+            description="Create your first circle to start splitting expenses and settling on Stellar."
+            action={
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" /> Create a group
+              </Button>
+            }
+          />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {groups.map((g) => (
+              <GroupCard key={g.id} group={g} />
+            ))}
+          </div>
+        )}
+      </SectionBoundary>
 
       <CreateGroupDialog open={createOpen} onClose={() => setCreateOpen(false)} />
       <JoinGroupDialog open={joinOpen} onClose={() => setJoinOpen(false)} />
@@ -205,18 +290,31 @@ export default function DashboardPage() {
   );
 }
 
+/**
+ * A single headline figure.
+ *
+ * The card keeps its full height in every state, so the layout does not
+ * jump as the request resolves. When the figure is unavailable it renders
+ * a placeholder with an explicit label rather than a fabricated `0`.
+ */
 function StatCard({
   label,
   value,
+  available,
+  loading,
   tone,
   icon,
 }: {
   label: string;
   /** `null` while the underlying query has no trustworthy data. */
   value: string | null;
+  value: string;
+  available: boolean;
+  loading: boolean;
   tone: string;
   icon: React.ReactNode;
 }) {
+  const figure = financialValue(value, available);
   return (
     <Card className="overflow-hidden">
       <div className={`flex items-center justify-between border-b-3 border-ink px-4 py-2.5 ${tone}`}>
@@ -229,6 +327,20 @@ function StatCard({
       </div>
       <div className="px-4 py-4">
         <StatValue value={value} unavailableLabel={`${label}: not available yet`} />
+      <div className="flex h-[4.75rem] items-center px-4">
+        {loading ? (
+          <Skeleton className="h-8 w-24" />
+        ) : (
+          <span
+            className={`font-mono text-3xl font-bold tabular-nums${
+              figure.available ? "" : " text-ink/40"
+            }`}
+            aria-label={figure.available ? undefined : `${label}: ${figure.label}`}
+            title={figure.available ? undefined : UNAVAILABLE_VALUE_LABEL}
+          >
+            {figure.text}
+          </span>
+        )}
       </div>
     </Card>
   );
