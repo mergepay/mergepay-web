@@ -187,6 +187,13 @@ export interface CreateExpenseRequest {
   payerUserId?: string;
   memo?: string;
   receiptUrl?: string | null;
+  /**
+   * Opaque client-generated UUID sent as the `Idempotency-Key` header.
+   * The server uses it to deduplicate duplicate submissions — if a
+   * request times out and the user retries with the same key, a second
+   * expense is NOT created. Omitted from the JSON body.
+   */
+  idempotencyKey?: string;
 }
 
 export interface UpdateExpenseRequest {
@@ -337,6 +344,8 @@ export type LedgerEntry =
 
 export interface LedgerResponse {
   entries: LedgerEntry[];
+  /** Opaque base64url cursor for the next page, or `null` on the last page. */
+  nextCursor: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +483,8 @@ export interface AnchorSessionsResponse {
 export interface HistoryResponse {
   expenses: Expense[];
   settlements: Settlement[];
+  /** Opaque base64url cursor for the next page, or `null` on the last page. */
+  nextCursor: string | null;
 }
 
 export interface UploadResponse {

@@ -24,25 +24,23 @@ import { BalancesPanel } from "@/components/balances/balances-panel";
 import { LedgerPanel } from "@/components/ledger/ledger-panel";
 import { TreasuryPanel } from "@/components/treasury/treasury-panel";
 import { MembersPanel } from "@/components/groups/members-panel";
+import {
+  SectionBoundary,
+  SectionError,
+  SectionLoading,
+} from "@/components/ui/section";
 import { useExpenses, useGroup, useMe } from "@/lib/queries";
 import { sortExpensesByDateDesc } from "@/lib/expenses";
-import {
-  SettleDialog,
-  type BulkSettleTarget,
-} from "@/components/settle/settle-dialog";
-import { BulkSettleBar } from "@/components/settle/bulk-settle-bar";
-import {
-  filterUnsettledShares,
-  sumSelectedAmounts,
-} from "@/lib/bulkSettle";
-import type { GroupMember } from "@/lib/types";
+import { resolveSectionStatus } from "@/lib/sectionState";
 
 type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
 
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: me, isError: isMeError, error: meError } = useMe();
-  const { data: detail, isLoading, isError } = useGroup(id);
+  // The profile request only supplies "(you)" markers; a failure must not
+  // take the whole group page down with it.
+  const { data: me } = useMe();
+  const { data: detail, isLoading, isError, error, refetch } = useGroup(id);
   const [tab, setTab] = useState<Tab>("expenses");
   const [addOpen, setAddOpen] = useState(false);
   // Keep the active group id in a tiny client store so sibling routes
@@ -53,33 +51,24 @@ export default function GroupDetailPage() {
     setSelectedGroup(id);
   }, [id, setSelectedGroup]);
 
-  if (isMeError) {
-    throw meError || new Error("Failed to load user information");
-  }
-
   const currentUserId = me?.user.id ?? "";
 
-  if (isError) {
+  if (isError && !detail) {
     return (
-      <EmptyState
-        icon={<Users className="h-7 w-7" />}
-        title="Group not found"
-        description="You may not have access to this group, or it doesn't exist."
-        action={
-          <Button onClick={() => history.back()} variant="outline">
-            Go back
-          </Button>
-        }
+      <SectionError
+        subject="this group"
+        error={error}
+        onRetry={() => refetch()}
       />
     );
   }
 
   if (isLoading || !detail) {
     return (
-      <>
+      <SectionLoading label="Loading this group" minHeight="min-h-[24rem]">
         <div className="mb-8 h-10 w-48 animate-pulse rounded-xl bg-ink/10" />
         <ListSkeleton rows={4} />
-      </>
+      </SectionLoading>
     );
   }
 
@@ -139,21 +128,38 @@ export default function GroupDetailPage() {
         ]}
       />
 
+      {/* Each panel owns its own request and its own failure state, and
+          each is wrapped so an unexpected render error is contained to
+          the panel instead of blanking the group page. */}
       {tab === "expenses" && (
-        <ExpensesTab
-          groupId={id}
-          currentUserId={currentUserId}
-          members={detail.members}
-          onAdd={() => setAddOpen(true)}
-        />
+        <SectionBoundary subject="the expense list">
+          <ExpensesTab
+            groupId={id}
+            currentUserId={currentUserId}
+            members={detail.members}
+            onAdd={() => setAddOpen(true)}
+          />
+        </SectionBoundary>
       )}
       {tab === "balances" && (
-        <BalancesPanel groupId={id} currentUserId={currentUserId} />
+        <SectionBoundary subject="the balances panel">
+          <BalancesPanel groupId={id} currentUserId={currentUserId} />
+        </SectionBoundary>
       )}
-      {tab === "ledger" && <LedgerPanel groupId={id} />}
-      {tab === "treasury" && <TreasuryPanel group={group} detail={detail} />}
+      {tab === "ledger" && (
+        <SectionBoundary subject="the ledger">
+          <LedgerPanel groupId={id} />
+        </SectionBoundary>
+      )}
+      {tab === "treasury" && (
+        <SectionBoundary subject="the treasury panel">
+          <TreasuryPanel group={group} detail={detail} />
+        </SectionBoundary>
+      )}
       {tab === "members" && (
-        <MembersPanel detail={detail} currentUserId={currentUserId} />
+        <SectionBoundary subject="the member list">
+          <MembersPanel detail={detail} currentUserId={currentUserId} />
+        </SectionBoundary>
       )}
 
       <AddExpenseDialog
@@ -178,60 +184,29 @@ function ExpensesTab({
   members: GroupMember[];
   onAdd: () => void;
 }) {
-  const { data, isLoading, isError, refetch } = useExpenses(groupId);
+  const { data, isLoading, isError, error, refetch } = useExpenses(groupId);
 
-  // Bulk-select state lives here so checkboxes (per card) and the sticky bar
-  // can be raised into a single source of truth.
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkTarget, setBulkTarget] = useState<BulkSettleTarget | null>(null);
+  const status = resolveSectionStatus({
+    isLoading,
+    isError,
+    hasData: data !== undefined,
+    isEmpty: (data?.expenses ?? []).length === 0,
+  });
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+  if (status === "loading") {
+    return (
+      <SectionLoading label="Loading expenses" minHeight="min-h-[18rem]">
+        <ListSkeleton rows={4} />
+      </SectionLoading>
     );
-  };
-
-  const exitSelectMode = () => {
-    setSelectMode(false);
-    setSelectedIds([]);
-  };
-
-  function openBulkDialog(shares: ReturnType<typeof filterUnsettledShares>) {
-    if (shares.length === 0) return;
-    const first = shares[0];
-    setBulkTarget({
-      expenseIds: shares.map((s) => s.expenseId),
-      rows: shares.map((s) => ({
-        expenseId: s.expenseId,
-        title: s.expenseTitle,
-        amount: s.amount,
-      })),
-      to: first.payer,
-      amount: sumSelectedAmounts(shares),
-      assetCode: first.assetCode,
-      assetIssuer: first.assetIssuer,
-      label: `Settle ${shares.length} expense${
-        shares.length === 1 ? "" : "s"
-      } with ${first.payer.displayName}`,
-    });
-    setBulkOpen(true);
   }
 
-  if (isLoading) return <ListSkeleton rows={4} />;
-
-  if (isError) {
+  if (status === "error") {
     return (
-      <EmptyState
-        icon={<Receipt className="h-7 w-7 text-red-500" />}
-        title="Error loading expenses"
-        description="We couldn't load the expenses for this group."
-        action={
-          <Button onClick={() => refetch()} variant="outline">
-            Retry
-          </Button>
-        }
+      <SectionError
+        subject="the expenses for this group"
+        error={error}
+        onRetry={() => refetch()}
       />
     );
   }

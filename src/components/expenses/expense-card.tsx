@@ -15,7 +15,7 @@ import {
 } from "@/components/settle/settle-dialog";
 import { useDeleteExpense } from "@/lib/queries";
 import { ApiRequestError } from "@/lib/api";
-import { timeAgo } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 import type { Expense, GroupMember } from "@/lib/types";
 
 export function ExpenseCard({
@@ -122,11 +122,17 @@ export function ExpenseCard({
               <span className="capitalize">{expense.splitType}</span>
             </p>
           </div>
-          <div className="text-right">
-            <Money value={expense.amount} assetCode={expense.assetCode} />
-            <div className="mt-1 flex justify-end gap-1">
-              <AssetBadge code={expense.assetCode} />
-            </div>
+          <p className="text-xs text-ink/50">
+            {expense.payer.displayName}
+            {isPayer && " (you)"} paid ·{" "}
+            <Timestamp value={expense.createdAt} mode="relative" prefix="Paid" /> ·{" "}
+            <span className="capitalize">{expense.splitType}</span>
+          </p>
+        </div>
+        <div className="text-right">
+          <Money value={expense.amount} assetCode={expense.assetCode} />
+          <div className="mt-1 flex justify-end gap-1">
+            <AssetBadge code={expense.assetCode} />
           </div>
         </button>
       </div>

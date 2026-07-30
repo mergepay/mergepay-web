@@ -13,7 +13,9 @@ import {
   suggestionToTarget,
   type SettleTarget,
 } from "@/components/settle/settle-dialog";
+import { SectionError, SectionLoading } from "@/components/ui/section";
 import { useBalances } from "@/lib/queries";
+import { resolveSectionStatus } from "@/lib/sectionState";
 
 export function BalancesPanel({
   groupId,
@@ -22,22 +24,32 @@ export function BalancesPanel({
   groupId: string;
   currentUserId: string;
 }) {
-  const { data, isLoading, isError, refetch } = useBalances(groupId);
+  const { data, isLoading, isError, error, refetch } = useBalances(groupId);
   const [target, setTarget] = useState<SettleTarget | null>(null);
 
-  if (isLoading) return <ListSkeleton rows={3} />;
+  const status = resolveSectionStatus({
+    isLoading,
+    isError,
+    hasData: data !== undefined,
+  });
 
-  if (isError) {
+  if (status === "loading") {
     return (
-      <EmptyState
-        icon={<HandCoins className="h-7 w-7 text-red-500" />}
-        title="Error loading balances"
-        description="We couldn't load the net balances for this group."
-        action={
-          <Button onClick={() => refetch()} variant="outline">
-            Retry
-          </Button>
-        }
+      <SectionLoading label="Loading balances" minHeight="min-h-[14rem]">
+        <ListSkeleton rows={3} />
+      </SectionLoading>
+    );
+  }
+
+  // Never fall through to `?? []` on a failed request: an empty balance
+  // list renders as "everyone's square", which is a different — and
+  // financially misleading — statement from "we could not load this".
+  if (status === "error") {
+    return (
+      <SectionError
+        subject="the balances for this group"
+        error={error}
+        onRetry={() => refetch()}
       />
     );
   }
