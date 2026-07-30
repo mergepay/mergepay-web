@@ -4,6 +4,18 @@ import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { ApiRequestError, ApiValidationError, isSessionExpired } from "@/lib/api";
+import { useSessionRestore } from "@/hooks/useSessionRestore";
+
+/**
+ * Runs the one-time wallet session restore. It lives inside the query
+ * provider because a restore may need to clear or refetch cached data,
+ * and it renders nothing — the restoring state is read from the auth
+ * store by whichever surface needs to show it.
+ */
+function SessionRestore() {
+  useSessionRestore();
+  return null;
+}
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -37,6 +49,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <SessionRestore />
       {children}
       <Toaster
         position="bottom-right"
