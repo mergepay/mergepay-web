@@ -1,4 +1,8 @@
-import { formatDistanceToNow, format as formatDate } from "date-fns";
+import {
+  formatRelativeTimestamp,
+  formatTimestamp,
+  formatTimestampFull,
+} from "./datetime";
 
 /** Truncate a Stellar public key: GBBD…FLA5 */
 export function shortKey(key: string, chars = 4) {
@@ -36,20 +40,22 @@ export function formatMoney(amount: string | number, assetCode: string) {
   return `${formatAmount(amount)} ${assetCode}`;
 }
 
-export function timeAgo(iso: string) {
-  try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true });
-  } catch {
-    return iso;
-  }
+/**
+ * Date helpers are thin wrappers over the shared formatters in
+ * `src/lib/datetime.ts`, which own timestamp parsing (offsets, date-only
+ * values, invalid input). Prefer the `Timestamp` component where the
+ * exact time should also be exposed to assistive technology.
+ */
+export function timeAgo(iso: string | null | undefined) {
+  return formatRelativeTimestamp(iso);
 }
 
-export function fullDate(iso: string) {
-  try {
-    return formatDate(new Date(iso), "MMM d, yyyy · h:mm a");
-  } catch {
-    return iso;
-  }
+export function fullDate(iso: string | null | undefined) {
+  return formatTimestamp(iso);
+}
+
+export function fullDateLabel(iso: string | null | undefined) {
+  return formatTimestampFull(iso);
 }
 
 export function initials(name: string) {

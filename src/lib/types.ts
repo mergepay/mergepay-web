@@ -315,6 +315,8 @@ export type LedgerEntry =
 
 export interface LedgerResponse {
   entries: LedgerEntry[];
+  /** Opaque base64url cursor for the next page, or `null` on the last page. */
+  nextCursor: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +454,8 @@ export interface AnchorSessionsResponse {
 export interface HistoryResponse {
   expenses: Expense[];
   settlements: Settlement[];
+  /** Opaque base64url cursor for the next page, or `null` on the last page. */
+  nextCursor: string | null;
 }
 
 export interface UploadResponse {
