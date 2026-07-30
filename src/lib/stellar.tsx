@@ -12,12 +12,14 @@ import {
   isConnected,
   requestAccess,
   getAddress,
+  getNetwork,
   signTransaction,
 } from "@stellar/freighter-api";
 import { api } from "./api";
 import { useAuth } from "./auth-store";
 import { NETWORK_PASSPHRASE } from "./constants";
 import type { User } from "./types";
+import type { WalletProbe } from "./walletReadiness";
 
 export const FREIGHTER_INSTALL_URL = "https://freighter.app";
 
@@ -216,6 +218,53 @@ export async function connectWallet(): Promise<string> {
     }
     throw new WalletError("Wallet returned an empty response.");
   }
+}
+
+/**
+ * Read the wallet's current account and network **without prompting**.
+ *
+ * `getAddress` resolves to an empty address when the app has not been
+ * granted access, and `getNetwork` reports the network the extension is
+ * configured for. Neither opens a Freighter popup, so this is safe to
+ * call on render to decide whether an action should be offered at all.
+ */
+export async function probeWallet(): Promise<WalletProbe> {
+  if (!(await isFreighterAvailable())) {
+    return { status: "unavailable", publicKey: null, networkPassphrase: null };
+  }
+
+  const [addressResult, networkResult] = await Promise.all([
+    getAddress().catch(() => null),
+    getNetwork().catch(() => null),
+  ]);
+
+  const publicKey =
+    isObject(addressResult) && typeof addressResult.address === "string"
+      ? addressResult.address || null
+      : null;
+
+  const hasNetworkError = isObject(networkResult)
+    ? extractError(networkResult) !== undefined
+    : true;
+  const networkPassphrase =
+    !hasNetworkError &&
+    isObject(networkResult) &&
+    typeof networkResult.networkPassphrase === "string"
+      ? networkResult.networkPassphrase
+      : null;
+  const networkName =
+    !hasNetworkError && isObject(networkResult) && typeof networkResult.network === "string"
+      ? networkResult.network
+      : null;
+
+  // An address error means "no account shared", not "no wallet" — the
+  // extension answered. Readiness turns that into a connect prompt.
+  return {
+    status: "resolved",
+    publicKey: isObject(addressResult) && extractError(addressResult) ? null : publicKey,
+    networkPassphrase,
+    networkName,
+  };
 }
 
 export async function signXdr(
