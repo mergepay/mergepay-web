@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { Logo, LogoMark } from "./logo";
 import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
+import { WalletDisconnectedBanner } from "./layout/wallet-disconnected-banner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useWalletScopedCache } from "@/lib/queries";
@@ -223,6 +224,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <main className="lg:pl-64">
+        {/* Persistent reconnect prompt while the Freighter wallet is
+            disconnected; also hosts the connection poll. */}
+        <WalletDisconnectedBanner />
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-10">
           {children}
         </div>

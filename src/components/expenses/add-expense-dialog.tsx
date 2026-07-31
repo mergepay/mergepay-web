@@ -22,8 +22,8 @@ import {
   splitEqualUnits,
   validateExpenseForm,
 } from "@/lib/expenseValidation";
-
-const SUPPORTED_ASSET_CODES = SETTLEMENT_ASSETS.map((a) => a.code);
+import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
+import { useWalletDisconnected } from "@/lib/wallet-store";
 
 export function AddExpenseDialog({
   open,
@@ -58,10 +58,17 @@ export function AddExpenseDialog({
   // in flight. Mirrors `create.isPending` for keyboard paths the native
   // disabled state can't always intercept.
   const [submitting, setSubmitting] = useState(false);
-  // Errors are held back until a field has been visited or the form has
-  // been submitted, so an untouched form does not open covered in red.
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [showErrors, setShowErrors] = useState(false);
+  // Error from the last failed attempt. Kept alongside the entered values
+  // so the user can correct and retry without re-typing the form.
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // Synchronous single-flight latch. `submitting` and `create.isPending`
+  // are React state and only settle on the next render, so they cannot by
+  // themselves reject a second activation that lands in the same tick
+  // (double-click, Enter auto-repeat, tap plus synthesised click).
+  const gate = useRef(createSubmissionGate());
+  // Expenses are settled on-chain — block submission while the wallet is
+  // disconnected.
+  const walletDisconnected = useWalletDisconnected();
 
   const asset = useMemo(
     () => SETTLEMENT_ASSETS.find((a) => a.code === assetKey) ?? SETTLEMENT_ASSETS[0],
@@ -546,10 +553,18 @@ export function AddExpenseDialog({
           </Button>
           <Button
             type="submit"
-            loading={create.isPending || submitting}
-            disabled={validationErrors !== null || create.isPending || submitting}
-            title={validationErrors ? Object.values(validationErrors)[0] : undefined}
-            aria-busy={create.isPending || submitting}
+            loading={pending}
+            disabled={!validation.valid || pending || walletDisconnected}
+            title={
+              walletDisconnected
+                ? "Reconnect your wallet to add an expense"
+                : validation.valid
+                  ? undefined
+                  : Object.values(validation.errors)[0] ??
+                    Object.values(validation.participantErrors)[0]
+            }
+            aria-busy={pending}
+            aria-describedby={submitError ? "e-submit-error" : undefined}
           >
             Add expense
           </Button>

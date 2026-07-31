@@ -118,21 +118,16 @@ export function ExpenseCard({
             </div>
             <p className="text-xs text-ink/50">
               {expense.payer.displayName}
-              {isPayer && " (you)"} paid · {timeAgo(expense.createdAt)} ·{" "}
+              {isPayer && " (you)"} paid ·{" "}
+              <Timestamp value={expense.createdAt} mode="relative" prefix="Paid" /> ·{" "}
               <span className="capitalize">{expense.splitType}</span>
             </p>
           </div>
-          <p className="text-xs text-ink/50">
-            {expense.payer.displayName}
-            {isPayer && " (you)"} paid ·{" "}
-            <Timestamp value={expense.createdAt} mode="relative" prefix="Paid" /> ·{" "}
-            <span className="capitalize">{expense.splitType}</span>
-          </p>
-        </div>
-        <div className="text-right">
-          <Money value={expense.amount} assetCode={expense.assetCode} />
-          <div className="mt-1 flex justify-end gap-1">
-            <AssetBadge code={expense.assetCode} />
+          <div className="text-right">
+            <Money value={expense.amount} assetCode={expense.assetCode} />
+            <div className="mt-1 flex justify-end gap-1">
+              <AssetBadge code={expense.assetCode} />
+            </div>
           </div>
         </button>
       </div>
