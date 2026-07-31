@@ -15,15 +15,9 @@ import { PageHeader } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
 import { NetAmount } from "@/components/amount";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ListSkeleton } from "@/components/ui/skeleton";
-import {
-  QueryErrorState,
-  RefreshingBadge,
-  StaleDataNotice,
-  StatValue,
-} from "@/components/ui/query-state";
 import { ListSkeleton, Skeleton } from "@/components/ui/skeleton";
 import {
   SectionBoundary,
@@ -33,14 +27,6 @@ import {
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { useGroups, useMe } from "@/lib/queries";
-import {
-  hasTrustworthyData,
-  resolveQueryView,
-  showsEmptyState,
-  showsErrorPanel,
-  showsRefreshHint,
-  showsSkeleton,
-} from "@/lib/queryState";
 import { useGroupStore } from "@/lib/group-store";
 import { formatAmount } from "@/lib/format";
 import {
@@ -52,8 +38,6 @@ import type { GroupSummary } from "@/lib/types";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const me = useMe();
-  const groupsQuery = useGroups();
   // A failed profile request must not blank the dashboard: the greeting
   // degrades to a generic one while every data section keeps working.
   const { data: me } = useMe();
@@ -63,28 +47,16 @@ export default function DashboardPage() {
   const selectedGroupId = useGroupStore((s) => s.selectedGroupId);
   const restored = useGroupStore((s) => s.restored);
 
-  const { data } = groupsQuery;
-
-  const view = resolveQueryView({
-    status: groupsQuery.status,
-    fetchStatus: groupsQuery.fetchStatus,
-    hasData: data !== undefined,
-    isEmpty: (data?.groups ?? []).length === 0,
-    isPlaceholder: groupsQuery.isPlaceholderData,
-    enabled: groupsQuery.isEnabled,
-  });
-
   useEffect(() => {
-    if (!restored || !data) return;
+    if (!restored || isLoading || !data) return;
     if (!selectedGroupId) return;
-    const groups = data.groups ?? [];
+    const groups = data?.groups ?? [];
     const exists = groups.some((g: { id: string }) => g.id === selectedGroupId);
     if (exists) {
       router.replace(`/groups/${selectedGroupId}`);
     } else {
       useGroupStore.getState().clear();
     }
-  }, [restored, selectedGroupId, data, router]);
   }, [restored, selectedGroupId, isLoading, data, router]);
 
   const groups = useMemo(
@@ -92,22 +64,18 @@ export default function DashboardPage() {
     [data]
   );
 
-  // Totals are only meaningful once the request behind them succeeded. While
-  // loading or after a failure they stay null so the tiles never claim zero.
   const totals = useMemo(() => {
-    if (!hasTrustworthyData(view)) return null;
     let owed = 0;
     let owe = 0;
     for (const g of groups) {
       const n = parseFloat(g.yourNet);
-      if (Number.isNaN(n)) continue;
       if (n > 0) owed += n;
       else owe += -n;
     }
     return { owed, owe, net: owed - owe };
-  }, [groups, view]);
+  }, [groups]);
 
-  const firstName = me.data?.user.displayName.split(/\s+/)[0] ?? "there";
+  const firstName = me?.user.displayName.split(/\s+/)[0] ?? "there";
 
   // Totals are derived from the group list, so they are only meaningful
   // once that request has succeeded. While it is loading or failed they
@@ -137,39 +105,6 @@ export default function DashboardPage() {
         }
       />
 
-      {me.isError && (
-        <StaleDataNotice
-          onRetry={() => me.refetch()}
-          retrying={me.isFetching}
-        >
-          We couldn&apos;t load your profile. Your groups below are unaffected.
-        </StaleDataNotice>
-      )}
-
-      <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        <StatCard
-          label="You are owed"
-          value={totals ? formatAmount(totals.owed) : null}
-          tone="bg-lime"
-          icon={<ArrowDownRight className="h-5 w-5" />}
-        />
-        <StatCard
-          label="You owe"
-          value={totals ? formatAmount(totals.owe) : null}
-          tone="bg-flamingo"
-          icon={<ArrowUpRight className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Net position"
-          value={
-            totals
-              ? `${totals.net >= 0 ? "+" : ""}${formatAmount(totals.net)}`
-              : null
-          }
-          tone="bg-grape text-white"
-          icon={<Scale className="h-5 w-5" />}
-        />
-      </div>
       <SectionBoundary subject="your balance totals">
         <div className="mb-8 grid gap-4 sm:grid-cols-3">
           <StatCard
@@ -199,13 +134,10 @@ export default function DashboardPage() {
         </div>
       </SectionBoundary>
 
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <h2 className="font-display text-xl uppercase tracking-tight">
-            Your groups
-          </h2>
-          <RefreshingBadge show={showsRefreshHint(view)} />
-        </div>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="font-display text-xl uppercase tracking-tight">
+          Your groups
+        </h2>
         {groups.length > 0 && (
           <Link
             href="/groups"
@@ -216,43 +148,6 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {view === "stale-error" && (
-        <StaleDataNotice
-          onRetry={() => groupsQuery.refetch()}
-          retrying={groupsQuery.isFetching}
-        >
-          Showing the groups we loaded earlier — the latest refresh failed.
-        </StaleDataNotice>
-      )}
-
-      {showsSkeleton(view) ? (
-        <ListSkeleton rows={3} />
-      ) : showsErrorPanel(view) ? (
-        <QueryErrorState
-          icon={<Users className="h-6 w-6" />}
-          title="Couldn't load your groups"
-          description="The request didn't get through. Check your connection and try again — nothing has been lost."
-          onRetry={() => groupsQuery.refetch()}
-          retrying={groupsQuery.isFetching}
-        />
-      ) : showsEmptyState(view) || groups.length === 0 ? (
-        <EmptyState
-          icon={<Users className="h-7 w-7" />}
-          title="No groups yet"
-          description="Create your first circle to start splitting expenses and settling on Stellar."
-          action={
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" /> Create a group
-            </Button>
-          }
-        />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {groups.map((g) => (
-            <GroupCard key={g.id} group={g} />
-          ))}
-        </div>
-      )}
       <SectionBoundary subject="your groups">
         {groupsStatus === "loading" ? (
           <SectionLoading label="Loading your groups">
@@ -306,8 +201,6 @@ function StatCard({
   icon,
 }: {
   label: string;
-  /** `null` while the underlying query has no trustworthy data. */
-  value: string | null;
   value: string;
   available: boolean;
   loading: boolean;
@@ -325,8 +218,6 @@ function StatCard({
           {icon}
         </span>
       </div>
-      <div className="px-4 py-4">
-        <StatValue value={value} unavailableLabel={`${label}: not available yet`} />
       <div className="flex h-[4.75rem] items-center px-4">
         {loading ? (
           <Skeleton className="h-8 w-24" />
