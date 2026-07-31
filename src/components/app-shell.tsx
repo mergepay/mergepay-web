@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -16,9 +16,15 @@ import {
 import { toast } from "sonner";
 import { Logo, LogoMark } from "./logo";
 import { Avatar } from "./ui/avatar";
+import { Badge } from "./ui/badge";
+import { WalletDisconnectedBanner } from "./layout/wallet-disconnected-banner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { useWalletScopedCache } from "@/lib/queries";
+import { useWalletStatus } from "@/hooks/useWalletStatus";
+import { WalletStatusPanel } from "./wallet/wallet-status";
 import { shortKey } from "@/lib/format";
+import { FOCUSABLE_SELECTOR, nextFocusIndex } from "@/lib/dialog";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -32,7 +38,67 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { refresh: refreshWallet, ...walletStatus } = useWalletStatus();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  const getDrawerFocusable = useCallback(
+    () =>
+      drawerRef.current
+        ? Array.from(
+            drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+          ).filter((el) => el.tabIndex !== -1)
+        : [],
+    []
+  );
+
+  // Trap focus inside mobile drawer and handle Escape to close.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setMobileOpen(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = getDrawerFocusable();
+      if (focusable.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const target = nextFocusIndex(
+        focusable.length,
+        active ? focusable.indexOf(active) : -1,
+        e.shiftKey
+      );
+      if (target === null) return;
+      e.preventDefault();
+      focusable[target]?.focus();
+    }
+
+    window.addEventListener("keydown", handleKeyDown, true);
+
+    // Focus the first focusable element in the drawer after mount.
+    const frame = requestAnimationFrame(() => {
+      const focusable = getDrawerFocusable();
+      if (focusable.length > 0) focusable[0]?.focus();
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      // Restore focus to the trigger when the drawer closes.
+      previousFocusRef.current?.focus();
+    };
+  }, [mobileOpen, getDrawerFocusable]);
+
+  // Group content must never survive a switch to a different wallet.
+  useWalletScopedCache();
 
   async function handleLogout() {
     await logout();
@@ -70,20 +136,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           );
         })}
       </nav>
+      <div className="px-3 pb-3">
+        <WalletStatusPanel status={walletStatus} onRefresh={refreshWallet} />
+      </div>
       {user && (
         <div className="border-t-3 border-ink p-3">
           <div className="flex items-center gap-3 rounded-xl border-2 border-ink bg-cream px-3 py-2.5">
             <Avatar user={user} />
             <div className="min-w-0 flex-1">
               <p className="truncate font-bold text-sm">{user.displayName}</p>
-              <p className="truncate font-mono text-[11px] text-ink/50">
+              <p
+                className="truncate font-mono text-[11px] text-ink/50"
+                aria-hidden="true"
+              >
                 {shortKey(user.stellarPublicKey, 5)}
               </p>
+              <span className="sr-only">
+                Signed in as {user.displayName}, Stellar address{" "}
+                {user.stellarPublicKey}
+              </span>
             </div>
             <button
               onClick={handleLogout}
               aria-label="Sign out"
-              className="rounded-lg border-2 border-ink bg-paper p-1.5 shadow-brutal-sm hover:bg-flamingo transition-colors"
+              className="rounded-lg border-2 border-ink bg-paper p-1.5 shadow-brutal-sm hover:bg-flamingo transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
             >
               <LogOut className="h-4 w-4" />
             </button>
@@ -105,27 +181,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Link href="/dashboard">
           <Logo markSize={30} />
         </Link>
-        <button
-          onClick={() => setMobileOpen(true)}
-          aria-label="Open menu"
-          className="rounded-xl border-3 border-ink bg-cream p-2 shadow-brutal-sm"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Mirrors the sidebar panel so the wallet state is visible on mobile
+              without opening the drawer. */}
+          <Badge tone={walletStatus.tone}>{walletStatus.label}</Badge>
+          <button
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open menu"
+            className="rounded-xl border-3 border-ink bg-cream p-2 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        </div>
       </header>
 
       {/* mobile drawer */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div
+          className="fixed inset-0 z-50 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation menu"
+        >
           <div
             className="absolute inset-0 bg-ink/60"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper">
+          <div
+            ref={drawerRef}
+            className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper"
+          >
             <button
               onClick={() => setMobileOpen(false)}
               aria-label="Close"
-              className="absolute right-3 top-4 rounded-lg border-2 border-ink bg-cream p-1.5 shadow-brutal-sm"
+              className="absolute right-3 top-4 rounded-lg border-2 border-ink bg-cream p-1.5 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
             >
               <X className="h-4 w-4" />
             </button>
@@ -135,6 +224,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <main className="lg:pl-64">
+        {/* Persistent reconnect prompt while the Freighter wallet is
+            disconnected; also hosts the connection poll. */}
+        <WalletDisconnectedBanner />
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-10">
           {children}
         </div>

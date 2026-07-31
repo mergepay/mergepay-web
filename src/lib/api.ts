@@ -1,6 +1,21 @@
 import type { z } from "zod";
 import { API_URL } from "./constants";
 import { getToken, useAuth } from "./auth-store";
+
+/** Maximum time (ms) to wait for a create-expense request before timing out. */
+export const EXPENSE_CREATE_TIMEOUT_MS = 10_000;
+
+/**
+ * Thrown when a fetch request times out (via AbortController).
+ * Callers catch this separately from ApiRequestError to offer a
+ * safe retry path using the same idempotency key.
+ */
+export class ApiTimeoutError extends Error {
+  constructor(message = "Request timed out") {
+    super(message);
+    this.name = "ApiTimeoutError";
+  }
+}
 import {
   BalancesResponseSchema,
   ExpensesResponseSchema,
@@ -22,6 +37,8 @@ import type {
   AnchorStartResponse,
   AnchorWithdrawRequest,
   BalancesResponse,
+  BulkSettleRequest,
+  BulkSettlementIntentResponse,
   ChallengeResponse,
   ConfirmSettlementRequest,
   CreateExpenseRequest,
@@ -68,13 +85,17 @@ export class ApiRequestError extends Error {
 }
 
 /**
- * Thrown when an otherwise-successful API response fails schema
- * validation. Kept message-free (no raw payload) — callers show a
- * generic "something went wrong" state rather than parser internals.
+ * Thrown when a response with a successful HTTP status fails client-side
+ * Zod schema validation. Retrying cannot help — the payload shape diverged
+ * from the contract the client was built against — so React Query's retry
+ * gate treats it as terminal (see providers.tsx).
  */
 export class ApiValidationError extends Error {
-  constructor() {
-    super("Response did not match the expected shape.");
+  readonly code = "invalid_response";
+  readonly status = 200;
+
+  constructor(message = "Response did not match the expected shape.") {
+    super(message);
     this.name = "ApiValidationError";
   }
 }
@@ -220,11 +241,62 @@ export const api = {
     request<GroupResponse>(`/groups/${groupId}/archive`, { method: "POST" }),
 
   // -- expenses ---------------------------------------------------------------
-  createExpense: (groupId: string, data: CreateExpenseRequest) =>
-    request<ExpenseResponse>(`/groups/${groupId}/expenses`, {
-      method: "POST",
-      json: data,
-    }),
+  /**
+   * Create a new expense with an optional idempotency key.
+   *
+   * When `idempotencyKey` is provided it is stripped from the JSON body
+   * and sent as the `Idempotency-Key` header. The request is guarded by
+   * an `AbortController` timeout — if it fires, an `ApiTimeoutError` is
+   * thrown so callers can retry safely with the same key.
+   */
+  createExpense: async (
+    groupId: string,
+    data: CreateExpenseRequest
+  ): Promise<ExpenseResponse> => {
+    const { idempotencyKey, ...body } = data;
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+    headers["Content-Type"] = "application/json";
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      EXPENSE_CREATE_TIMEOUT_MS
+    );
+
+    try {
+      const res = await fetch(
+        `${API_URL}/groups/${groupId}/expenses`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        }
+      );
+      clearTimeout(timeoutId);
+
+      if (res.status === 401 && token && !expiryHandled) {
+        expiryHandled = true;
+        useAuth.getState().clear();
+      }
+
+      if (!res.ok) {
+        const { code, message } = await parseErrorBody(res);
+        throw new ApiRequestError(res.status, code, message);
+      }
+
+      return (await res.json()) as ExpenseResponse;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiTimeoutError();
+      }
+      throw err;
+    }
+  },
   listExpenses: (groupId: string) =>
     request<ExpensesResponse>(`/groups/${groupId}/expenses`),
   /**
@@ -292,6 +364,11 @@ export const api = {
       json: data,
       schema: SettlementIntentResponseSchema as unknown as z.ZodType<SettlementIntentResponse>,
     }),
+  bulkSettleExpenses: (groupId: string, data: BulkSettleRequest) =>
+    request<BulkSettlementIntentResponse>(
+      `/groups/${groupId}/settlements/bulk`,
+      { method: "POST", json: data }
+    ),
   createSettlement: (groupId: string, data: CreateSettlementRequest) =>
     request<SettlementIntentResponse>(`/groups/${groupId}/settlements`, {
       method: "POST",
@@ -317,10 +394,18 @@ export const api = {
     request<BalancesResponse>(`/groups/${groupId}/balances`, {
       schema: BalancesResponseSchema as unknown as z.ZodType<BalancesResponse>,
     }),
-  getLedger: (groupId: string) =>
-    request<LedgerResponse>(`/groups/${groupId}/ledger`, {
-      schema: LedgerResponseSchema as unknown as z.ZodType<LedgerResponse>,
-    }),
+  getLedger: (groupId: string, params?: { limit?: number; cursor?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set("limit", String(params.limit));
+    if (params?.cursor !== undefined) search.set("cursor", params.cursor);
+    const qs = search.toString();
+    return request<LedgerResponse>(
+      `/groups/${groupId}/ledger${qs ? `?${qs}` : ""}`,
+      {
+        schema: LedgerResponseSchema as unknown as z.ZodType<LedgerResponse>,
+      }
+    );
+  },
 
   // -- treasury ----------------------------------------------------------------
   enableTreasury: (groupId: string, data: EnableTreasuryRequest) =>
@@ -368,10 +453,24 @@ export const api = {
   anchorSessions: () => request<AnchorSessionsResponse>("/anchors/sessions"),
 
   // -- history & uploads ------------------------------------------------------------
-  history: () =>
-    request<HistoryResponse>("/history", {
+  /**
+   * Fetch the user's global expense + settlement history.
+   *
+   * When `params` are passed the response shape MUST include `nextCursor`
+   * (type `HistoryResponse`), matching the cursor-paginated page contract.
+   * Callers that want the full dataset at once should omit params and rely
+   * on the pre-existing legacy response shape.
+   */
+  history: (params?: { limit?: number; cursor?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set("limit", String(params.limit));
+    if (params?.cursor !== undefined) search.set("cursor", params.cursor);
+    const qs = search.toString();
+    const path = qs ? `/history?${qs}` : "/history";
+    return request<HistoryResponse>(path, {
       schema: HistoryResponseSchema as unknown as z.ZodType<HistoryResponse>,
-    }),
+    });
+  },
   uploadReceipt: async (file: File): Promise<UploadResponse> => {
     const form = new FormData();
     form.append("file", file);

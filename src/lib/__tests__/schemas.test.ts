@@ -262,11 +262,23 @@ describe("API response schemas", () => {
     assert.equal(bad.success, false);
   });
 
-  it("HistoryResponseSchema accepts expenses + settlements arrays", () => {
+  it("HistoryResponseSchema accepts expenses + settlements arrays with nextCursor", () => {
     assert.equal(
-      HistoryResponseSchema.safeParse({ expenses: [expense], settlements: [settlement] })
+      HistoryResponseSchema.safeParse({ expenses: [expense], settlements: [settlement], nextCursor: null })
         .success,
       true
+    );
+    assert.equal(
+      HistoryResponseSchema.safeParse({ expenses: [expense], settlements: [settlement], nextCursor: "cursor-1" })
+        .success,
+      true
+    );
+  });
+
+  it("HistoryResponseSchema rejects missing nextCursor", () => {
+    assert.equal(
+      HistoryResponseSchema.safeParse({ expenses: [expense], settlements: [settlement] }).success,
+      false
     );
   });
 });

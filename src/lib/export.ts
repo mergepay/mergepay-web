@@ -126,17 +126,16 @@ export function exportHistoryCsv(expenses: Expense[], settlements: Settlement[])
  *
  * Every interpolated value is user-controlled — display names are editable via
  * `PATCH /me` and memos are free-form — so all of them go through
- * `escapeHtml`. The explorer link is only emitted for a value matching the
- * Stellar tx-hash shape, which keeps arbitrary strings (including
- * `javascript:` URLs) out of the `href`.
+ * `escapeHtml`. The explorer link is only emitted when `explorerTxUrl`
+ * returns a URL (valid hash + configured network); a present but malformed
+ * hash is printed as plain text so the reference is still available.
  *
  * Kept separate from `printReceipt` so it can be unit-tested without a DOM.
  */
 export function buildReceiptHtml(settlement: Settlement): string {
-  const hash = isValidTxHash(settlement.stellarTxHash)
-    ? settlement.stellarTxHash
-    : null;
-  const explorer = hash ? explorerTxUrl(hash) : "";
+  // `null` when the settlement has no hash yet, or the hash is malformed —
+  // the receipt then prints the raw reference without a dead explorer link.
+  const explorer = explorerTxUrl(settlement.stellarTxHash);
   const createdAt = new Date(settlement.createdAt);
   const createdAtLabel = Number.isNaN(createdAt.getTime())
     ? settlement.createdAt
@@ -163,10 +162,16 @@ export function buildReceiptHtml(settlement: Settlement): string {
     <div class="row"><span>Memo</span><b>${escapeHtml(settlement.memo ?? "—")}</b></div>
     <div class="row"><span>Date</span><b>${escapeHtml(createdAtLabel)}</b></div>
     ${
-      hash
-        ? `<div class="row"><span>Tx hash</span></div><a href="${escapeHtml(
+      settlement.stellarTxHash
+        ? `<div class="row"><span>Tx hash</span></div>${
             explorer
-          )}" target="_blank" rel="noopener noreferrer">${escapeHtml(hash)}</a>`
+              ? `<a href="${escapeHtml(
+                  explorer
+                )}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+                  settlement.stellarTxHash
+                )}</a>`
+              : `<code>${escapeHtml(settlement.stellarTxHash)}</code>`
+          }`
         : ""
     }
   </div>
