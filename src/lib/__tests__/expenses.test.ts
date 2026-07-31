@@ -507,3 +507,121 @@ describe("mergeHistoryPages", () => {
     assert.equal(merged.expenses[1]?.id, "e-second");
   });
 });
+
+describe("mergeExpensePages", () => {
+  it("returns an empty list before the first page arrives", () => {
+    assert.deepEqual(mergeExpensePages(undefined), []);
+    assert.deepEqual(mergeExpensePages([]), []);
+  });
+
+  it("returns the first page on its own", () => {
+    const page: ExpensesPage = {
+      data: [makeExpense("a", "2026-01-03"), makeExpense("b", "2026-01-02")],
+      nextCursor: "cursor-1",
+    };
+    assert.deepEqual(
+      mergeExpensePages([page]).map((e) => e.id),
+      ["a", "b"]
+    );
+  });
+
+  it("merges a subsequent page after the records already loaded", () => {
+    const pages: ExpensesPage[] = [
+      {
+        data: [makeExpense("a", "2026-01-04"), makeExpense("b", "2026-01-03")],
+        nextCursor: "cursor-1",
+      },
+      {
+        data: [makeExpense("c", "2026-01-02"), makeExpense("d", "2026-01-01")],
+        nextCursor: null,
+      },
+    ];
+    assert.deepEqual(
+      mergeExpensePages(pages).map((e) => e.id),
+      ["a", "b", "c", "d"]
+    );
+  });
+
+  it("renders an overlapping record once, keeping the first occurrence", () => {
+    const pages: ExpensesPage[] = [
+      {
+        data: [makeExpense("a", "2026-01-03"), makeExpense("b", "2026-01-02")],
+        nextCursor: "cursor-1",
+      },
+      // The window shifted between requests, so "b" comes back again.
+      {
+        data: [makeExpense("b", "2026-01-02"), makeExpense("c", "2026-01-01")],
+        nextCursor: null,
+      },
+    ];
+    const merged = mergeExpensePages(pages);
+    assert.deepEqual(
+      merged.map((e) => e.id),
+      ["a", "b", "c"]
+    );
+    assert.equal(new Set(merged.map((e) => e.id)).size, merged.length);
+  });
+
+  it("keeps a refetched first page from duplicating the whole list", () => {
+    const first: ExpensesPage = {
+      data: [makeExpense("a", "2026-01-02"), makeExpense("b", "2026-01-01")],
+      nextCursor: null,
+    };
+    assert.equal(mergeExpensePages([first, first]).length, 2);
+  });
+
+  it("orders the merged list newest-first even when a page arrives out of order", () => {
+    const pages: ExpensesPage[] = [
+      { data: [makeExpense("old", "2026-01-01")], nextCursor: "cursor-1" },
+      { data: [makeExpense("new", "2026-06-01")], nextCursor: null },
+    ];
+    assert.deepEqual(
+      mergeExpensePages(pages).map((e) => e.id),
+      ["new", "old"]
+    );
+  });
+
+  it("tolerates a page with no records", () => {
+    const pages: ExpensesPage[] = [
+      { data: [makeExpense("a", "2026-01-01")], nextCursor: "cursor-1" },
+      { data: [], nextCursor: null },
+    ];
+    assert.deepEqual(
+      mergeExpensePages(pages).map((e) => e.id),
+      ["a"]
+    );
+  });
+});
+
+describe("hasMoreExpensePages", () => {
+  it("is false before anything has loaded", () => {
+    assert.equal(hasMoreExpensePages(undefined), false);
+    assert.equal(hasMoreExpensePages([]), false);
+  });
+
+  it("is true while the last loaded page reports a next cursor", () => {
+    assert.equal(
+      hasMoreExpensePages([{ data: [], nextCursor: "cursor-1" }]),
+      true
+    );
+  });
+
+  it("is false once the last page reports no next cursor", () => {
+    assert.equal(
+      hasMoreExpensePages([
+        { data: [], nextCursor: "cursor-1" },
+        { data: [], nextCursor: null },
+      ]),
+      false
+    );
+  });
+
+  it("follows the API contract rather than the page size", () => {
+    // A short page is not the end of the list — only a null cursor is.
+    const shortButNotLast: ExpensesPage = {
+      data: [makeExpense("a", "2026-01-01")],
+      nextCursor: "cursor-1",
+    };
+    assert.equal(hasMoreExpensePages([shortButNotLast]), true);
+  });
+});

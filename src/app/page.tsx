@@ -20,6 +20,7 @@ import { Logo, LogoMark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Marquee } from "@/components/marquee";
 import { LottieIllo, CoinsIllustration, LOTTIE } from "@/components/lottie-illo";
+import { SETTLEMENT_MEMO_PREFIX } from "@/lib/constants";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -367,7 +368,7 @@ function StellarSection() {
                 <span className="text-tangerine">$</span> payment → GABC…X7Q
               </div>
               <div className="text-paper/70">asset: USDC · amount: 12.50</div>
-              <div className="text-paper/70">memo: MP:dinner-8f3a</div>
+              <div className="text-paper/70">memo: {SETTLEMENT_MEMO_PREFIX}dinner-8f3a</div>
               <div className="flex items-center gap-2 text-aqua">
                 <FileCheck2 className="h-4 w-4" /> confirmed · 4f9c…a21b
               </div>

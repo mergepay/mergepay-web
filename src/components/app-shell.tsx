@@ -16,8 +16,13 @@ import {
 import { toast } from "sonner";
 import { Logo, LogoMark } from "./logo";
 import { Avatar } from "./ui/avatar";
+import { Badge } from "./ui/badge";
+import { WalletDisconnectedBanner } from "./layout/wallet-disconnected-banner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { useWalletScopedCache } from "@/lib/queries";
+import { useWalletStatus } from "@/hooks/useWalletStatus";
+import { WalletStatusPanel } from "./wallet/wallet-status";
 import { shortKey } from "@/lib/format";
 import { FOCUSABLE_SELECTOR, nextFocusIndex } from "@/lib/dialog";
 
@@ -33,6 +38,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { refresh: refreshWallet, ...walletStatus } = useWalletStatus();
   const [mobileOpen, setMobileOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -91,6 +97,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [mobileOpen, getDrawerFocusable]);
 
+  // Group content must never survive a switch to a different wallet.
+  useWalletScopedCache();
+
   async function handleLogout() {
     await logout();
     toast.success("Signed out");
@@ -127,15 +136,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           );
         })}
       </nav>
+      <div className="px-3 pb-3">
+        <WalletStatusPanel status={walletStatus} onRefresh={refreshWallet} />
+      </div>
       {user && (
         <div className="border-t-3 border-ink p-3">
           <div className="flex items-center gap-3 rounded-xl border-2 border-ink bg-cream px-3 py-2.5">
             <Avatar user={user} />
             <div className="min-w-0 flex-1">
               <p className="truncate font-bold text-sm">{user.displayName}</p>
-              <p className="truncate font-mono text-[11px] text-ink/50">
+              <p
+                className="truncate font-mono text-[11px] text-ink/50"
+                aria-hidden="true"
+              >
                 {shortKey(user.stellarPublicKey, 5)}
               </p>
+              <span className="sr-only">
+                Signed in as {user.displayName}, Stellar address{" "}
+                {user.stellarPublicKey}
+              </span>
             </div>
             <button
               onClick={handleLogout}
@@ -162,13 +181,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Link href="/dashboard">
           <Logo markSize={30} />
         </Link>
-        <button
-          onClick={() => setMobileOpen(true)}
-          aria-label="Open menu"
-          className="rounded-xl border-3 border-ink bg-cream p-2 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Mirrors the sidebar panel so the wallet state is visible on mobile
+              without opening the drawer. */}
+          <Badge tone={walletStatus.tone}>{walletStatus.label}</Badge>
+          <button
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open menu"
+            className="rounded-xl border-3 border-ink bg-cream p-2 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        </div>
       </header>
 
       {/* mobile drawer */}
@@ -200,6 +224,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <main className="lg:pl-64">
+        {/* Persistent reconnect prompt while the Freighter wallet is
+            disconnected; also hosts the connection poll. */}
+        <WalletDisconnectedBanner />
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-10">
           {children}
         </div>
