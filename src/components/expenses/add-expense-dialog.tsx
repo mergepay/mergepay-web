@@ -384,25 +384,6 @@ export function AddExpenseDialog({
                           ? "border-ink bg-cream"
                           : "border-ink/20 bg-paper opacity-60"
                     )}
-                  </span>
-                  {on && splitType === "equal" && (
-                    <Money
-                      value={equalShare}
-                      assetCode={asset.code}
-                      className="text-xs font-normal text-ink/60"
-                    />
-                  )}
-                  {on && splitType === "custom" && (
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.0000001"
-                      value={custom[m.userId] ?? ""}
-                      onChange={(e) =>
-                        setCustom((c) => ({ ...c, [m.userId]: e.target.value }))
-                      }
-                      className="h-8 w-24 px-2 py-1 text-sm"
-                      placeholder="0.00"
                   >
                     <input
                       type="checkbox"
@@ -478,15 +459,6 @@ export function AddExpenseDialog({
           )}
           {splitType === "custom" && (
             <FieldHint>
-              Sum: {formatMoney(customSum, asset.code)} /{" "}
-              {formatMoney(total, asset.code)}{" "}
-              {validationErrors?.custom ? (
-                <span className="text-flamingo font-bold">· {validationErrors.custom}</span>
-              ) : (
-                Math.abs(customSum - total) > 0.0000001 &&
-                total > 0 && (
-                  <span className="text-flamingo font-bold">· must match total</span>
-                )
               Sum: {customSum} / {normalizedTotal}{" "}
               {fieldErrors.custom && (
                 <span className="text-flamingo font-bold">· {fieldErrors.custom}</span>

@@ -24,6 +24,7 @@ import {
   NETWORK_PASSPHRASE,
 } from "./constants";
 import type { User } from "./types";
+import type { WalletProbe } from "./walletReadiness";
 import type { WalletSnapshot } from "./walletSession";
 
 export const FREIGHTER_INSTALL_URL = "https://freighter.app";

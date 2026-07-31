@@ -69,16 +69,15 @@ export default function DashboardPage() {
     [data]
   );
 
-  const totals = useMemo(() => {
-    let owed = 0;
-    let owe = 0;
-    for (const g of groups) {
-      const n = parseFloat(g.yourNet);
-      if (n > 0) owed += n;
-      else owe += -n;
-    }
-    return { owed, owe, net: owed - owe };
-  }, [groups]);
+  // Balances are totalled per asset: being owed USDC in one circle and
+  // owing XLM in another are not addable, and a single combined figure
+  // rendered next to one asset code would misstate both.
+  const assetTotals = useMemo(() => summarizeNetsByAsset(groups), [groups]);
+  // Lead with the asset the user has the most at stake in; the rest are
+  // summarised as badges underneath.
+  const primaryTotals = assetTotals[0] ?? null;
+  const primaryAsset = primaryTotals?.assetCode ?? null;
+  const otherTotals = assetTotals.slice(1);
 
   const firstName = me?.user.displayName.split(/\s+/)[0] ?? "there";
 
@@ -224,7 +223,7 @@ function StatCard({
   icon,
 }: {
   label: string;
-  value: string;
+  amount: FormattedAmount;
   available: boolean;
   loading: boolean;
   tone: string;

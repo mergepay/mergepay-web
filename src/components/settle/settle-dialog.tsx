@@ -11,7 +11,6 @@ import { AssetBadge } from "@/components/asset-badge";
 import { TxLink } from "@/components/tx-link";
 import { api, ApiRequestError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
-import { signXdr, WalletError, WalletErrorCode, NotInstalledMessage } from "@/lib/stellar";
 import { connectWallet, signXdr, WalletError, WalletErrorCode, NotInstalledMessage } from "@/lib/stellar";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
 import { WalletPrerequisiteNotice } from "@/components/wallet/wallet-status";
@@ -67,14 +66,6 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
     // established the connection themselves — the polled status is still a
     // tick behind at that point and would block a valid attempt.
     if (!options?.skipWalletGate && !wallet.canSign) return;
-    // Readiness is re-checked here, not just on render: the wallet can
-    // change between the button becoming enabled and the click landing.
-    if (!readiness.ready) {
-      setErrorCode(null);
-      setError(readiness.detail);
-      setStep("review");
-      return;
-    }
     const validation = validateSettlementInput({ amount: target.amount, assetCode: target.assetCode, assetIssuer: target.assetIssuer });
     if (!validation.valid) { setError(validation.error ?? "Invalid payment input"); setErrorCode(null); setStep("failed"); return; }
     // Clear the previous attempt's residue so a retry never shows a stale tx
@@ -98,11 +89,6 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
       else { setErrorCode(null); setError("Settlement failed. Please try again."); }
       setStep("failed");
     }
-
-    const { settlement } = attempt.data;
-    setSettlementId(attempt.data.settlementId); setTxHash(settlement.stellarTxHash ?? null); setStep("submitted");
-    if (settlement.status === "confirmed") { setStep("confirmed"); toast.success("Settled on Stellar"); }
-    else if (settlement.status === "failed") { setStep("failed"); setError("Stellar rejected this transaction. Please try again."); }
   }
 
   /** Re-establish the wallet link, then go straight into another attempt. */
