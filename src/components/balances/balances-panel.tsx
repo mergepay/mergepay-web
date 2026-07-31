@@ -16,6 +16,7 @@ import {
 import { SectionError, SectionLoading } from "@/components/ui/section";
 import { useBalances } from "@/lib/queries";
 import { resolveSectionStatus } from "@/lib/sectionState";
+import { amountToStroops } from "@/lib/currency";
 
 export function BalancesPanel({
   groupId,
@@ -57,7 +58,7 @@ export function BalancesPanel({
   const balances = data?.balances ?? [];
   const suggestions = data?.suggestions ?? [];
   const allSettled = balances.every(
-    (b) => Math.abs(parseFloat(b.net)) < 0.0000001
+    (b) => amountToStroops(b.net) === 0n
   );
 
   return (
