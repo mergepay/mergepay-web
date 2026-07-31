@@ -9,6 +9,13 @@
 // Primitives
 // ---------------------------------------------------------------------------
 
+/**
+ * Stellar network the app is configured against. The API builds every
+ * transaction envelope for this network, so a wallet pointed anywhere
+ * else cannot produce a signature the API will accept.
+ */
+export type StellarNetwork = "testnet" | "public";
+
 export type Role = "admin" | "member";
 export type SplitType = "equal" | "custom" | "percentage";
 export type ShareStatus = "pending" | "settling" | "settled";

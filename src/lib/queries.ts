@@ -25,6 +25,7 @@ import type {
   UpdateMeRequest,
 } from "./types";
 import type { ExpensesPage } from "./expenses";
+import { shouldResetQueryCache } from "./queryState";
 import { mergeHistoryPages, type AccumulatedHistory } from "./expenses";
 import type { Expense, LedgerEntry, Settlement } from "./types";
 import type { HistoryResponse, LedgerResponse } from "./types";
@@ -98,23 +99,49 @@ export function useMe() {
     queryKey: qk.me,
     queryFn: api.me,
     enabled: Boolean(token),
+    // Profile data barely changes and is refreshed by `useUpdateMe`
+    // invalidation, so it can stay fresh longer than list data.
     staleTime: 60_000,
   });
 }
 
+/**
+ * Session-scoped queries.
+ *
+ * Group data is only ever fetched while a session exists. Without this gate a
+ * logged-out render still issues the request and briefly parks another
+ * wallet's groups in the cache.
+ */
+function useSessionEnabled() {
+  return Boolean(useAuth((s) => s.token));
+}
+
 export function useGroups() {
-  return useQuery({ queryKey: qk.groups, queryFn: api.listGroups });
+  return useQuery({
+    queryKey: qk.groups,
+    queryFn: api.listGroups,
+    enabled: useSessionEnabled(),
+  });
 }
 
 export function useGroup(id: string) {
-  return useQuery({ queryKey: qk.group(id), queryFn: () => api.getGroup(id) });
+  return useQuery({
+    queryKey: qk.group(id),
+    queryFn: () => api.getGroup(id),
+    enabled: useSessionEnabled() && Boolean(id),
+  });
 }
 
 export function useExpenses(groupId: string) {
+  // Uses the global default staleTime (30s, see src/lib/queryClient.ts):
+  // list data is shown from cache instantly and revalidated in the
+  // background (stale-while-revalidate), while expense mutations still
+  // force a refetch through `invalidateQueries`.
   return useQuery({
     queryKey: qk.expenses(groupId),
     queryFn: () => api.listExpenses(groupId),
     staleTime: 30_000,
+    enabled: useSessionEnabled() && Boolean(groupId),
   });
 }
 
@@ -147,7 +174,7 @@ export function useInfiniteExpenses(
     initialPageParam: options.cursor as string | undefined,
     getNextPageParam: (lastPage: ExpensesPage) =>
       lastPage.nextCursor ?? undefined,
-    staleTime: 30_000,
+    // Global default staleTime (30s) — see useExpenses above.
   });
 }
 
@@ -155,6 +182,11 @@ export function useBalances(groupId: string) {
   return useQuery({
     queryKey: qk.balances(groupId),
     queryFn: () => api.getBalances(groupId),
+    // Balances must never be served stale: they back the "settle up"
+    // amounts a user signs on-chain. Always revalidate on mount/focus
+    // (in addition to the invalidation that follows every settlement).
+    staleTime: 0,
+    enabled: useSessionEnabled() && Boolean(groupId),
   });
 }
 
@@ -605,6 +637,26 @@ export function useTreasuryWithdraw(groupId: string) {
     onSuccess: () =>
       invalidate([qk.treasury(groupId), qk.treasuryHistory(groupId)]),
   });
+}
+
+/**
+ * Drop every cached response when the signed-in wallet changes.
+ *
+ * `invalidateQueries` would keep the previous wallet's groups on screen while
+ * the refetch runs; removing them means a new session can never render the old
+ * one's data, even for a frame.
+ */
+export function useWalletScopedCache() {
+  const qc = useQueryClient();
+  const publicKey = useAuth((s) => s.user?.stellarPublicKey ?? null);
+  const previous = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (shouldResetQueryCache(previous.current, publicKey)) {
+      qc.removeQueries();
+    }
+    previous.current = publicKey;
+  }, [publicKey, qc]);
 }
 
 export function useUpdateMe() {

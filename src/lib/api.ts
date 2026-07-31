@@ -85,13 +85,17 @@ export class ApiRequestError extends Error {
 }
 
 /**
- * Thrown when an otherwise-successful API response fails schema
- * validation. Kept message-free (no raw payload) — callers show a
- * generic "something went wrong" state rather than parser internals.
+ * Thrown when a response with a successful HTTP status fails client-side
+ * Zod schema validation. Retrying cannot help — the payload shape diverged
+ * from the contract the client was built against — so React Query's retry
+ * gate treats it as terminal (see providers.tsx).
  */
 export class ApiValidationError extends Error {
-  constructor() {
-    super("Response did not match the expected shape.");
+  readonly code = "invalid_response";
+  readonly status = 200;
+
+  constructor(message = "Response did not match the expected shape.") {
+    super(message);
     this.name = "ApiValidationError";
   }
 }
