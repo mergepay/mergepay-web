@@ -1,18 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Upload, AlertTriangle } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea, Label, Select, FieldHint, FormError } from "@/components/ui/input";
+import { Input, Textarea, Label, Select, FieldHint } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { useCreateExpense } from "@/lib/queries";
+import { shouldBlockExpenseSubmit, useCreateExpense } from "@/lib/queries";
+import {
+  createSubmissionGate,
+  shouldSuppressSubmitKey,
+  submitOnce,
+} from "@/lib/submission";
 import { api, ApiRequestError } from "@/lib/api";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
-import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
-import { validateExpenseForm, type FormErrors } from "@/lib/expenseValidation";
+import type { GroupMember, SplitType } from "@/lib/types";
+import {
+  MAX_PERCENT_DECIMAL_PLACES,
+  sumDecimalStrings,
+  validateExpenseSplit,
+} from "@/lib/expenseValidation";
+import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
 
 export function AddExpenseDialog({
   open,
@@ -28,10 +39,20 @@ export function AddExpenseDialog({
   currentUserId: string;
 }) {
   const create = useCreateExpense(groupId);
+  // Single idempotency key per logical submission — rotated on success
+  // so a second expense (without closing the dialog) gets a fresh key.
+  const idemKey = useRef(crypto.randomUUID());
+  // Guards state updates after the dialog unmounts mid-flight.
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
-  const [amountError, setAmountError] = useState<string | null>(null);
   const [assetKey, setAssetKey] = useState("XLM");
   const [payerUserId, setPayerUserId] = useState(currentUserId);
   const [splitType, setSplitType] = useState<SplitType>("equal");
@@ -43,50 +64,89 @@ export function AddExpenseDialog({
   const [memo, setMemo] = useState("");
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Message returned by the API for the last rejected submit. Kept separate
+  // from client validation so a server-side rule we don't mirror locally stays
+  // on screen instead of being replaced by a generic client message.
+  const [serverError, setServerError] = useState<string | null>(null);
   // Form-level latch: a synchronous guard preventing double-clicks and
   // auto-repeat Enter from issuing a second mutation while the first is
   // in flight. Mirrors `create.isPending` for keyboard paths the native
   // disabled state can't always intercept.
+  // Rendering state for the pending request — drives the spinner, the
+  // busy announcement, and the disabled submit control.
   const [submitting, setSubmitting] = useState(false);
+  // Error from the last failed attempt. Kept alongside the entered values
+  // so the user can correct and retry without re-typing the form.
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // Synchronous single-flight latch. `submitting` and `create.isPending`
+  // are React state and only settle on the next render, so they cannot by
+  // themselves reject a second activation that lands in the same tick
+  // (double-click, Enter auto-repeat, tap plus synthesised click).
+  const gate = useRef(createSubmissionGate());
 
   const asset = useMemo(
     () => SETTLEMENT_ASSETS.find((a) => a.code === assetKey) ?? SETTLEMENT_ASSETS[0],
     [assetKey]
   );
 
-  const total = parseFloat(amount) || 0;
+  const memberIds = useMemo(() => members.map((m) => m.userId), [members]);
 
-  const customSum = useMemo(
-    () =>
-      participants.reduce((s, id) => s + (parseFloat(custom[id] || "0") || 0), 0),
-    [participants, custom]
-  );
-  const percentSum = useMemo(
-    () =>
-      participants.reduce((s, id) => s + (parseFloat(percent[id] || "0") || 0), 0),
-    [participants, percent]
-  );
+  // A member removed from the group mid-edit can no longer be unchecked (their
+  // row disappears), so drop them from the selection. Validation still rejects
+  // stale ids on the render before this effect runs.
+  useEffect(() => {
+    setParticipants((prev) => {
+      const next = prev.filter((id) => memberIds.includes(id));
+      return next.length === prev.length ? prev : next;
+    });
+    setPayerUserId((prev) => {
+      if (memberIds.includes(prev)) return prev;
+      return memberIds.includes(currentUserId) ? currentUserId : memberIds[0] ?? "";
+    });
+  }, [memberIds, currentUserId]);
 
-  const validationErrors = useMemo(
+  const validation = useMemo(
     () =>
-      validateExpenseForm({
+      validateExpenseSplit({
         title,
         amount,
         splitType,
         participants,
         custom,
         percent,
+        assetCode: asset.code,
+        assetIssuer: asset.issuer,
+        eligibleParticipantIds: memberIds,
       }),
-    [title, amount, splitType, participants, custom, percent]
+    [title, amount, splitType, participants, custom, percent, asset, memberIds]
   );
+  const fieldErrors = validation.errors;
+  const participantErrors = validation.participantErrors;
+
+  // Exact running sums for the split hints — never floating point, so the hint
+  // always agrees with the validation verdict.
+  const customSum = useMemo(
+    () => sumDecimalStrings(participants.map((id) => custom[id] ?? ""), MAX_DECIMAL_PLACES),
+    [participants, custom]
+  );
+  const percentSum = useMemo(
+    () =>
+      sumDecimalStrings(
+        participants.map((id) => percent[id] ?? ""),
+        MAX_PERCENT_DECIMAL_PLACES
+      ),
+    [participants, percent]
+  );
+  const normalizedTotal = useMemo(() => {
+    const parsed = parseExactAmount(amount);
+    return parsed.ok ? parsed.value.plain : "0";
+  }, [amount]);
 
   function toggleParticipant(id: string) {
     setParticipants((p) =>
       p.includes(id) ? p.filter((x) => x !== id) : [...p, id]
     );
   }
-
-  const isPayerAlsoParticipant = participants.includes(payerUserId);
 
   async function handleUpload(file: File) {
     setUploading(true);
@@ -101,33 +161,40 @@ export function AddExpenseDialog({
     }
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(e?: React.FormEvent) {
+    if (e) e.preventDefault();
 
     // Defense-in-depth: ignore Enter-repeats, double-clicks, and any other
     // re-entry of the submit handler while a request is in flight or has
     // already started. The button is also disabled via `loading` below; the
     // check here covers keyboard activation paths browsers handle natively.
     if (create.isPending || submitting) return;
+
+    // No request is issued while the draft is invalid — the API is the second
+    // line of defence, not the first source of feedback.
+    if (!validation.valid || !validation.normalized) {
+      const first =
+        Object.values(validation.errors)[0] ??
+        Object.values(validation.participantErrors)[0];
+      if (first) toast.error(first);
+    if (shouldBlockExpenseSubmit({ isPending: create.isPending, submitting })) {
+      return;
+    }
     if (validationErrors) {
       const first = Object.values(validationErrors)[0];
       toast.error(first);
       return;
     }
 
-    const shares: ExpenseShareInput[] = participants.map((userId) => {
-      if (splitType === "custom") return { userId, amount: custom[userId] || "0" };
-      if (splitType === "percentage")
-        return { userId, percent: parseFloat(percent[userId] || "0") };
-      return { userId };
-    });
+    const { title: cleanTitle, amount: cleanAmount, shares } = validation.normalized;
 
     setSubmitting(true);
+    setServerError(null);
     try {
       await create.mutateAsync({
-        title: title.trim(),
+        title: cleanTitle,
         description: description.trim() || undefined,
-        amount: String(total),
+        amount: cleanAmount,
         assetCode: asset.code,
         assetIssuer: asset.issuer,
         splitType,
@@ -140,15 +207,63 @@ export function AddExpenseDialog({
       reset();
       onClose();
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not add expense");
+      // Keep the server's own wording — it may enforce rules this form does
+      // not mirror. Only fall back to generic copy for non-API failures.
+      const message =
+        e instanceof ApiRequestError ? e.message : "Could not add expense";
+      setServerError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
+    // Every activation funnels through the gate: only the one that claims
+    // it issues a request, so a form instance can never have two creates
+    // in flight. The gate is released again on success *and* on failure.
+    const attempt = await submitOnce(gate.current, async () => {
+      setSubmitError(null);
+      setSubmitting(true);
+      try {
+        return await create.mutateAsync({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          amount: String(total),
+          assetCode: asset.code,
+          assetIssuer: asset.issuer,
+          splitType,
+          shares,
+          payerUserId,
+          memo: memo.trim() || undefined,
+          receiptUrl,
+        });
+      } finally {
+        setSubmitting(false);
+      }
+    });
+
+    if (attempt.status === "blocked") return;
+
+    if (attempt.status === "error") {
+      // Leave every entered value in place — the user corrects or retries
+      // from where they were.
+      const message =
+        attempt.error instanceof ApiRequestError
+          ? attempt.error.message
+          : "Could not add expense. Your details were kept — try again.";
+      setSubmitError(message);
+      toast.error(message);
+      return;
     }
+
+    toast.success("Expense added");
+    reset();
+    onClose();
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
-    if (e.key === "Enter" && e.repeat && (create.isPending || submitting)) {
-      // Suppress repeated Enter auto-submits while a mutation is in flight.
+    if (
+      shouldSuppressSubmitKey(e, submitting || create.isPending || gate.current.active)
+    ) {
+      // Suppress implicit and auto-repeat Enter submits while a mutation
+      // is in flight; the native disabled state does not cover them.
       e.preventDefault();
     }
   }
@@ -162,15 +277,37 @@ export function AddExpenseDialog({
     setPercent({});
     setMemo("");
     setReceiptUrl(null);
+    setServerError(null);
+    setParticipants(memberIds);
+    setSubmitError(null);
     setParticipants(members.map((m) => m.userId));
+    // Rotate idempotency key on success / explicit reset so a new
+    // logical submission gets a fresh deduplication identity.
+    idemKey.current = crypto.randomUUID();
   }
 
-  const equalShare =
-    participants.length > 0 ? total / participants.length : 0;
+  // Preview only — the API performs the authoritative equal-split division.
+  const equalSharePreview =
+    participants.length > 0
+      ? (Number(normalizedTotal) / participants.length).toFixed(2)
+      : "0.00";
+
+  /** A create request is in flight for this form instance. */
+  const pending = create.isPending || submitting;
 
   return (
-    <Dialog open={open} onClose={onClose} title="Add expense">
-      <form onSubmit={submit} onKeyDown={handleKeyDown} className="space-y-4">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Add expense"
+      description="Record a shared bill and choose how it is split between group members."
+    >
+      <form
+        onSubmit={submit}
+        onKeyDown={handleKeyDown}
+        aria-busy={pending}
+        className="space-y-4"
+      >
         <div>
           <Label htmlFor="e-title">Title</Label>
           <Input
@@ -180,11 +317,14 @@ export function AddExpenseDialog({
             placeholder="Dinner at Terra Kulture"
             maxLength={80}
             autoFocus
+            aria-invalid={fieldErrors.title ? true : undefined}
+            aria-describedby={fieldErrors.title ? "e-title-error" : undefined}
+            data-autofocus
             aria-describedby={validationErrors?.title ? "e-title-error" : undefined}
           />
-          {validationErrors?.title && (
+          {fieldErrors.title && (
             <p id="e-title-error" className="mt-1 text-xs text-flamingo" role="alert">
-              {validationErrors.title}
+              {fieldErrors.title}
             </p>
           )}
         </div>
@@ -199,25 +339,14 @@ export function AddExpenseDialog({
               step="0.0000001"
               inputMode="decimal"
               value={amount}
-              onChange={(e) => {
-                setAmount(e.target.value);
-                if (amountError) {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val > 0) setAmountError(null);
-                }
-              }}
-              onBlur={(e) => {
-                const val = parseFloat(e.target.value);
-                if (!isNaN(val) && val <= 0) {
-                  setAmountError("Amount must be greater than zero");
-                }
-              }}
+              onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
-              aria-describedby={validationErrors?.amount ? "e-amount-error" : undefined}
+              aria-invalid={fieldErrors.amount ? true : undefined}
+              aria-describedby={fieldErrors.amount ? "e-amount-error" : undefined}
             />
-            {validationErrors?.amount && (
+            {fieldErrors.amount && (
               <p id="e-amount-error" className="mt-1 text-xs text-flamingo" role="alert">
-                {validationErrors.amount}
+                {fieldErrors.amount}
               </p>
             )}
           </div>
@@ -227,10 +356,17 @@ export function AddExpenseDialog({
               id="e-asset"
               value={assetKey}
               onChange={(e) => setAssetKey(e.target.value)}
+              aria-invalid={fieldErrors.asset ? true : undefined}
+              aria-describedby={fieldErrors.asset ? "e-asset-error" : undefined}
             >
               <option value="XLM">XLM (native)</option>
               <option value={STABLE_ASSET.code}>{STABLE_ASSET.code} (stable)</option>
             </Select>
+            {fieldErrors.asset && (
+              <p id="e-asset-error" className="mt-1 text-xs text-flamingo" role="alert">
+                {fieldErrors.asset}
+              </p>
+            )}
           </div>
         </div>
 
@@ -274,94 +410,105 @@ export function AddExpenseDialog({
           <div className="space-y-2">
             {members.map((m) => {
               const on = participants.includes(m.userId);
+              const rowError = on ? participantErrors[m.userId] : undefined;
+              const errorId = rowError ? `e-share-${m.userId}-error` : undefined;
               return (
-                <div
-                  key={m.userId}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl border-2 px-3 py-2 transition-colors",
-                    on ? "border-ink bg-cream" : "border-ink/20 bg-paper opacity-60"
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => toggleParticipant(m.userId)}
-                    className="h-4 w-4 accent-grape"
-                    aria-label={`Include ${m.user.displayName}`}
-                  />
-                  <Avatar user={m.user} size="sm" />
-                  <span className="flex-1 truncate text-sm font-bold">
-                    {m.user.displayName}
-                    {m.userId === currentUserId && (
-                      <span className="ml-1 text-ink/40">(you)</span>
+                <div key={m.userId}>
+                  <div
+                    className={cn(
+                      "flex items-center gap-3 rounded-xl border-2 px-3 py-2 transition-colors",
+                      rowError
+                        ? "border-flamingo bg-flamingo-pale"
+                        : on
+                          ? "border-ink bg-cream"
+                          : "border-ink/20 bg-paper opacity-60"
                     )}
-                  </span>
-                  {on && splitType === "equal" && (
-                    <span className="font-mono text-xs text-ink/60">
-                      {equalShare.toFixed(2)}
-                    </span>
-                  )}
-                  {on && splitType === "custom" && (
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.0000001"
-                      value={custom[m.userId] ?? ""}
-                      onChange={(e) =>
-                        setCustom((c) => ({ ...c, [m.userId]: e.target.value }))
-                      }
-                      className="h-8 w-24 px-2 py-1 text-sm"
-                      placeholder="0.00"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => toggleParticipant(m.userId)}
+                      className="h-4 w-4 accent-grape"
+                      aria-label={`Include ${m.user.displayName}`}
                     />
-                  )}
-                  {on && splitType === "percentage" && (
-                    <div className="flex items-center gap-1">
+                    <Avatar user={m.user} size="sm" />
+                    <span className="flex-1 truncate text-sm font-bold">
+                      {m.user.displayName}
+                      {m.userId === currentUserId && (
+                        <span className="ml-1 text-ink/40">(you)</span>
+                      )}
+                    </span>
+                    {on && splitType === "equal" && (
+                      <span className="font-mono text-xs text-ink/60">
+                        {equalSharePreview}
+                      </span>
+                    )}
+                    {on && splitType === "custom" && (
                       <Input
                         type="number"
                         min="0"
-                        max="100"
-                        step="0.01"
-                        value={percent[m.userId] ?? ""}
+                        step="0.0000001"
+                        inputMode="decimal"
+                        value={custom[m.userId] ?? ""}
                         onChange={(e) =>
-                          setPercent((p) => ({ ...p, [m.userId]: e.target.value }))
+                          setCustom((c) => ({ ...c, [m.userId]: e.target.value }))
                         }
-                        className="h-8 w-16 px-2 py-1 text-sm"
-                        placeholder="0"
+                        className="h-8 w-24 px-2 py-1 text-sm"
+                        placeholder="0.00"
+                        aria-label={`Share amount for ${m.user.displayName}`}
+                        aria-invalid={rowError ? true : undefined}
+                        aria-describedby={errorId}
                       />
-                      <span className="text-xs text-ink/50">%</span>
-                    </div>
+                    )}
+                    {on && splitType === "percentage" && (
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          inputMode="decimal"
+                          value={percent[m.userId] ?? ""}
+                          onChange={(e) =>
+                            setPercent((p) => ({ ...p, [m.userId]: e.target.value }))
+                          }
+                          className="h-8 w-16 px-2 py-1 text-sm"
+                          placeholder="0"
+                          aria-label={`Share percentage for ${m.user.displayName}`}
+                          aria-invalid={rowError ? true : undefined}
+                          aria-describedby={errorId}
+                        />
+                        <span className="text-xs text-ink/50">%</span>
+                      </div>
+                    )}
+                  </div>
+                  {rowError && (
+                    <p id={errorId} className="mt-1 px-3 text-xs text-flamingo" role="alert">
+                      {m.user.displayName}: {rowError}
+                    </p>
                   )}
                 </div>
               );
             })}
           </div>
-          {validationErrors?.participants && (
+          {fieldErrors.participants && (
             <p id="e-participants-error" className="mt-1 text-xs text-flamingo" role="alert">
-              {validationErrors.participants}
+              {fieldErrors.participants}
             </p>
           )}
           {splitType === "custom" && (
             <FieldHint>
-              Sum: {customSum.toFixed(2)} / {total.toFixed(2)}{" "}
-              {validationErrors?.custom ? (
-                <span className="text-flamingo font-bold">· {validationErrors.custom}</span>
-              ) : (
-                Math.abs(customSum - total) > 0.0000001 &&
-                total > 0 && (
-                  <span className="text-flamingo font-bold">· must match total</span>
-                )
+              Sum: {customSum} / {normalizedTotal}{" "}
+              {fieldErrors.custom && (
+                <span className="text-flamingo font-bold">· {fieldErrors.custom}</span>
               )}
             </FieldHint>
           )}
           {splitType === "percentage" && (
             <FieldHint>
-              Sum: {percentSum.toFixed(1)}% / 100%{" "}
-              {validationErrors?.percent ? (
-                <span className="text-flamingo font-bold">· {validationErrors.percent}</span>
-              ) : (
-                Math.abs(percentSum - 100) > 0.001 && (
-                  <span className="text-flamingo font-bold">· must total 100</span>
-                )
+              Sum: {percentSum}% / 100%{" "}
+              {fieldErrors.percent && (
+                <span className="text-flamingo font-bold">· {fieldErrors.percent}</span>
               )}
             </FieldHint>
           )}
@@ -398,11 +545,44 @@ export function AddExpenseDialog({
               }}
             />
           </label>
+        </div>
+
+        {serverError && (
+          <div
+            className="rounded-xl border-2 border-ink bg-flamingo-pale px-4 py-3 text-sm"
+            role="alert"
+          >
+            {serverError}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
         </div>          {isPayerAlsoParticipant && (
             <div className="rounded-xl border-2 border-flamingo bg-flamingo/10 px-3 py-2 text-sm text-flamingo">
               You cannot be both payer and participant.
             </div>
           )}
+
+          {submitError && (
+            <div
+              id="e-submit-error"
+              role="alert"
+              className="rounded-xl border-2 border-flamingo bg-flamingo/10 px-3 py-2 text-sm text-flamingo"
+            >
+              <FormError>{submitError}</FormError>
+              <p className="mt-1 text-xs text-ink/60">
+                Nothing was saved. Your details are still here — adjust them or
+                press “Add expense” to try again.
+              </p>
+            </div>
+          )}
+
+          {/* Announce the in-flight request to assistive tech: the submit
+              control's visual spinner is not enough on its own. */}
+          <p role="status" aria-live="polite" className="sr-only">
+            {pending ? "Adding expense, please wait" : ""}
+          </p>
+
           <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
@@ -410,9 +590,19 @@ export function AddExpenseDialog({
           <Button
             type="submit"
             loading={create.isPending || submitting}
-            disabled={validationErrors !== null || create.isPending || submitting}
-            title={validationErrors ? Object.values(validationErrors)[0] : undefined}
+            disabled={!validation.valid || create.isPending || submitting}
+            title={
+              validation.valid
+                ? undefined
+                : Object.values(validation.errors)[0] ??
+                  Object.values(validation.participantErrors)[0]
+            }
             aria-busy={create.isPending || submitting}
+            loading={pending}
+            disabled={validationErrors !== null || pending}
+            title={validationErrors ? Object.values(validationErrors)[0] : undefined}
+            aria-busy={pending}
+            aria-describedby={submitError ? "e-submit-error" : undefined}
           >
             Add expense
           </Button>

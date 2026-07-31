@@ -1,4 +1,5 @@
 # Security Policy
+# Security Policy
 
 Mergepay-web is the frontend for [Mergepay](https://github.com/mergepay/mergepay-web),
 a Stellar-native group settlement app. This document covers the reporting process and
@@ -91,3 +92,7 @@ project has no formal on-call, timelines beyond that are best-effort.
 There is no bounty program for this repository. Coordinated disclosure and
 credit in release notes are offered by default unless you prefer to remain
 anonymous.
+
+<!-- There is no bounty program for this repository. Coordinated disclosure and
+credit in release notes are offered by default unless you prefer to remain
+anonymous. -->
