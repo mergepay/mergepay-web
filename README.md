@@ -143,6 +143,38 @@ npm run lint       # eslint
 npm run typecheck  # tsc --noEmit
 ```
 
+## Health endpoint
+
+`GET /api/health` — no authentication required.
+
+Returns the operational status of the server and its upstream dependencies.
+Always responds with **HTTP 200**; inspect the `status` field in the body to
+distinguish healthy from degraded.
+
+```json
+{
+  "status": "ok",
+  "uptime": 123.456,
+  "timestamp": "2026-01-01T00:00:00.000Z",
+  "dependencies": {
+    "api": "ok",
+    "stellar": "ok"
+  }
+}
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `status` | `"ok"` \| `"degraded"` | `"degraded"` if any dependency is unreachable |
+| `uptime` | `number` | Server process uptime in seconds (`process.uptime()`) |
+| `timestamp` | `string` | ISO 8601 timestamp of the check |
+| `dependencies.api` | `"ok"` \| `"degraded"` | Reachability of `mergepay-api` (`NEXT_PUBLIC_API_URL/health`) |
+| `dependencies.stellar` | `"ok"` \| `"degraded"` | Reachability of Horizon (`NEXT_PUBLIC_HORIZON_URL`) |
+
+Dependency checks run concurrently and time out after **5 seconds** each.
+The endpoint is designed to be polled by uptime monitors and load-balancer
+health probes without generating false alarms.
+
 ## Deployment
 
 Deploys cleanly to **Vercel** — set the `NEXT_PUBLIC_*` env vars in the project

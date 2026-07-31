@@ -9,6 +9,13 @@
 // Primitives
 // ---------------------------------------------------------------------------
 
+/**
+ * Stellar network the app is configured against. The API builds every
+ * transaction envelope for this network, so a wallet pointed anywhere
+ * else cannot produce a signature the API will accept.
+ */
+export type StellarNetwork = "testnet" | "public";
+
 export type Role = "admin" | "member";
 export type SplitType = "equal" | "custom" | "percentage";
 export type ShareStatus = "pending" | "settling" | "settled";
@@ -187,6 +194,13 @@ export interface CreateExpenseRequest {
   payerUserId?: string;
   memo?: string;
   receiptUrl?: string | null;
+  /**
+   * Opaque client-generated UUID sent as the `Idempotency-Key` header.
+   * The server uses it to deduplicate duplicate submissions — if a
+   * request times out and the user retries with the same key, a second
+   * expense is NOT created. Omitted from the JSON body.
+   */
+  idempotencyKey?: string;
 }
 
 export interface UpdateExpenseRequest {
@@ -308,6 +322,28 @@ export interface SettlementsResponse {
   settlements: Settlement[];
 }
 
+// ---------------------------------------------------------------------------
+// Bulk settlement (issue #31)
+// ---------------------------------------------------------------------------
+
+export interface BulkSettleRequest {
+  expenseIds: string[];
+  assetCode?: string;
+  assetIssuer?: string | null;
+}
+
+export interface BulkSettlementIntentResponse {
+  /** The settlement record persisted by the API for this batch. */
+  settlement: Settlement;
+  /** Expense IDs covered by this batched settlement. */
+  expenseIds: string[];
+  /** Total amount being settled in the bulk payment. */
+  totalAmount: string;
+  /** Unsigned batched payment transaction, base64 XDR — sign with your wallet. */
+  xdr: string;
+  networkPassphrase: string;
+}
+
 export type LedgerEntry =
   | { type: "expense"; createdAt: string; expense: Expense }
   | { type: "settlement"; createdAt: string; settlement: Settlement }
@@ -315,6 +351,8 @@ export type LedgerEntry =
 
 export interface LedgerResponse {
   entries: LedgerEntry[];
+  /** Opaque base64url cursor for the next page, or `null` on the last page. */
+  nextCursor: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +490,8 @@ export interface AnchorSessionsResponse {
 export interface HistoryResponse {
   expenses: Expense[];
   settlements: Settlement[];
+  /** Opaque base64url cursor for the next page, or `null` on the last page. */
+  nextCursor: string | null;
 }
 
 export interface UploadResponse {
