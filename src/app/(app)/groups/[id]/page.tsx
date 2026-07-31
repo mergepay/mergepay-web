@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useGroupStore } from "@/lib/group-store";
 import {
+  ChevronDown,
   Landmark,
   ListChecks,
   Plus,
@@ -39,6 +40,13 @@ import { resolveSectionStatus } from "@/lib/sectionState";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 
 type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
+
+/**
+ * Records per request. Large enough that most groups never need a second
+ * page, small enough that a group with hundreds of expenses does not pay
+ * first-paint cost for the whole history. The API clamps `limit` at 100.
+ */
+const EXPENSES_PAGE_SIZE = 20;
 
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -208,6 +216,22 @@ function ExpensesTab({
   const [bulkTarget, setBulkTarget] = useState<BulkSettleTarget | null>(null);
   const walletDisconnected = useWalletDisconnected();
 
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteExpenses(groupId, { limit: EXPENSES_PAGE_SIZE });
+
+  // Merged across every loaded page and deduped on the expense id, so a
+  // refetch that re-issues page 1 (or a page boundary that shifts when a
+  // new expense lands) cannot render the same record twice.
+  const expenses = useMemo(() => mergeExpensePages(data?.pages), [data]);
+
   function toggleSelect(id: string) {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -220,8 +244,8 @@ function ExpensesTab({
   function openBulkDialog(shares: UnsettledShare[]) {
     // Mirror the bar's own validation, but build the dialog-bound target
     // so the receipt can list per-expense rows by their on-page title.
-    const { target, error } = buildBulkTarget(shares);
-    if (error || !target) return;
+    const { target, error: bulkError } = buildBulkTarget(shares);
+    if (bulkError || !target) return;
     const titleById = new Map(expenses.map((e) => [e.id, e.title]));
     setBulkTarget({
       ...target,
@@ -235,15 +259,16 @@ function ExpensesTab({
     setBulkOpen(true);
   }
 
-  const { data, isLoading, isError, error, refetch } = useExpenses(groupId);
-
   const status = resolveSectionStatus({
     isLoading,
-    isError,
+    isError: isError && expenses.length === 0,
     hasData: data !== undefined,
-    isEmpty: (data?.expenses ?? []).length === 0,
+    isEmpty: expenses.length === 0,
   });
 
+  // Only the very first page gets the skeleton. Later pages keep the
+  // records already on screen and put the spinner on the load-more
+  // control instead.
   if (status === "loading") {
     return (
       <SectionLoading label="Loading expenses" minHeight="min-h-[18rem]">
@@ -262,7 +287,6 @@ function ExpensesTab({
     );
   }
 
-  const expenses = sortExpensesByDateDesc(data?.expenses ?? []);
   if (expenses.length === 0) {
     return (
       <EmptyState
@@ -309,18 +333,66 @@ function ExpensesTab({
     <>
       <div className="mb-4 flex items-center justify-between">{actionArea}</div>
       <div className="space-y-3">
-        {expenses.map((e) => (
-          <ExpenseCard
-            key={e.id}
-            expense={e}
-            groupId={groupId}
-            currentUserId={currentUserId}
-            members={members}
-            selectable={selectMode}
-            selected={selectedIds.includes(e.id)}
-            onToggleSelect={() => toggleSelect(e.id)}
-          />
-        ))}
+        <ul className="space-y-3" aria-label="Group expenses">
+          {expenses.map((e) => (
+            <li key={e.id}>
+              <ExpenseCard
+                expense={e}
+                groupId={groupId}
+                currentUserId={currentUserId}
+                members={members}
+                selectable={selectMode}
+                selected={selectedIds.includes(e.id)}
+                onToggleSelect={() => toggleSelect(e.id)}
+              />
+            </li>
+          ))}
+        </ul>
+
+        <p className="sr-only" role="status" aria-live="polite">
+          {isFetchingNextPage
+            ? "Loading more expenses"
+            : `Showing ${expenses.length} expense${
+                expenses.length === 1 ? "" : "s"
+              }${hasNextPage ? ", more available" : ", end of history"}`}
+        </p>
+
+        {isError && (
+          <div
+            className="rounded-xl border-2 border-ink bg-flamingo-pale px-4 py-3 text-sm"
+            role="alert"
+          >
+            {error instanceof ApiRequestError
+              ? error.message
+              : "We couldn't load more expenses."}
+          </div>
+        )}
+
+        <div className="flex flex-col items-center gap-2 pt-1">
+          {hasNextPage ? (
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => fetchNextPage()}
+              loading={isFetchingNextPage}
+              aria-busy={isFetchingNextPage}
+              aria-label={
+                isError ? "Try loading more expenses again" : "Load older expenses"
+              }
+            >
+              {!isFetchingNextPage && <ChevronDown className="h-4 w-4" />}
+              {isFetchingNextPage
+                ? "Loading…"
+                : isError
+                  ? "Try again"
+                  : "Load older expenses"}
+            </Button>
+          ) : (
+            <p className="text-xs text-ink/50">
+              That&apos;s every expense in this group.
+            </p>
+          )}
+        </div>
       </div>
 
       <BulkSettleBar
