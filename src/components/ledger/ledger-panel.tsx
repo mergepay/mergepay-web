@@ -1,18 +1,36 @@
 "use client";
 
+import { useMemo } from "react";
 import { ArrowRight, Landmark, Receipt, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Money } from "@/components/amount";
 import { TxLink } from "@/components/tx-link";
+import { SettlementStatusBadge } from "@/components/settle/settlement-status";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { useLedger } from "@/lib/queries";
-import { fullDate } from "@/lib/format";
+import {
+  accumulateLedgerPages,
+  useInfiniteLedger,
+} from "@/lib/queries";
+import { Timestamp } from "@/components/timestamp";
 
 export function LedgerPanel({ groupId }: { groupId: string }) {
-  const { data, isLoading, isError, refetch } = useLedger(groupId);
+  const {
+    data: pages,
+    isLoading,
+    isError,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteLedger(groupId);
+
+  const entries = useMemo(
+    () => accumulateLedgerPages(pages?.pages),
+    [pages?.pages]
+  );
 
   if (isLoading) return <ListSkeleton rows={4} />;
 
@@ -31,7 +49,6 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
     );
   }
 
-  const entries = data?.entries ?? [];
   if (entries.length === 0) {
     return (
       <EmptyState
@@ -43,7 +60,8 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
   }
 
   return (
-    <div className="relative space-y-3 before:absolute before:left-[21px] before:top-2 before:h-[calc(100%-1rem)] before:w-0.5 before:bg-ink/15">
+    <div className="space-y-4">
+      <div className="relative space-y-3 before:absolute before:left-[21px] before:top-2 before:h-[calc(100%-1rem)] before:w-0.5 before:bg-ink/15">
       {entries.map((entry, i) => (
         <div key={i} className="relative flex gap-3">
           <LedgerIcon type={entry.type} />
@@ -53,7 +71,8 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                 <div>
                   <p className="font-bold">{entry.expense.title}</p>
                   <p className="text-xs text-ink/50">
-                    {entry.expense.payer.displayName} paid · {fullDate(entry.createdAt)}
+                    {entry.expense.payer.displayName} paid ·{" "}
+                    <Timestamp value={entry.createdAt} />
                   </p>
                 </div>
                 <Money
@@ -70,20 +89,19 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                     <ArrowRight className="h-3.5 w-3.5 text-ink/40" />
                     {entry.settlement.to.displayName}
                   </p>
-                  <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
+                  <p className="text-xs text-ink/50">
+                    <Timestamp value={entry.createdAt} />
+                  </p>
                 </div>
                 <div className="text-right">
                   <Money
                     value={entry.settlement.amount}
                     assetCode={entry.settlement.assetCode}
                   />
-                  <div className="mt-1 flex justify-end">
-                    {entry.settlement.stellarTxHash ? (
+                  <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
+                    <SettlementStatusBadge status={entry.settlement.status} />
+                    {entry.settlement.stellarTxHash && (
                       <TxLink hash={entry.settlement.stellarTxHash} />
-                    ) : (
-                      <Badge tone={statusTone(entry.settlement.status)}>
-                        {entry.settlement.status}
-                      </Badge>
                     )}
                   </div>
                 </div>
@@ -95,7 +113,9 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                   <p className="font-bold capitalize">
                     Treasury {entry.treasuryTransaction.direction}
                   </p>
-                  <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
+                  <p className="text-xs text-ink/50">
+                    <Timestamp value={entry.createdAt} />
+                  </p>
                 </div>
                 <div className="text-right">
                   <Money
@@ -117,6 +137,20 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
           </Card>
         </div>
       ))}
+      </div>
+      {/* Load-more control — hidden when all pages are loaded */}
+      {hasNextPage && (
+        <div className="flex justify-center pt-4">
+          <Button
+            variant="outline"
+            onClick={() => fetchNextPage()}
+            loading={isFetchingNextPage}
+            aria-label="Load more ledger entries"
+          >
+            {isFetchingNextPage ? "Loading…" : "Load More"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,13 @@
-import { formatDistanceToNow, format as formatDate } from "date-fns";
+import {
+  formatAssetAmount,
+  formatAssetAmountText,
+  type FormatAmountOptions,
+} from "./currency";
+import {
+  formatRelativeTimestamp,
+  formatTimestamp,
+  formatTimestampFull,
+} from "./datetime";
 
 /** Truncate a Stellar public key: GBBD…FLA5 */
 export function shortKey(key: string, chars = 4) {
@@ -10,46 +19,46 @@ export function shortHash(hash: string, chars = 6) {
   return shortKey(hash, chars);
 }
 
-/** Format a decimal-string amount with up to 7 dp, trimming trailing zeros. */
-export function formatAmount(amount: string | number, maxDp = 2): string {
-  const str = typeof amount === "number" ? String(amount) : amount;
-  if (!str || str === "0" || str === "-0") return "0";
-
-  const negative = str.startsWith("-");
-  const abs = negative ? str.slice(1) : str;
-
-  const [intPart, fracPart = ""] = abs.split(".");
-
-  const absNum = Number(abs);
-  const isSubCent = absNum !== 0 && absNum < 0.01;
-  const dp = isSubCent ? 7 : maxDp;
-
-  let trimmed = fracPart.slice(0, dp).replace(/0+$/, "");
-
-  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-
-  const result = trimmed ? `${grouped}.${trimmed}` : grouped;
-  return negative ? `-${result}` : result;
+/**
+ * Format a decimal-string amount without an asset code.
+ *
+ * Presentation rules live in `src/lib/currency.ts` — this is a thin
+ * wrapper for the few call sites that render the asset separately.
+ * Prefer {@link formatMoney} (or the `Money` / `NetAmount` components)
+ * so the asset is never dropped from the output.
+ */
+export function formatAmount(
+  amount: string | number | null | undefined,
+  options?: FormatAmountOptions
+): string {
+  return formatAssetAmount(amount, undefined, options).amount;
 }
 
-export function formatMoney(amount: string | number, assetCode: string) {
-  return `${formatAmount(amount)} ${assetCode}`;
+/** Format an amount together with its asset code, e.g. `"1,234.50 USDC"`. */
+export function formatMoney(
+  amount: string | number | null | undefined,
+  assetCode: string | null | undefined,
+  options?: FormatAmountOptions
+) {
+  return formatAssetAmountText(amount, assetCode, options);
 }
 
-export function timeAgo(iso: string) {
-  try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true });
-  } catch {
-    return iso;
-  }
+/**
+ * Date helpers are thin wrappers over the shared formatters in
+ * `src/lib/datetime.ts`, which own timestamp parsing (offsets, date-only
+ * values, invalid input). Prefer the `Timestamp` component where the
+ * exact time should also be exposed to assistive technology.
+ */
+export function timeAgo(iso: string | null | undefined) {
+  return formatRelativeTimestamp(iso);
 }
 
-export function fullDate(iso: string) {
-  try {
-    return formatDate(new Date(iso), "MMM d, yyyy · h:mm a");
-  } catch {
-    return iso;
-  }
+export function fullDate(iso: string | null | undefined) {
+  return formatTimestamp(iso);
+}
+
+export function fullDateLabel(iso: string | null | undefined) {
+  return formatTimestampFull(iso);
 }
 
 export function initials(name: string) {

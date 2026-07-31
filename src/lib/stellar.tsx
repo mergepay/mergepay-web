@@ -12,12 +12,20 @@ import {
   isConnected,
   requestAccess,
   getAddress,
+  getNetworkDetails,
+  getNetwork,
   signTransaction,
 } from "@stellar/freighter-api";
 import { api } from "./api";
 import { useAuth } from "./auth-store";
-import { NETWORK_PASSPHRASE } from "./constants";
+import {
+  describeNetwork,
+  EXPECTED_NETWORK_LABEL,
+  NETWORK_PASSPHRASE,
+} from "./constants";
 import type { User } from "./types";
+import type { WalletProbe } from "./walletReadiness";
+import type { WalletSnapshot } from "./walletSession";
 
 export const FREIGHTER_INSTALL_URL = "https://freighter.app";
 
@@ -31,6 +39,7 @@ export type WalletErrorCode =
   | "user_rejected"
   | "disconnected"
   | "network"
+  | "network_mismatch"
   | "unknown";
 
 export class WalletError extends Error {
@@ -79,6 +88,28 @@ export class WalletNetworkError extends WalletError {
   }
 }
 
+/**
+ * The wallet is pointed at a different Stellar network than this deployment.
+ *
+ * Carries both names so the UI can state the problem and the fix without
+ * re-deriving anything; `message` is already user-facing copy.
+ */
+export class NetworkMismatchError extends WalletError {
+  /** What the wallet is on, e.g. "Stellar Testnet" or "FUTURENET". */
+  walletNetwork: string;
+  /** What this deployment expects, e.g. "Stellar Mainnet". */
+  expectedNetwork: string;
+  constructor(walletNetwork: string, expectedNetwork = EXPECTED_NETWORK_LABEL) {
+    super(
+      `Your wallet is on ${walletNetwork} — switch it to ${expectedNetwork} to continue.`,
+      "network_mismatch"
+    );
+    this.name = "NetworkMismatchError";
+    this.walletNetwork = walletNetwork;
+    this.expectedNetwork = expectedNetwork;
+  }
+}
+
 // User-facing messages keyed by code. Processed before showing in the UI so
 // raw provider strings — which can include method/path error context — are
 // never rendered verbatim.
@@ -89,6 +120,7 @@ const MESSAGE_BY_CODE: Record<WalletErrorCode, string> = {
   user_rejected: "You cancelled the request. No transaction was submitted.",
   disconnected: "Wallet connection was lost. Reconnect Freighter to continue.",
   network: "Couldn't reach the wallet. Check Freighter and try again.",
+  network_mismatch: `Your wallet is on a different Stellar network. Switch it to ${EXPECTED_NETWORK_LABEL} and try again.`,
   unknown: "The wallet returned an unexpected error. Please try again.",
 };
 
@@ -184,6 +216,90 @@ export async function isFreighterAvailable(): Promise<boolean> {
   }
 }
 
+/**
+ * Read the already-granted public address without prompting.
+ *
+ * Returns `null` when the wallet is missing, locked, or has not shared an
+ * account — all of which are ordinary "not connected yet" states, not errors.
+ * Only the public address is read; no call here can return secret material.
+ */
+export async function getGrantedAddress(): Promise<string | null> {
+  try {
+    const res = await getAddress();
+    if (typeof res === "string") return res || null;
+    if (isObject(res)) {
+      if (extractError(res)) return null;
+      const address = res.address;
+      if (typeof address === "string" && address) return address;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Network the wallet is currently pointed at, or `null` if unreadable. */
+export async function getWalletNetwork(): Promise<{
+  network: string;
+  networkPassphrase: string;
+} | null> {
+  try {
+    const res = await getNetworkDetails();
+    if (!isObject(res) || extractError(res)) return null;
+    const { network, networkPassphrase } = res;
+    if (typeof networkPassphrase !== "string" || !networkPassphrase) return null;
+    return {
+      network: typeof network === "string" ? network : "",
+      networkPassphrase,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Throw a `NetworkMismatchError` when the wallet would sign against a
+ * different network than this deployment builds for.
+ *
+ * Silent when the network cannot be read: `getWalletNetwork` returns `null`
+ * for a wallet that is missing, locked, or has not granted access, and a
+ * reading we failed to take is not evidence of a mismatch. Freighter itself
+ * rejects a signature carrying the wrong passphrase, so the worst case is the
+ * behaviour we already had.
+ */
+export async function assertWalletNetwork(): Promise<void> {
+  const active = await getWalletNetwork();
+  if (!active) return;
+  if (active.networkPassphrase === NETWORK_PASSPHRASE) return;
+  throw new NetworkMismatchError(
+    describeNetwork(active.networkPassphrase, active.network)
+  );
+}
+
+/**
+ * Read the active public key **without prompting**.
+ *
+ * `getAddress` resolves to an empty address (or an error field) when the
+ * app has not been granted access, and never opens a Freighter popup —
+ * so this is safe to call on load to find out whether a persisted
+ * session can be resumed at all.
+ */
+export async function readWalletSnapshot(): Promise<WalletSnapshot> {
+  if (!(await isFreighterAvailable())) {
+    return { status: "unavailable", publicKey: null };
+  }
+  try {
+    const res = await getAddress();
+    if (isObject(res) && !extractError(res) && typeof res.address === "string") {
+      return { status: "resolved", publicKey: res.address || null };
+    }
+  } catch {
+    // The extension answered badly — treat it as "no account shared"
+    // rather than "no wallet", so the user is asked to reconnect.
+  }
+  return { status: "resolved", publicKey: null };
+}
+
 /** Ask Freighter for the active public key (prompting for access if needed). */
 export async function connectWallet(): Promise<string> {
   const available = await isFreighterAvailable();
@@ -218,6 +334,53 @@ export async function connectWallet(): Promise<string> {
   }
 }
 
+/**
+ * Read the wallet's current account and network **without prompting**.
+ *
+ * `getAddress` resolves to an empty address when the app has not been
+ * granted access, and `getNetwork` reports the network the extension is
+ * configured for. Neither opens a Freighter popup, so this is safe to
+ * call on render to decide whether an action should be offered at all.
+ */
+export async function probeWallet(): Promise<WalletProbe> {
+  if (!(await isFreighterAvailable())) {
+    return { status: "unavailable", publicKey: null, networkPassphrase: null };
+  }
+
+  const [addressResult, networkResult] = await Promise.all([
+    getAddress().catch(() => null),
+    getNetwork().catch(() => null),
+  ]);
+
+  const publicKey =
+    isObject(addressResult) && typeof addressResult.address === "string"
+      ? addressResult.address || null
+      : null;
+
+  const hasNetworkError = isObject(networkResult)
+    ? extractError(networkResult) !== undefined
+    : true;
+  const networkPassphrase =
+    !hasNetworkError &&
+    isObject(networkResult) &&
+    typeof networkResult.networkPassphrase === "string"
+      ? networkResult.networkPassphrase
+      : null;
+  const networkName =
+    !hasNetworkError && isObject(networkResult) && typeof networkResult.network === "string"
+      ? networkResult.network
+      : null;
+
+  // An address error means "no account shared", not "no wallet" — the
+  // extension answered. Readiness turns that into a connect prompt.
+  return {
+    status: "resolved",
+    publicKey: isObject(addressResult) && extractError(addressResult) ? null : publicKey,
+    networkPassphrase,
+    networkName,
+  };
+}
+
 export async function signXdr(
   xdr: string,
   networkPassphrase: string = NETWORK_PASSPHRASE
@@ -239,12 +402,17 @@ export async function signXdr(
 
 /**
  * Full SEP-10 login:
- *  1. fetch a challenge transaction for the wallet's account,
- *  2. sign it in Freighter,
- *  3. send it back for verification, receive a JWT session.
+ *  1. confirm the wallet is on the network this deployment targets,
+ *  2. fetch a challenge transaction for the wallet's account,
+ *  3. sign it in Freighter,
+ *  4. send it back for verification, receive a JWT session.
  */
 export async function loginWithWallet(): Promise<User> {
   const publicKey = await connectWallet();
+  // Checked after access is granted (Freighter only reports its network to an
+  // allowed origin) and before the challenge is built: a challenge for one
+  // network signed against another fails with an opaque error.
+  await assertWalletNetwork();
   const challenge = await api.authChallenge(publicKey);
   const signed = await signXdr(challenge.transaction, challenge.networkPassphrase);
   const { token, user } = await api.authVerify(signed);
@@ -282,10 +450,6 @@ export async function signAndConfirmTreasuryTx(
   const signedXdr = await signXdr(xdr, networkPassphrase);
   return api.confirmTreasuryTx(txId, { signedXdr });
 }
-
-// Re-export the helper so other modules (e.g. UI) can map codes to messages
-// without depending on internal classifier strings.
-export { classifyWalletMessage };
 
 /** User-friendly message with a link, shown when Freighter is not installed. */
 export function NotInstalledMessage(): ReactNode {

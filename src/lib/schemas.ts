@@ -214,11 +214,13 @@ export const LedgerResponseSchema = z.object({
       }),
     ])
   ),
+  nextCursor: z.string().nullable(),
 });
 
 export const HistoryResponseSchema = z.object({
   expenses: z.array(ExpenseSchema),
   settlements: z.array(SettlementSchema),
+  nextCursor: z.string().nullable(),
 });
 
 // Invites — used when creating or redeeming group invites
