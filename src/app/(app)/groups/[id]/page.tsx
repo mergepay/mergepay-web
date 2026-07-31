@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useGroupStore } from "@/lib/group-store";
 import {
   Landmark,
+  ListChecks,
   Plus,
   Receipt,
   Scale,
@@ -19,54 +20,63 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
 import { ExpenseCard } from "@/components/expenses/expense-card";
+import { SettleDialog, type BulkSettleTarget } from "@/components/settle/settle-dialog";
+import { BulkSettleBar } from "@/components/settle/bulk-settle-bar";
+import { buildBulkTarget, type UnsettledShare } from "@/lib/bulkSettle";
 import { BalancesPanel } from "@/components/balances/balances-panel";
 import { LedgerPanel } from "@/components/ledger/ledger-panel";
 import { TreasuryPanel } from "@/components/treasury/treasury-panel";
 import { MembersPanel } from "@/components/groups/members-panel";
+import {
+  SectionBoundary,
+  SectionError,
+  SectionLoading,
+} from "@/components/ui/section";
 import { useExpenses, useGroup, useMe } from "@/lib/queries";
+import type { GroupMember } from "@/lib/types";
 import { sortExpensesByDateDesc } from "@/lib/expenses";
+import { resolveSectionStatus } from "@/lib/sectionState";
+import { useWalletDisconnected } from "@/lib/wallet-store";
 
 type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
 
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: me, isError: isMeError, error: meError } = useMe();
-  const { data: detail, isLoading, isError } = useGroup(id);
+  // The profile request only supplies "(you)" markers; a failure must not
+  // take the whole group page down with it.
+  const { data: me } = useMe();
+  const { data: detail, isLoading, isError, error, refetch } = useGroup(id);
   const [tab, setTab] = useState<Tab>("expenses");
   const [addOpen, setAddOpen] = useState(false);
+  // Keep the active group id in a tiny client store so sibling routes
+  // (e.g. balances, treasury) can reuse it without re-fetching.
   const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
+  // Expense creation feeds on-chain settlement — lock it while the
+  // wallet is disconnected.
+  const walletDisconnected = useWalletDisconnected();
 
   useEffect(() => {
     setSelectedGroup(id);
   }, [id, setSelectedGroup]);
 
-  if (isMeError) {
-    throw meError || new Error("Failed to load user information");
-  }
-
   const currentUserId = me?.user.id ?? "";
 
-  if (isError) {
+  if (isError && !detail) {
     return (
-      <EmptyState
-        icon={<Users className="h-7 w-7" />}
-        title="Group not found"
-        description="You may not have access to this group, or it doesn't exist."
-        action={
-          <Button onClick={() => history.back()} variant="outline">
-            Go back
-          </Button>
-        }
+      <SectionError
+        subject="this group"
+        error={error}
+        onRetry={() => refetch()}
       />
     );
   }
 
   if (isLoading || !detail) {
     return (
-      <>
+      <SectionLoading label="Loading this group" minHeight="min-h-[24rem]">
         <div className="mb-8 h-10 w-48 animate-pulse rounded-xl bg-ink/10" />
         <ListSkeleton rows={4} />
-      </>
+      </SectionLoading>
     );
   }
 
@@ -80,7 +90,15 @@ export default function GroupDetailPage() {
         description={group.description ?? undefined}
         action={
           tab === "expenses" && (
-            <Button onClick={() => setAddOpen(true)}>
+            <Button
+              onClick={() => setAddOpen(true)}
+              disabled={walletDisconnected}
+              title={
+                walletDisconnected
+                  ? "Reconnect your wallet to add an expense"
+                  : undefined
+              }
+            >
               <Plus className="h-4 w-4" /> Add expense
             </Button>
           )
@@ -98,29 +116,66 @@ export default function GroupDetailPage() {
         active={tab}
         onChange={(t) => setTab(t as Tab)}
         tabs={[
-          { id: "expenses", label: "Expenses", icon: <Receipt className="h-4 w-4" /> },
-          { id: "balances", label: "Balances", icon: <Scale className="h-4 w-4" /> },
-          { id: "ledger", label: "Ledger", icon: <ScrollText className="h-4 w-4" /> },
-          { id: "treasury", label: "Treasury", icon: <Landmark className="h-4 w-4" /> },
-          { id: "members", label: "Members", icon: <Users className="h-4 w-4" /> },
+          {
+            id: "expenses",
+            label: "Expenses",
+            icon: <Receipt className="h-4 w-4" />,
+          },
+          {
+            id: "balances",
+            label: "Balances",
+            icon: <Scale className="h-4 w-4" />,
+          },
+          {
+            id: "ledger",
+            label: "Ledger",
+            icon: <ScrollText className="h-4 w-4" />,
+          },
+          {
+            id: "treasury",
+            label: "Treasury",
+            icon: <Landmark className="h-4 w-4" />,
+          },
+          {
+            id: "members",
+            label: "Members",
+            icon: <Users className="h-4 w-4" />,
+          },
         ]}
       />
 
+      {/* Each panel owns its own request and its own failure state, and
+          each is wrapped so an unexpected render error is contained to
+          the panel instead of blanking the group page. */}
       {tab === "expenses" && (
-        <ExpensesTab
-          groupId={id}
-          currentUserId={currentUserId}
-          members={detail.members}
-          onAdd={() => setAddOpen(true)}
-        />
+        <SectionBoundary subject="the expense list">
+          <ExpensesTab
+            groupId={id}
+            currentUserId={currentUserId}
+            members={detail.members}
+            onAdd={() => setAddOpen(true)}
+          />
+        </SectionBoundary>
       )}
       {tab === "balances" && (
-        <BalancesPanel groupId={id} currentUserId={currentUserId} />
+        <SectionBoundary subject="the balances panel">
+          <BalancesPanel groupId={id} currentUserId={currentUserId} />
+        </SectionBoundary>
       )}
-      {tab === "ledger" && <LedgerPanel groupId={id} />}
-      {tab === "treasury" && <TreasuryPanel group={group} detail={detail} />}
+      {tab === "ledger" && (
+        <SectionBoundary subject="the ledger">
+          <LedgerPanel groupId={id} />
+        </SectionBoundary>
+      )}
+      {tab === "treasury" && (
+        <SectionBoundary subject="the treasury panel">
+          <TreasuryPanel group={group} detail={detail} />
+        </SectionBoundary>
+      )}
       {tab === "members" && (
-        <MembersPanel detail={detail} currentUserId={currentUserId} />
+        <SectionBoundary subject="the member list">
+          <MembersPanel detail={detail} currentUserId={currentUserId} />
+        </SectionBoundary>
       )}
 
       <AddExpenseDialog
@@ -142,24 +197,67 @@ function ExpensesTab({
 }: {
   groupId: string;
   currentUserId: string;
-  members: import("@/lib/types").GroupMember[];
+  members: GroupMember[];
   onAdd: () => void;
 }) {
-  const { data, isLoading, isError, refetch } = useExpenses(groupId);
+  // Bulk-settle selection state. Kept local to this tab so leaving the
+  // expenses tab (e.g. to balances) automatically drops the selection.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkTarget, setBulkTarget] = useState<BulkSettleTarget | null>(null);
+  const walletDisconnected = useWalletDisconnected();
 
-  if (isLoading) return <ListSkeleton rows={4} />;
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds([]);
+  }
+  function openBulkDialog(shares: UnsettledShare[]) {
+    // Mirror the bar's own validation, but build the dialog-bound target
+    // so the receipt can list per-expense rows by their on-page title.
+    const { target, error } = buildBulkTarget(shares);
+    if (error || !target) return;
+    const titleById = new Map(expenses.map((e) => [e.id, e.title]));
+    setBulkTarget({
+      ...target,
+      rows: target.expenseIds.map((id) => ({
+        expenseId: id,
+        title: titleById.get(id) ?? id,
+        amount:
+          shares.find((s) => s.expenseId === id)?.amount ?? "0.0000000",
+      })),
+    });
+    setBulkOpen(true);
+  }
 
-  if (isError) {
+  const { data, isLoading, isError, error, refetch } = useExpenses(groupId);
+
+  const status = resolveSectionStatus({
+    isLoading,
+    isError,
+    hasData: data !== undefined,
+    isEmpty: (data?.expenses ?? []).length === 0,
+  });
+
+  if (status === "loading") {
     return (
-      <EmptyState
-        icon={<Receipt className="h-7 w-7 text-red-500" />}
-        title="Error loading expenses"
-        description="We couldn't load the expenses for this group."
-        action={
-          <Button onClick={() => refetch()} variant="outline">
-            Retry
-          </Button>
-        }
+      <SectionLoading label="Loading expenses" minHeight="min-h-[18rem]">
+        <ListSkeleton rows={4} />
+      </SectionLoading>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <SectionError
+        subject="the expenses for this group"
+        error={error}
+        onRetry={() => refetch()}
       />
     );
   }
@@ -172,7 +270,15 @@ function ExpensesTab({
         title="No expenses yet"
         description="Log your first shared bill and let Mergepay split it."
         action={
-          <Button onClick={onAdd}>
+          <Button
+            onClick={onAdd}
+            disabled={walletDisconnected}
+            title={
+              walletDisconnected
+                ? "Reconnect your wallet to add an expense"
+                : undefined
+            }
+          >
             <Plus className="h-4 w-4" /> Add expense
           </Button>
         }
@@ -180,17 +286,63 @@ function ExpensesTab({
     );
   }
 
-  return (
-    <div className="space-y-3">
-      {expenses.map((e) => (
-        <ExpenseCard
-          key={e.id}
-          expense={e}
-          groupId={groupId}
-          currentUserId={currentUserId}
-          members={members}
-        />
-      ))}
+  // Action area changes when bulk-select is on, mirroring the issue's
+  // "Settle" button requirement on the group detail page. The "Add
+  // expense" button stays in the page header — this row is only for
+  // bulk-select controls.
+  const actionArea = selectMode ? (
+    <div className="flex items-center justify-end gap-2">
+      <Badge tone="paper">{selectedIds.length} selected</Badge>
+      <Button variant="outline" size="sm" onClick={exitSelectMode}>
+        Cancel
+      </Button>
     </div>
+  ) : (
+    <div className="flex items-center justify-end">
+      <Button variant="outline" size="sm" onClick={() => setSelectMode(true)}>
+        <ListChecks className="h-4 w-4" /> Settle in bulk
+      </Button>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="mb-4 flex items-center justify-between">{actionArea}</div>
+      <div className="space-y-3">
+        {expenses.map((e) => (
+          <ExpenseCard
+            key={e.id}
+            expense={e}
+            groupId={groupId}
+            currentUserId={currentUserId}
+            members={members}
+            selectable={selectMode}
+            selected={selectedIds.includes(e.id)}
+            onToggleSelect={() => toggleSelect(e.id)}
+          />
+        ))}
+      </div>
+
+      <BulkSettleBar
+        expenses={expenses}
+        currentUserId={currentUserId}
+        selectedIds={selectedIds}
+        onClear={() => setSelectedIds([])}
+        onProceed={openBulkDialog}
+      />
+
+      <SettleDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        groupId={groupId}
+        target={null}
+        bulkTarget={bulkTarget}
+        onSettled={() => {
+          setBulkOpen(false);
+          setBulkTarget(null);
+          exitSelectMode();
+        }}
+      />
+    </>
   );
 }

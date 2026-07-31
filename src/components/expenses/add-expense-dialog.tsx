@@ -12,7 +12,18 @@ import { useCreateExpense } from "@/lib/queries";
 import { api, ApiRequestError } from "@/lib/api";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
-import { validateExpenseForm } from "@/lib/expenseValidation";
+import {
+  AMOUNT_DECIMAL_PLACES,
+  MAX_TITLE_LENGTH,
+  PERCENT_DECIMAL_PLACES,
+  formatAmountUnits,
+  formatDecimalUnits,
+  parseDecimalUnits,
+  splitEqualUnits,
+  validateExpenseForm,
+} from "@/lib/expenseValidation";
+import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
+import { useWalletDisconnected } from "@/lib/wallet-store";
 
 export function AddExpenseDialog({
   open,
@@ -31,7 +42,6 @@ export function AddExpenseDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
-  const [amountError, setAmountError] = useState<string | null>(null);
   const [assetKey, setAssetKey] = useState("XLM");
   const [payerUserId, setPayerUserId] = useState(currentUserId);
   const [splitType, setSplitType] = useState<SplitType>("equal");
@@ -42,30 +52,109 @@ export function AddExpenseDialog({
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Error from the last failed attempt. Kept alongside the entered values
+  // so the user can correct and retry without re-typing the form.
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // Synchronous single-flight latch. `submitting` and `create.isPending`
+  // are React state and only settle on the next render, so they cannot by
+  // themselves reject a second activation that lands in the same tick
+  // (double-click, Enter auto-repeat, tap plus synthesised click).
+  const gate = useRef(createSubmissionGate());
+  // Expenses are settled on-chain — block submission while the wallet is
+  // disconnected.
+  const walletDisconnected = useWalletDisconnected();
 
   const asset = useMemo(
     () => SETTLEMENT_ASSETS.find((a) => a.code === assetKey) ?? SETTLEMENT_ASSETS[0],
     [assetKey]
   );
-  const total = parseFloat(amount) || 0;
+
+  const memberIds = useMemo(() => members.map((m) => m.userId), [members]);
+
+  /** The amount in stroops, or null while it is empty/invalid. */
+  const amountUnits = useMemo(() => {
+    const parsed = parseDecimalUnits(amount, AMOUNT_DECIMAL_PLACES);
+    return typeof parsed === "bigint" && parsed > 0n ? parsed : null;
+  }, [amount]);
+
+  /** Running totals, summed as integers so the hints never drift. */
   const customSum = useMemo(
-    () => participants.reduce((s, id) => s + (parseFloat(custom[id] || "0") || 0), 0),
+    () =>
+      participants.reduce((sum, id) => {
+        const parsed = parseDecimalUnits(custom[id] ?? "", AMOUNT_DECIMAL_PLACES);
+        return typeof parsed === "bigint" ? sum + parsed : sum;
+      }, 0n),
     [participants, custom]
   );
   const percentSum = useMemo(
-    () => participants.reduce((s, id) => s + (parseFloat(percent[id] || "0") || 0), 0),
+    () =>
+      participants.reduce((sum, id) => {
+        const parsed = parseDecimalUnits(percent[id] ?? "", PERCENT_DECIMAL_PLACES);
+        return typeof parsed === "bigint" ? sum + parsed : sum;
+      }, 0n),
     [participants, percent]
   );
+
+  /**
+   * Exact per-participant shares for an equal split. The remainder is
+   * distributed a stroop at a time rather than rounded away, and these
+   * are the values shown next to each name.
+   */
+  const equalShares = useMemo(
+    () =>
+      amountUnits === null
+        ? []
+        : splitEqualUnits(amountUnits, participants.length),
+    [amountUnits, participants.length]
+  );
+  const equalSplitIsUneven =
+    equalShares.length > 1 &&
+    equalShares.some((s) => s !== equalShares[0]);
+
   const validationErrors = useMemo(
-    () => validateExpenseForm({ title, amount, splitType, participants, custom, percent }),
-    [title, amount, splitType, participants, custom, percent]
+    () =>
+      validateExpenseForm(
+        {
+          title,
+          amount,
+          assetCode: assetKey,
+          splitType,
+          payerUserId,
+          participants,
+          custom,
+          percent,
+        },
+        { memberIds, supportedAssetCodes: SUPPORTED_ASSET_CODES }
+      ),
+    [
+      title,
+      amount,
+      assetKey,
+      splitType,
+      payerUserId,
+      participants,
+      custom,
+      percent,
+      memberIds,
+    ]
   );
 
-  function toggleParticipant(id: string) {
-    setParticipants((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]);
+  /** The message to render for a field, or undefined while it is hidden. */
+  function errorFor(field: string): string | undefined {
+    if (!showErrors && !touched[field]) return undefined;
+    return validationErrors?.[field];
   }
 
-  const isPayerAlsoParticipant = participants.includes(payerUserId);
+  function markTouched(field: string) {
+    setTouched((t) => (t[field] ? t : { ...t, [field]: true }));
+  }
+
+  function toggleParticipant(id: string) {
+    markTouched("participants");
+    setParticipants((p) =>
+      p.includes(id) ? p.filter((x) => x !== id) : [...p, id]
+    );
+  }
 
   async function handleUpload(file: File) {
     setUploading(true);
@@ -83,13 +172,30 @@ export function AddExpenseDialog({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (create.isPending || submitting) return;
+    // No API request is made while anything is invalid — the button is
+    // also disabled, but a keyboard submit can still reach this handler.
     if (validationErrors) {
-      toast.error(Object.values(validationErrors)[0]);
+      const first = Object.values(validationErrors)[0];
+      toast.error(first);
+      setShowErrors(true);
       return;
     }
+    if (amountUnits === null) return;
+
     const shares: ExpenseShareInput[] = participants.map((userId) => {
-      if (splitType === "custom") return { userId, amount: custom[userId] || "0" };
-      if (splitType === "percentage") return { userId, percent: parseFloat(percent[userId] || "0") };
+      if (splitType === "custom") {
+        const units = parseDecimalUnits(
+          custom[userId] ?? "",
+          AMOUNT_DECIMAL_PLACES
+        );
+        // Validation already rejected anything unparseable.
+        return {
+          userId,
+          amount: formatAmountUnits(typeof units === "bigint" ? units : 0n),
+        };
+      }
+      if (splitType === "percentage")
+        return { userId, percent: Number(percent[userId] ?? "0") };
       return { userId };
     });
     setSubmitting(true);
@@ -97,7 +203,9 @@ export function AddExpenseDialog({
       await create.mutateAsync({
         title: title.trim(),
         description: description.trim() || undefined,
-        amount: String(total),
+        // Sent from the parsed integer amount, so what reaches the API is
+        // exactly what was typed — never a float round-trip.
+        amount: formatAmountUnits(amountUnits),
         assetCode: asset.code,
         assetIssuer: asset.issuer,
         splitType,
@@ -126,32 +234,106 @@ export function AddExpenseDialog({
     setMemo("");
     setReceiptUrl(null);
     setParticipants(members.map((m) => m.userId));
+    setTouched({});
+    setShowErrors(false);
   }
-
-  const equalShare = participants.length > 0 ? total / participants.length : 0;
 
   return (
     <Dialog open={open} onClose={onClose} title="Add expense">
       <form onSubmit={submit} className="space-y-4">
         <div>
           <Label htmlFor="e-title">Title</Label>
-          <Input id="e-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Dinner at Terra Kulture" maxLength={80} autoFocus aria-describedby={validationErrors?.title ? "e-title-error" : undefined} />
-          {validationErrors?.title && <p id="e-title-error" className="mt-1 text-xs text-flamingo" role="alert">{validationErrors.title}</p>}
+          <Input
+            id="e-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={() => markTouched("title")}
+            placeholder="Dinner at Terra Kulture"
+            maxLength={MAX_TITLE_LENGTH}
+            autoFocus
+            aria-invalid={errorFor("title") ? true : undefined}
+            aria-describedby={errorFor("title") ? "e-title-error" : undefined}
+          />
+          {errorFor("title") && (
+            <p id="e-title-error" className="mt-1 text-xs text-flamingo" role="alert">
+              {errorFor("title")}
+            </p>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label htmlFor="e-amount">Amount</Label>
-            <Input id="e-amount" type="number" min="0" step="0.0000001" inputMode="decimal" value={amount} onChange={(e) => { setAmount(e.target.value); if (amountError && parseFloat(e.target.value) > 0) setAmountError(null); }} onBlur={(e) => { const val = parseFloat(e.target.value); if (!isNaN(val) && val <= 0) setAmountError("Amount must be greater than zero"); }} placeholder="0.00" aria-describedby={validationErrors?.amount ? "e-amount-error" : undefined} />
-            {validationErrors?.amount && <p id="e-amount-error" className="mt-1 text-xs text-flamingo" role="alert">{validationErrors.amount}</p>}
+            <Input
+              id="e-amount"
+              type="number"
+              min="0"
+              step="0.0000001"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              onBlur={() => markTouched("amount")}
+              placeholder="0.00"
+              aria-invalid={errorFor("amount") ? true : undefined}
+              aria-describedby={errorFor("amount") ? "e-amount-error" : undefined}
+            />
+            {errorFor("amount") && (
+              <p id="e-amount-error" className="mt-1 text-xs text-flamingo" role="alert">
+                {errorFor("amount")}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="e-asset">Asset</Label>
-            <Select id="e-asset" value={assetKey} onChange={(e) => setAssetKey(e.target.value)}><option value="XLM">XLM (native)</option><option value={STABLE_ASSET.code}>{STABLE_ASSET.code} (stable)</option></Select>
+            <Select
+              id="e-asset"
+              value={assetKey}
+              onChange={(e) => setAssetKey(e.target.value)}
+              onBlur={() => markTouched("assetCode")}
+              aria-invalid={errorFor("assetCode") ? true : undefined}
+              aria-describedby={
+                errorFor("assetCode") ? "e-asset-error" : undefined
+              }
+            >
+              {SETTLEMENT_ASSETS.map((a) => (
+                <option key={a.code} value={a.code}>
+                  {a.code}
+                  {a.code === "XLM"
+                    ? " (native)"
+                    : a.code === STABLE_ASSET.code
+                    ? " (stable)"
+                    : ""}
+                </option>
+              ))}
+            </Select>
+            {errorFor("assetCode") && (
+              <p id="e-asset-error" className="mt-1 text-xs text-flamingo" role="alert">
+                {errorFor("assetCode")}
+              </p>
+            )}
           </div>
         </div>
         <div>
           <Label htmlFor="e-payer">Paid by</Label>
-          <Select id="e-payer" value={payerUserId} onChange={(e) => setPayerUserId(e.target.value)}>{members.map((m) => <option key={m.userId} value={m.userId}>{m.user.displayName}{m.userId === currentUserId ? " (you)" : ""}</option>)}</Select>
+          <Select
+            id="e-payer"
+            value={payerUserId}
+            onChange={(e) => setPayerUserId(e.target.value)}
+            onBlur={() => markTouched("payer")}
+            aria-invalid={errorFor("payer") ? true : undefined}
+            aria-describedby={errorFor("payer") ? "e-payer-error" : undefined}
+          >
+            {members.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                {m.user.displayName}
+                {m.userId === currentUserId ? " (you)" : ""}
+              </option>
+            ))}
+          </Select>
+          {errorFor("payer") && (
+            <p id="e-payer-error" className="mt-1 text-xs text-flamingo" role="alert">
+              {errorFor("payer")}
+            </p>
+          )}
         </div>
         <div>
           <Label>Split</Label>
@@ -161,22 +343,130 @@ export function AddExpenseDialog({
         </div>
         <div>
           <Label>Participants</Label>
-          <div className="space-y-2">
+          <div
+            className="space-y-2"
+            aria-describedby={
+              errorFor("participants") ? "e-participants-error" : undefined
+            }
+          >
             {members.map((m) => {
               const on = participants.includes(m.userId);
-              return <div key={m.userId} className={cn("flex items-center gap-3 rounded-xl border-2 px-3 py-2 transition-colors", on ? "border-ink bg-cream" : "border-ink/20 bg-paper opacity-60")}>
-                <input type="checkbox" checked={on} onChange={() => toggleParticipant(m.userId)} className="h-4 w-4 accent-grape" aria-label={`Include ${m.user.displayName}`} />
-                <Avatar user={m.user} size="sm" />
-                <span className="flex-1 truncate text-sm font-bold">{m.user.displayName}{m.userId === currentUserId && <span className="ml-1 text-ink/40">(you)</span>}</span>
-                {on && splitType === "equal" && <span className="font-mono text-xs text-ink/60">{equalShare.toFixed(2)}</span>}
-                {on && splitType === "custom" && <Input type="number" min="0" step="0.0000001" value={custom[m.userId] ?? ""} onChange={(e) => setCustom((c) => ({ ...c, [m.userId]: e.target.value }))} className="h-8 w-24 px-2 py-1 text-sm" placeholder="0.00" />}
-                {on && splitType === "percentage" && <div className="flex items-center gap-1"><Input type="number" min="0" max="100" step="0.01" value={percent[m.userId] ?? ""} onChange={(e) => setPercent((p) => ({ ...p, [m.userId]: e.target.value }))} className="h-8 w-16 px-2 py-1 text-sm" placeholder="0" /><span className="text-xs text-ink/50">%</span></div>}
-              </div>;
+              const shareIndex = participants.indexOf(m.userId);
+              return (
+                <div
+                  key={m.userId}
+                  className={cn(
+                    "flex items-center gap-3 rounded-xl border-2 px-3 py-2 transition-colors",
+                    on ? "border-ink bg-cream" : "border-ink/20 bg-paper opacity-60"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => toggleParticipant(m.userId)}
+                    className="h-4 w-4 accent-grape"
+                    aria-label={`Include ${m.user.displayName}`}
+                  />
+                  <Avatar user={m.user} size="sm" />
+                  <span className="flex-1 truncate text-sm font-bold">
+                    {m.user.displayName}
+                    {m.userId === currentUserId && (
+                      <span className="ml-1 text-ink/40">(you)</span>
+                    )}
+                  </span>
+                  {on && splitType === "equal" && (
+                    <span className="font-mono text-xs text-ink/60">
+                      {equalShares[shareIndex] === undefined
+                        ? "—"
+                        : formatAmountUnits(equalShares[shareIndex])}
+                    </span>
+                  )}
+                  {on && splitType === "custom" && (
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.0000001"
+                      inputMode="decimal"
+                      value={custom[m.userId] ?? ""}
+                      onChange={(e) =>
+                        setCustom((c) => ({ ...c, [m.userId]: e.target.value }))
+                      }
+                      onBlur={() => markTouched("custom")}
+                      className="h-8 w-24 px-2 py-1 text-sm"
+                      placeholder="0.00"
+                      aria-label={`Share for ${m.user.displayName}`}
+                      aria-invalid={errorFor("custom") ? true : undefined}
+                      aria-describedby={
+                        errorFor("custom") ? "e-custom-error" : undefined
+                      }
+                    />
+                  )}
+                  {on && splitType === "percentage" && (
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={percent[m.userId] ?? ""}
+                        onChange={(e) =>
+                          setPercent((p) => ({ ...p, [m.userId]: e.target.value }))
+                        }
+                        onBlur={() => markTouched("percent")}
+                        className="h-8 w-16 px-2 py-1 text-sm"
+                        placeholder="0"
+                        aria-label={`Percentage for ${m.user.displayName}`}
+                        aria-invalid={errorFor("percent") ? true : undefined}
+                        aria-describedby={
+                          errorFor("percent") ? "e-percent-error" : undefined
+                        }
+                      />
+                      <span className="text-xs text-ink/50">%</span>
+                    </div>
+                  )}
+                </div>
+              );
             })}
           </div>
-          {validationErrors?.participants && <p className="mt-1 text-xs text-flamingo" role="alert">{validationErrors.participants}</p>}
-          {splitType === "custom" && <FieldHint>Sum: {customSum.toFixed(2)} / {total.toFixed(2)} {validationErrors?.custom && <span className="font-bold text-flamingo">· {validationErrors.custom}</span>}</FieldHint>}
-          {splitType === "percentage" && <FieldHint>Sum: {percentSum.toFixed(1)}% / 100% {validationErrors?.percent && <span className="font-bold text-flamingo">· {validationErrors.percent}</span>}</FieldHint>}
+          {errorFor("participants") && (
+            <p id="e-participants-error" className="mt-1 text-xs text-flamingo" role="alert">
+              {errorFor("participants")}
+            </p>
+          )}
+          {splitType === "equal" && equalSplitIsUneven && (
+            <FieldHint>
+              This amount doesn&apos;t divide evenly. The remainder is added to
+              the first {equalShares.filter((s) => s === equalShares[0]).length}{" "}
+              participant(s) so the shares still add up to the full amount.
+            </FieldHint>
+          )}
+          {splitType === "custom" && (
+            <>
+              <FieldHint>
+                Sum: {formatAmountUnits(customSum)} /{" "}
+                {amountUnits === null ? "—" : formatAmountUnits(amountUnits)}
+              </FieldHint>
+              {errorFor("custom") && (
+                <p id="e-custom-error" className="mt-1 text-xs text-flamingo" role="alert">
+                  {errorFor("custom")}
+                </p>
+              )}
+            </>
+          )}
+          {splitType === "percentage" && (
+            <>
+              <FieldHint>
+                Sum: {formatDecimalUnits(percentSum, PERCENT_DECIMAL_PLACES)}% /
+                100%
+              </FieldHint>
+              {errorFor("percent") && (
+                <p id="e-percent-error" className="mt-1 text-xs text-flamingo" role="alert">
+                  {errorFor("percent")}
+                </p>
+              )}
+            </>
+          )}
         </div>
         <div>
           <Label htmlFor="e-memo">Memo reference (optional)</Label>
@@ -191,10 +481,38 @@ export function AddExpenseDialog({
             <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
           </label>
         </div>
-        {isPayerAlsoParticipant && <div className="rounded-xl border-2 border-flamingo bg-flamingo/10 px-3 py-2 text-sm text-flamingo">You cannot be both payer and participant.</div>}
+
+        {/* Single announcement point for the first outstanding problem,
+            so a screen reader hears why the form will not submit. */}
+        <p className="sr-only" role="status" aria-live="polite">
+          {showErrors && validationErrors
+            ? `This expense can't be saved yet: ${
+                Object.values(validationErrors)[0]
+              }`
+            : ""}
+        </p>
+
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button type="submit" loading={create.isPending || submitting} disabled={validationErrors !== null || create.isPending || submitting} title={validationErrors ? Object.values(validationErrors)[0] : undefined} aria-busy={create.isPending || submitting}>Add expense</Button>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            loading={pending}
+            disabled={!validation.valid || pending || walletDisconnected}
+            title={
+              walletDisconnected
+                ? "Reconnect your wallet to add an expense"
+                : validation.valid
+                  ? undefined
+                  : Object.values(validation.errors)[0] ??
+                    Object.values(validation.participantErrors)[0]
+            }
+            aria-busy={pending}
+            aria-describedby={submitError ? "e-submit-error" : undefined}
+          >
+            Add expense
+          </Button>
         </div>
       </form>
     </Dialog>
