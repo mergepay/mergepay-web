@@ -2,6 +2,7 @@ import { z } from "zod";
 import { API_URL } from "@/lib/constants";
 import { apiError, apiSuccess, COMMON_CODES } from "@/lib/apiHelpers";
 import { fetchInviteByCode, validateInviteShape } from "@/lib/invites";
+import { parseInviteCode } from "@/lib/inviteLink";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,9 +68,18 @@ async function handle(request: Request): Promise<Response> {
     );
   }
 
+  // Shape check before any upstream traffic: a malformed identifier is
+  // rejected here rather than forwarded to the invite service.
+  const code = parseInviteCode(parsed.data.code);
+  if (!code.ok) {
+    return apiError(400, code.message, COMMON_CODES.INVALID_INPUT, {
+      problem: code.problem,
+    });
+  }
+
   const token = bearerToken(request);
 
-  const lookup = await fetchInviteByCode(parsed.data.code, token);
+  const lookup = await fetchInviteByCode(code.code, token);
   if (!lookup.ok) {
     if (lookup.status === 502) {
       return apiError(502, lookup.message, COMMON_CODES.UPSTREAM);
@@ -90,7 +100,7 @@ async function handle(request: Request): Promise<Response> {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ code: parsed.data.code }),
+      body: JSON.stringify({ code: code.code }),
     });
   } catch {
     return apiError(502, "Could not redeem invite.", COMMON_CODES.UPSTREAM);
