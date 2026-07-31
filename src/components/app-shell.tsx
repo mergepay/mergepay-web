@@ -18,6 +18,7 @@ import { Logo, LogoMark } from "./logo";
 import { Avatar } from "./ui/avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { useWalletScopedCache } from "@/lib/queries";
 import { shortKey } from "@/lib/format";
 import { FOCUSABLE_SELECTOR, nextFocusIndex } from "@/lib/dialog";
 
@@ -90,6 +91,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       previousFocusRef.current?.focus();
     };
   }, [mobileOpen, getDrawerFocusable]);
+
+  // Group content must never survive a switch to a different wallet.
+  useWalletScopedCache();
 
   async function handleLogout() {
     await logout();
