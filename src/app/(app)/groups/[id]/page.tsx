@@ -33,6 +33,7 @@ import {
   SectionLoading,
 } from "@/components/ui/section";
 import { useExpenses, useGroup, useMe } from "@/lib/queries";
+import type { GroupMember } from "@/lib/types";
 import { sortExpensesByDateDesc } from "@/lib/expenses";
 import { resolveSectionStatus } from "@/lib/sectionState";
 import { useWalletDisconnected } from "@/lib/wallet-store";
