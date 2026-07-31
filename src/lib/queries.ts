@@ -158,12 +158,17 @@ export function useInfiniteExpenses(
   options: { limit?: number; cursor?: string } = {}
 ) {
   return useInfiniteQuery({
+    // The group id is the first segment of the key, so switching groups
+    // reads a different cache entry rather than appending pages onto the
+    // previous group's list. Signing out calls `queryClient.clear()`
+    // (see `useAuth`), which drops these entries entirely.
     queryKey: [
       ...qk.expenses(groupId),
       "page",
       options.limit ?? 20,
       options.cursor ?? null,
     ],
+    enabled: Boolean(groupId),
     queryFn: ({ pageParam }) =>
       api.listExpensesPage(groupId, {
         limit: options.limit,
