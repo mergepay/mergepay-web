@@ -80,6 +80,11 @@ export function Dialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  const dismissibleRef = useRef(dismissible);
+
+  onCloseRef.current = onClose;
+  dismissibleRef.current = dismissible;
 
   // Read the latest props from inside the key handler without making the
   // effect depend on them. Consumers pass inline arrow functions for
