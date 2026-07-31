@@ -9,6 +9,8 @@
  * raw server response.
  */
 
+import { AMOUNT_UNAVAILABLE } from "./currency";
+
 export type SectionStatus = "loading" | "error" | "empty" | "ready";
 
 export interface SectionQueryState {
@@ -92,8 +94,12 @@ function capitalise(value: string): string {
   return value.length > 0 ? value[0].toUpperCase() + value.slice(1) : value;
 }
 
-/** Placeholder for a financial figure we could not load. */
-export const UNAVAILABLE_VALUE = "—";
+/**
+ * Placeholder for a financial figure we could not load. Shared with the
+ * amount formatter so an unavailable total and an unreadable amount look
+ * the same on screen.
+ */
+export const UNAVAILABLE_VALUE = AMOUNT_UNAVAILABLE;
 export const UNAVAILABLE_VALUE_LABEL = "Unavailable";
 
 /**

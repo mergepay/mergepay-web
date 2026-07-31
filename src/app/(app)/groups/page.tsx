@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { NetAmount } from "@/components/amount";
+import { amountToStroops } from "@/lib/currency";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Tabs } from "@/components/ui/tabs";
@@ -120,8 +121,8 @@ export default function GroupsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {groups.map((g) => {
-            const net = parseFloat(g.yourNet);
-            const settled = Math.abs(net) < 0.0000001;
+            // Stroop-exact: only an exactly zero balance is "settled".
+            const settled = amountToStroops(g.yourNet) === 0n;
             return (
               <Link key={g.id} href={`/groups/${g.id}`}>
                 <Card hover className="h-full p-5">
@@ -144,7 +145,7 @@ export default function GroupsPage() {
                     {settled ? (
                       <Badge tone="lime">Settled</Badge>
                     ) : (
-                      <NetAmount value={net} assetCode={g.netAssetCode} />
+                      <NetAmount value={g.yourNet} assetCode={g.netAssetCode} />
                     )}
                   </div>
                 </Card>

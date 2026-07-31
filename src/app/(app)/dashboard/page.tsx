@@ -28,7 +28,12 @@ import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { useGroups, useMe } from "@/lib/queries";
 import { useGroupStore } from "@/lib/group-store";
-import { formatAmount } from "@/lib/format";
+import {
+  amountToStroops,
+  formatAssetAmount,
+  type FormattedAmount,
+} from "@/lib/currency";
+import { summarizeNetsByAsset } from "@/lib/totals";
 import {
   UNAVAILABLE_VALUE_LABEL,
   financialValue,
@@ -109,7 +114,7 @@ export default function DashboardPage() {
         <div className="mb-8 grid gap-4 sm:grid-cols-3">
           <StatCard
             label="You are owed"
-            value={formatAmount(totals.owed)}
+            amount={formatAssetAmount(primaryTotals?.owed ?? "0", primaryAsset)}
             available={totalsAvailable}
             loading={isLoading}
             tone="bg-lime"
@@ -117,7 +122,7 @@ export default function DashboardPage() {
           />
           <StatCard
             label="You owe"
-            value={formatAmount(totals.owe)}
+            amount={formatAssetAmount(primaryTotals?.owe ?? "0", primaryAsset)}
             available={totalsAvailable}
             loading={isLoading}
             tone="bg-flamingo"
@@ -125,13 +130,31 @@ export default function DashboardPage() {
           />
           <StatCard
             label="Net position"
-            value={`${totals.net >= 0 ? "+" : ""}${formatAmount(totals.net)}`}
+            amount={formatAssetAmount(primaryTotals?.net ?? "0", primaryAsset, {
+              signDisplay: "always",
+            })}
             available={totalsAvailable}
             loading={isLoading}
             tone="bg-grape text-white"
             icon={<Scale className="h-5 w-5" />}
           />
         </div>
+        {totalsAvailable && otherTotals.length > 0 && (
+          <div className="-mt-4 mb-8 flex flex-wrap items-center gap-2">
+            <span className="font-display text-[10px] uppercase tracking-widest text-ink/50">
+              Also holding
+            </span>
+            {otherTotals.map((totals) => (
+              <Badge key={totals.assetCode} tone="aqua">
+                <NetAmount
+                  value={totals.net}
+                  assetCode={totals.assetCode}
+                  className="text-xs"
+                />
+              </Badge>
+            ))}
+          </div>
+        )}
       </SectionBoundary>
 
       <div className="mb-4 flex items-center justify-between">
@@ -194,7 +217,7 @@ export default function DashboardPage() {
  */
 function StatCard({
   label,
-  value,
+  amount,
   available,
   loading,
   tone,
@@ -207,7 +230,8 @@ function StatCard({
   tone: string;
   icon: React.ReactNode;
 }) {
-  const figure = financialValue(value, available);
+  // An amount we could not parse is as unavailable as one we never loaded.
+  const figure = financialValue(amount.text, available && amount.valid);
   return (
     <Card className="overflow-hidden">
       <div className={`flex items-center justify-between border-b-3 border-ink px-4 py-2.5 ${tone}`}>
@@ -226,10 +250,12 @@ function StatCard({
             className={`font-mono text-3xl font-bold tabular-nums${
               figure.available ? "" : " text-ink/40"
             }`}
-            aria-label={figure.available ? undefined : `${label}: ${figure.label}`}
             title={figure.available ? undefined : UNAVAILABLE_VALUE_LABEL}
           >
-            {figure.text}
+            <span aria-hidden="true">{figure.text}</span>
+            <span className="sr-only">
+              {figure.available ? amount.label : `${label}: ${figure.label}`}
+            </span>
           </span>
         )}
       </div>
@@ -238,8 +264,10 @@ function StatCard({
 }
 
 function GroupCard({ group }: { group: GroupSummary }) {
-  const net = parseFloat(group.yourNet);
-  const settled = Math.abs(net) < 0.0000001;
+  // Stroop-exact: a balance is only "settled" when it is exactly zero.
+  const stroops = amountToStroops(group.yourNet);
+  const settled = stroops === 0n;
+  const net = group.yourNet;
   return (
     <Link href={`/groups/${group.id}`}>
       <Card hover className="h-full">
@@ -267,7 +295,11 @@ function GroupCard({ group }: { group: GroupSummary }) {
         </div>
         <div className="flex items-center justify-between border-t-3 border-ink bg-paper px-5 py-2.5">
           <span className="font-display text-[10px] uppercase tracking-widest text-ink/50">
-            {settled ? "All settled" : net > 0 ? "You are owed" : "You owe"}
+            {settled
+              ? "All settled"
+              : stroops !== null && stroops > 0n
+                ? "You are owed"
+                : "You owe"}
           </span>
           {settled ? (
             <Badge tone="lime">Settled up</Badge>

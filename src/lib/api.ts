@@ -83,6 +83,17 @@ export class ApiRequestError extends Error {
 }
 
 /**
+ * Thrown when a response with a successful HTTP status fails client-side
+ * Zod schema validation. Retrying cannot help — the payload shape diverged
+ * from the contract the client was built against — so React Query's retry
+ * gate treats it as terminal (see providers.tsx).
+ */
+export class ApiValidationError extends Error {
+  readonly code = "invalid_response";
+  readonly status = 200;
+
+  constructor(message = "Received an unexpected response from the server.") {
+    super(message);
  * Thrown when an otherwise-successful API response fails schema
  * validation. Kept message-free (no raw payload) — callers show a
  * generic "something went wrong" state rather than parser internals.
