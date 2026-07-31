@@ -9,7 +9,10 @@ import { TxLink } from "@/components/tx-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { useLedger } from "@/lib/queries";
+import {
+  accumulateLedgerPages,
+  useInfiniteLedger,
+} from "@/lib/queries";
 import { Timestamp } from "@/components/timestamp";
 
 export function LedgerPanel({ groupId }: { groupId: string }) {
@@ -56,7 +59,8 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
   }
 
   return (
-    <div className="relative space-y-3 before:absolute before:left-[21px] before:top-2 before:h-[calc(100%-1rem)] before:w-0.5 before:bg-ink/15">
+    <div className="space-y-4">
+      <div className="relative space-y-3 before:absolute before:left-[21px] before:top-2 before:h-[calc(100%-1rem)] before:w-0.5 before:bg-ink/15">
       {entries.map((entry, i) => (
         <div key={i} className="relative flex gap-3">
           <LedgerIcon type={entry.type} />
@@ -129,36 +133,12 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                       </Badge>
                     )}
                   </div>
-                )}
-                {entry.type === "treasury" && (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="font-bold capitalize">
-                        Treasury {entry.treasuryTransaction.direction}
-                      </p>
-                      <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
-                    </div>
-                    <div className="text-right">
-                      <Money
-                        value={entry.treasuryTransaction.amount}
-                        assetCode={entry.treasuryTransaction.assetCode}
-                      />
-                      <div className="mt-1 flex justify-end">
-                        {entry.treasuryTransaction.stellarTxHash ? (
-                          <TxLink hash={entry.treasuryTransaction.stellarTxHash} />
-                        ) : (
-                          <Badge tone={statusTone(entry.treasuryTransaction.status)}>
-                            {entry.treasuryTransaction.status.replace(/_/g, " ")}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </Card>
-            </div>
-          );
-        })}
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+      ))}
       </div>
       {/* Load-more control — hidden when all pages are loaded */}
       {hasNextPage && (
