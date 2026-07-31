@@ -18,7 +18,11 @@ import {
 } from "@stellar/freighter-api";
 import { api } from "./api";
 import { useAuth } from "./auth-store";
-import { NETWORK_PASSPHRASE } from "./constants";
+import {
+  describeNetwork,
+  EXPECTED_NETWORK_LABEL,
+  NETWORK_PASSPHRASE,
+} from "./constants";
 import type { User } from "./types";
 import type { WalletSnapshot } from "./walletSession";
 
@@ -34,6 +38,7 @@ export type WalletErrorCode =
   | "user_rejected"
   | "disconnected"
   | "network"
+  | "network_mismatch"
   | "unknown";
 
 export class WalletError extends Error {
@@ -82,6 +87,28 @@ export class WalletNetworkError extends WalletError {
   }
 }
 
+/**
+ * The wallet is pointed at a different Stellar network than this deployment.
+ *
+ * Carries both names so the UI can state the problem and the fix without
+ * re-deriving anything; `message` is already user-facing copy.
+ */
+export class NetworkMismatchError extends WalletError {
+  /** What the wallet is on, e.g. "Stellar Testnet" or "FUTURENET". */
+  walletNetwork: string;
+  /** What this deployment expects, e.g. "Stellar Mainnet". */
+  expectedNetwork: string;
+  constructor(walletNetwork: string, expectedNetwork = EXPECTED_NETWORK_LABEL) {
+    super(
+      `Your wallet is on ${walletNetwork} — switch it to ${expectedNetwork} to continue.`,
+      "network_mismatch"
+    );
+    this.name = "NetworkMismatchError";
+    this.walletNetwork = walletNetwork;
+    this.expectedNetwork = expectedNetwork;
+  }
+}
+
 // User-facing messages keyed by code. Processed before showing in the UI so
 // raw provider strings — which can include method/path error context — are
 // never rendered verbatim.
@@ -92,6 +119,7 @@ const MESSAGE_BY_CODE: Record<WalletErrorCode, string> = {
   user_rejected: "You cancelled the request. No transaction was submitted.",
   disconnected: "Wallet connection was lost. Reconnect Freighter to continue.",
   network: "Couldn't reach the wallet. Check Freighter and try again.",
+  network_mismatch: `Your wallet is on a different Stellar network. Switch it to ${EXPECTED_NETWORK_LABEL} and try again.`,
   unknown: "The wallet returned an unexpected error. Please try again.",
 };
 
@@ -226,6 +254,28 @@ export async function getWalletNetwork(): Promise<{
   } catch {
     return null;
   }
+}
+
+/**
+ * Throw a `NetworkMismatchError` when the wallet would sign against a
+ * different network than this deployment builds for.
+ *
+ * Silent when the network cannot be read: `getWalletNetwork` returns `null`
+ * for a wallet that is missing, locked, or has not granted access, and a
+ * reading we failed to take is not evidence of a mismatch. Freighter itself
+ * rejects a signature carrying the wrong passphrase, so the worst case is the
+ * behaviour we already had.
+ */
+export async function assertWalletNetwork(): Promise<void> {
+  const active = await getWalletNetwork();
+  if (!active) return;
+  if (active.networkPassphrase === NETWORK_PASSPHRASE) return;
+  throw new NetworkMismatchError(
+    describeNetwork(active.networkPassphrase, active.network)
+  );
+}
+
+/**
  * Read the active public key **without prompting**.
  *
  * `getAddress` resolves to an empty address (or an error field) when the
@@ -351,12 +401,17 @@ export async function signXdr(
 
 /**
  * Full SEP-10 login:
- *  1. fetch a challenge transaction for the wallet's account,
- *  2. sign it in Freighter,
- *  3. send it back for verification, receive a JWT session.
+ *  1. confirm the wallet is on the network this deployment targets,
+ *  2. fetch a challenge transaction for the wallet's account,
+ *  3. sign it in Freighter,
+ *  4. send it back for verification, receive a JWT session.
  */
 export async function loginWithWallet(): Promise<User> {
   const publicKey = await connectWallet();
+  // Checked after access is granted (Freighter only reports its network to an
+  // allowed origin) and before the challenge is built: a challenge for one
+  // network signed against another fails with an opaque error.
+  await assertWalletNetwork();
   const challenge = await api.authChallenge(publicKey);
   const signed = await signXdr(challenge.transaction, challenge.networkPassphrase);
   const { token, user } = await api.authVerify(signed);

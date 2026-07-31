@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, Loader2, ShieldCheck, Wallet, Zap } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Loader2,
+  ShieldCheck,
+  Wallet,
+  Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
@@ -12,10 +19,17 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAuth as useAuthStore } from "@/lib/auth-store";
 import { shortKey } from "@/lib/format";
 import {
+  getWalletNetwork,
   isFreighterAvailable,
+  NetworkMismatchError,
   NotInstalledMessage,
   WalletError,
 } from "@/lib/stellar";
+import {
+  describeNetwork,
+  EXPECTED_NETWORK_LABEL,
+  NETWORK_PASSPHRASE,
+} from "@/lib/constants";
 import { ApiRequestError } from "@/lib/api";
 import { inviteJoinPath } from "@/lib/inviteLink";
 
@@ -49,6 +63,9 @@ export default function LoginPage() {
   const activeWalletPublicKey = useAuthStore((s) => s.activeWalletPublicKey);
   const [loading, setLoading] = useState(false);
   const [hasFreighter, setHasFreighter] = useState<boolean | null>(null);
+  // The wallet's network, once we can read it. `null` means "not known" —
+  // rendered as no banner at all rather than as a mismatch.
+  const [walletNetwork, setWalletNetwork] = useState<string | null>(null);
 
   useEffect(() => {
     if (hydrated && token) router.replace(postLoginTarget());
@@ -58,16 +75,37 @@ export default function LoginPage() {
     isFreighterAvailable().then(setHasFreighter);
   }, []);
 
+  // Best-effort pre-flight read. Freighter only reports its network to an
+  // origin it already trusts, so this surfaces the mismatch before the user
+  // clicks; everyone else gets it from the check inside `loginWithWallet`.
+  useEffect(() => {
+    if (hasFreighter !== true) return;
+    let active = true;
+    getWalletNetwork().then((net) => {
+      if (!active || !net) return;
+      if (net.networkPassphrase === NETWORK_PASSPHRASE) setWalletNetwork(null);
+      else setWalletNetwork(describeNetwork(net.networkPassphrase, net.network));
+    });
+    return () => {
+      active = false;
+    };
+  }, [hasFreighter]);
+
   async function handleConnect() {
     setLoading(true);
     try {
       const user = await login();
       if (user) {
+        setWalletNetwork(null);
         toast.success("Signed in with Stellar");
         router.replace(postLoginTarget());
       }
     } catch (e) {
-      if (e instanceof WalletError) {
+      if (e instanceof NetworkMismatchError) {
+        // Kept on screen rather than in a toast: fixing this means going into
+        // the extension, which takes longer than a toast lives.
+        setWalletNetwork(e.walletNetwork);
+      } else if (e instanceof WalletError) {
         toast.error(e.code === "not_installed" ? <NotInstalledMessage /> : e.message);
       } else if (e instanceof ApiRequestError) {
         toast.error(e.message);
@@ -185,6 +223,23 @@ export default function LoginPage() {
               </p>
             )}
 
+            {walletNetwork && (
+              <div
+                role="alert"
+                className="mt-4 flex items-start gap-3 rounded-xl border-2 border-ink bg-flamingo-pale px-4 py-3 text-sm"
+              >
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 border-ink bg-cream">
+                  <AlertTriangle className="h-4 w-4" />
+                </span>
+                <span>
+                  Wrong network. Your wallet is on{" "}
+                  <span className="font-bold">{walletNetwork}</span> but Mergepay
+                  is on <span className="font-bold">{EXPECTED_NETWORK_LABEL}</span>
+                  . Switch networks in Freighter, then try again.
+                </span>
+              </div>
+            )}
+
             {hasFreighter === false && (
               <div className="mt-4 rounded-xl border-2 border-ink bg-butter-pale px-4 py-3 text-xs">
                 No Freighter wallet detected. Install it from{" "}
@@ -202,9 +257,7 @@ export default function LoginPage() {
 
             <p className="mt-6 text-center text-xs text-ink/50">
               By continuing you agree to settle on the Stellar{" "}
-              <span className="font-bold uppercase">
-                {process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "public"}
-              </span>{" "}
+              <span className="font-bold">{EXPECTED_NETWORK_LABEL}</span>{" "}
               network.
             </p>
           </motion.div>

@@ -92,15 +92,8 @@ export class ApiValidationError extends Error {
   readonly code = "invalid_response";
   readonly status = 200;
 
-  constructor(message = "Received an unexpected response from the server.") {
+  constructor(message = "Response did not match the expected shape.") {
     super(message);
- * Thrown when an otherwise-successful API response fails schema
- * validation. Kept message-free (no raw payload) — callers show a
- * generic "something went wrong" state rather than parser internals.
- */
-export class ApiValidationError extends Error {
-  constructor() {
-    super("Response did not match the expected shape.");
     this.name = "ApiValidationError";
   }
 }
