@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import { useAuth as useAuthStore } from "@/lib/auth-store";
+import { shortKey } from "@/lib/format";
 import {
   isFreighterAvailable,
   NotInstalledMessage,
@@ -41,7 +43,10 @@ function postLoginTarget(): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { token, hydrated, login, isLoading: authLoading } = useAuth();
+  const { token, hydrated, restoring, login, isLoading: authLoading } = useAuth();
+  // The wallet's own active account, tracked independently of the
+  // session, so the screen names the key the user is about to sign with.
+  const activeWalletPublicKey = useAuthStore((s) => s.activeWalletPublicKey);
   const [loading, setLoading] = useState(false);
   const [hasFreighter, setHasFreighter] = useState<boolean | null>(null);
 
@@ -141,24 +146,44 @@ export default function LoginPage() {
               Connect your Stellar wallet to start splitting and settling.
             </p>
 
-            <Button
-              className="mt-7 w-full"
-              size="lg"
-              onClick={handleConnect}
-              disabled={loading || authLoading}
-            >
-              {loading || authLoading ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Connecting...
-                </>
-              ) : (
-                <>
-                  <Wallet className="h-5 w-5" />
-                  Connect Freighter
-                </>
-              )}
-            </Button>
+            {restoring ? (
+              <p
+                className="mt-7 flex items-center justify-center gap-2 rounded-xl border-2 border-ink bg-butter-pale px-4 py-3 text-sm"
+                role="status"
+                aria-live="polite"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Restoring your session…
+              </p>
+            ) : (
+              <Button
+                className="mt-7 w-full"
+                size="lg"
+                onClick={handleConnect}
+                disabled={loading || authLoading}
+              >
+                {loading || authLoading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Wallet className="h-5 w-5" />
+                    Connect Freighter
+                  </>
+                )}
+              </Button>
+            )}
+
+            {!restoring && activeWalletPublicKey && (
+              <p className="mt-3 text-center text-xs text-ink/60">
+                Freighter is on{" "}
+                <span className="font-mono font-bold">
+                  {shortKey(activeWalletPublicKey)}
+                </span>
+              </p>
+            )}
 
             {hasFreighter === false && (
               <div className="mt-4 rounded-xl border-2 border-ink bg-butter-pale px-4 py-3 text-xs">

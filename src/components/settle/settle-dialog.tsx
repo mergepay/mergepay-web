@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Loader2, Lock, PenLine, Plug, RefreshCcw, Send, ShieldX, Wallet } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
@@ -58,6 +58,14 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
 
   async function run() {
     if (!target) return;
+    // Readiness is re-checked here, not just on render: the wallet can
+    // change between the button becoming enabled and the click landing.
+    if (!readiness.ready) {
+      setErrorCode(null);
+      setError(readiness.detail);
+      setStep("review");
+      return;
+    }
     const validation = validateSettlementInput({ amount: target.amount, assetCode: target.assetCode, assetIssuer: target.assetIssuer });
     if (!validation.valid) { setError(validation.error ?? "Invalid payment input"); setErrorCode(null); setStep("failed"); return; }
     // Clear the previous attempt's residue so a retry never shows a stale tx
@@ -81,6 +89,11 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
       else { setErrorCode(null); setError("Settlement failed. Please try again."); }
       setStep("failed");
     }
+
+    const { settlement } = attempt.data;
+    setSettlementId(attempt.data.settlementId); setTxHash(settlement.stellarTxHash ?? null); setStep("submitted");
+    if (settlement.status === "confirmed") { setStep("confirmed"); toast.success("Settled on Stellar"); }
+    else if (settlement.status === "failed") { setStep("failed"); setError("Stellar rejected this transaction. Please try again."); }
   }
 
   /** Re-establish the wallet link, then go straight into another attempt. */
