@@ -4,26 +4,52 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, ShieldCheck, Wallet, Zap } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Loader2,
+  ShieldCheck,
+  Wallet,
+  Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import { useAuth as useAuthStore } from "@/lib/auth-store";
+import { shortKey } from "@/lib/format";
 import {
+  getWalletNetwork,
   isFreighterAvailable,
+  NetworkMismatchError,
   NotInstalledMessage,
   WalletError,
-  WalletNotInstalledError,
 } from "@/lib/stellar";
+import {
+  describeNetwork,
+  EXPECTED_NETWORK_LABEL,
+  NETWORK_PASSPHRASE,
+} from "@/lib/constants";
 import { ApiRequestError } from "@/lib/api";
+import { inviteJoinPath } from "@/lib/inviteLink";
 
-/** After auth, jump to a parked invite link if one exists, else the dashboard. */
+/**
+ * After auth, jump to a parked invite link if one exists, else the
+ * dashboard.
+ *
+ * The parked value is re-validated here rather than trusted: session
+ * storage is writable by anything running on the origin, and the value
+ * is interpolated into a router path. `inviteJoinPath` returns `null`
+ * for anything that is not a well-formed code, so a tampered entry
+ * cannot redirect the user somewhere else.
+ */
 function postLoginTarget(): string {
   try {
     const code = sessionStorage.getItem("mergepay.pendingInvite");
     if (code) {
       sessionStorage.removeItem("mergepay.pendingInvite");
-      return `/join/${code}`;
+      const target = inviteJoinPath(code);
+      if (target) return target;
     }
   } catch {}
   return "/dashboard";
@@ -31,9 +57,15 @@ function postLoginTarget(): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { token, hydrated, login, isLoading: authLoading } = useAuth();
+  const { token, hydrated, restoring, login, isLoading: authLoading } = useAuth();
+  // The wallet's own active account, tracked independently of the
+  // session, so the screen names the key the user is about to sign with.
+  const activeWalletPublicKey = useAuthStore((s) => s.activeWalletPublicKey);
   const [loading, setLoading] = useState(false);
   const [hasFreighter, setHasFreighter] = useState<boolean | null>(null);
+  // The wallet's network, once we can read it. `null` means "not known" —
+  // rendered as no banner at all rather than as a mismatch.
+  const [walletNetwork, setWalletNetwork] = useState<string | null>(null);
 
   useEffect(() => {
     if (hydrated && token) router.replace(postLoginTarget());
@@ -43,19 +75,43 @@ export default function LoginPage() {
     isFreighterAvailable().then(setHasFreighter);
   }, []);
 
+  // Best-effort pre-flight read. Freighter only reports its network to an
+  // origin it already trusts, so this surfaces the mismatch before the user
+  // clicks; everyone else gets it from the check inside `loginWithWallet`.
+  useEffect(() => {
+    if (hasFreighter !== true) return;
+    let active = true;
+    getWalletNetwork().then((net) => {
+      if (!active || !net) return;
+      if (net.networkPassphrase === NETWORK_PASSPHRASE) setWalletNetwork(null);
+      else setWalletNetwork(describeNetwork(net.networkPassphrase, net.network));
+    });
+    return () => {
+      active = false;
+    };
+  }, [hasFreighter]);
+
   async function handleConnect() {
     setLoading(true);
     try {
       const user = await login();
       if (user) {
+        setWalletNetwork(null);
         toast.success("Signed in with Stellar");
         router.replace(postLoginTarget());
       }
     } catch (e) {
-      if (e instanceof WalletNotInstalledError) toast.error(<NotInstalledMessage />);
-      else if (e instanceof WalletError) toast.error(e.message);
-      else if (e instanceof ApiRequestError) toast.error(e.message);
-      else toast.error("Could not sign in. Please try again.");
+      if (e instanceof NetworkMismatchError) {
+        // Kept on screen rather than in a toast: fixing this means going into
+        // the extension, which takes longer than a toast lives.
+        setWalletNetwork(e.walletNetwork);
+      } else if (e instanceof WalletError) {
+        toast.error(e.code === "not_installed" ? <NotInstalledMessage /> : e.message);
+      } else if (e instanceof ApiRequestError) {
+        toast.error(e.message);
+      } else {
+        toast.error("Could not sign in. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -128,14 +184,61 @@ export default function LoginPage() {
               Connect your Stellar wallet to start splitting and settling.
             </p>
 
-            <Button
-              className="mt-7 w-full"
-              size="lg"
-              onClick={handleConnect}
-              loading={loading || authLoading}
-            >
-              <Wallet className="h-5 w-5" /> Connect Freighter
-            </Button>
+            {restoring ? (
+              <p
+                className="mt-7 flex items-center justify-center gap-2 rounded-xl border-2 border-ink bg-butter-pale px-4 py-3 text-sm"
+                role="status"
+                aria-live="polite"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Restoring your session…
+              </p>
+            ) : (
+              <Button
+                className="mt-7 w-full"
+                size="lg"
+                onClick={handleConnect}
+                disabled={loading || authLoading}
+              >
+                {loading || authLoading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Wallet className="h-5 w-5" />
+                    Connect Freighter
+                  </>
+                )}
+              </Button>
+            )}
+
+            {!restoring && activeWalletPublicKey && (
+              <p className="mt-3 text-center text-xs text-ink/60">
+                Freighter is on{" "}
+                <span className="font-mono font-bold">
+                  {shortKey(activeWalletPublicKey)}
+                </span>
+              </p>
+            )}
+
+            {walletNetwork && (
+              <div
+                role="alert"
+                className="mt-4 flex items-start gap-3 rounded-xl border-2 border-ink bg-flamingo-pale px-4 py-3 text-sm"
+              >
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 border-ink bg-cream">
+                  <AlertTriangle className="h-4 w-4" />
+                </span>
+                <span>
+                  Wrong network. Your wallet is on{" "}
+                  <span className="font-bold">{walletNetwork}</span> but Mergepay
+                  is on <span className="font-bold">{EXPECTED_NETWORK_LABEL}</span>
+                  . Switch networks in Freighter, then try again.
+                </span>
+              </div>
+            )}
 
             {hasFreighter === false && (
               <div className="mt-4 rounded-xl border-2 border-ink bg-butter-pale px-4 py-3 text-xs">
@@ -154,9 +257,7 @@ export default function LoginPage() {
 
             <p className="mt-6 text-center text-xs text-ink/50">
               By continuing you agree to settle on the Stellar{" "}
-              <span className="font-bold uppercase">
-                {process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "public"}
-              </span>{" "}
+              <span className="font-bold">{EXPECTED_NETWORK_LABEL}</span>{" "}
               network.
             </p>
           </motion.div>

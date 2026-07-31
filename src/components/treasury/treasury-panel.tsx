@@ -37,7 +37,9 @@ import {
 } from "@/lib/stellar";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import { fullDate } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 import { validateAmount, normalizeAmount, exceedsBalance } from "@/lib/money";
+import { useWalletDisconnected } from "@/lib/wallet-store";
 import type { Group, GroupDetail } from "@/lib/types";
 
 export function TreasuryPanel({
@@ -51,6 +53,9 @@ export function TreasuryPanel({
   const [enableOpen, setEnableOpen] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  // Treasury transfers are signed by the wallet — lock them while the
+  // wallet is disconnected.
+  const walletDisconnected = useWalletDisconnected();
 
   const info = useTreasuryInfo(group.id, group.treasuryEnabled);
   const history = useTreasuryHistory(group.id, group.treasuryEnabled);
@@ -190,7 +195,16 @@ export function TreasuryPanel({
           )}
 
           <div className="flex gap-2 pt-1">
-            <Button onClick={() => setDepositOpen(true)} className="flex-1">
+            <Button
+              onClick={() => setDepositOpen(true)}
+              className="flex-1"
+              disabled={walletDisconnected}
+              title={
+                walletDisconnected
+                  ? "Reconnect your wallet to deposit"
+                  : undefined
+              }
+            >
               <ArrowDownToLine className="h-4 w-4" /> Deposit
             </Button>
             {isAdmin && (
@@ -198,6 +212,12 @@ export function TreasuryPanel({
                 variant="outline"
                 onClick={() => setWithdrawOpen(true)}
                 className="flex-1"
+                disabled={walletDisconnected}
+                title={
+                  walletDisconnected
+                    ? "Reconnect your wallet to withdraw"
+                    : undefined
+                }
               >
                 <ArrowUpFromLine className="h-4 w-4" /> Withdraw
               </Button>
@@ -231,6 +251,9 @@ export function TreasuryPanel({
                   <div>
                     <p className="font-bold capitalize">{t.direction}</p>
                     <p className="text-xs text-ink/50">{fullDate(t.createdAt)}</p>
+                    <p className="text-xs text-ink/50">
+                      <Timestamp value={t.createdAt} />
+                    </p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -366,6 +389,7 @@ function DepositDialog({
   const [amount, setAmount] = useState("");
   const [assetKey, setAssetKey] = useState("XLM");
   const [busy, setBusy] = useState(false);
+  const walletDisconnected = useWalletDisconnected();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -403,7 +427,7 @@ function DepositDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Deposit to treasury">
+    <Dialog open={open} onClose={onClose} title="Deposit to treasury" dismissible={!busy}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -427,11 +451,12 @@ function DepositDialog({
         </div>
         <FieldHint>You will sign this payment from your wallet to the treasury.</FieldHint>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" loading={busy} disabled={!amount}>
+          <Button type="submit" loading={busy} disabled={!amount || busy || walletDisconnected}>
             Sign & deposit
+            Sign &amp; deposit
           </Button>
         </div>
       </form>
@@ -456,6 +481,7 @@ function WithdrawDialog({
   const [assetKey, setAssetKey] = useState("XLM");
   const [destination, setDestination] = useState("");
   const [busy, setBusy] = useState(false);
+  const walletDisconnected = useWalletDisconnected();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -513,7 +539,7 @@ function WithdrawDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Withdraw from treasury">
+    <Dialog open={open} onClose={onClose} title="Withdraw from treasury" dismissible={!busy}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -550,11 +576,12 @@ function WithdrawDialog({
           every required signer to approve.
         </FieldHint>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" loading={busy} disabled={!amount || !destination}>
+          <Button type="submit" loading={busy} disabled={!amount || !destination || busy || walletDisconnected}>
             Sign & withdraw
+            Sign &amp; withdraw
           </Button>
         </div>
       </form>

@@ -17,8 +17,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { useAnchors, useAnchorSessions } from "@/lib/queries";
 import { api, ApiRequestError } from "@/lib/api";
-import { signXdr, WalletError } from "@/lib/stellar";
-import { fullDate } from "@/lib/format";
+import { signXdr, WalletError, NotInstalledMessage } from "@/lib/stellar";
+import { Timestamp } from "@/components/timestamp";
 import type { AnchorSessionKind } from "@/lib/types";
 
 export default function AnchorsPage() {
@@ -59,9 +59,13 @@ export default function AnchorsPage() {
         toast.success("Anchor session started");
       }
     } catch (e) {
-      if (e instanceof WalletError) toast.error(e.message);
-      else if (e instanceof ApiRequestError) toast.error(e.message);
-      else toast.error("Could not start anchor flow");
+      if (e instanceof WalletError) {
+        toast.error(e.code === "not_installed" ? <NotInstalledMessage /> : e.message);
+      } else if (e instanceof ApiRequestError) {
+        toast.error(e.message);
+      } else {
+        toast.error("Could not start anchor flow");
+      }
     } finally {
       setBusy(null);
     }
@@ -180,7 +184,7 @@ export default function AnchorsPage() {
                     {s.kind} · {s.assetCode}
                   </p>
                   <p className="text-xs text-ink/50">
-                    {s.anchorName} · {fullDate(s.createdAt)}
+                    {s.anchorName} · <Timestamp value={s.createdAt} />
                   </p>
                 </div>
               </div>

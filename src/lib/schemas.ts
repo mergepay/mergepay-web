@@ -214,30 +214,136 @@ export const LedgerResponseSchema = z.object({
       }),
     ])
   ),
+  nextCursor: z.string().nullable(),
 });
 
 export const HistoryResponseSchema = z.object({
   expenses: z.array(ExpenseSchema),
   settlements: z.array(SettlementSchema),
+  nextCursor: z.string().nullable(),
 });
 
-// Anchor sessions — used by polling UI on the anchors screen
-export const AnchorSessionResponseSchema = z.object({
-  session: z.object({
-    id: z.string(),
-    userId: z.string(),
-    anchorName: z.string(),
-    kind: AnchorSessionKindSchema,
-    assetCode: z.string(),
-    interactiveUrl: z.string().nullable(),
-    externalTransactionId: z.string().nullable(),
-    status: AnchorSessionStatusSchema,
-    createdAt: IsoDateStringSchema,
+// Invites — used when creating or redeeming group invites
+const InviteSchema = z.object({
+  id: z.string(),
+  groupId: z.string(),
+  code: z.string(),
+  url: z.string(),
+  expiresAt: z.string().nullable(),
+  maxUses: z.number().int().nullable(),
+  uses: z.number().int().nonnegative(),
+  createdAt: IsoDateStringSchema,
+});
+
+// Anchor info — list of available anchors from backend
+const AnchorInfoSchema = z.object({
+  name: z.string(),
+  homeDomain: z.string(),
+  assets: z.array(
+    z.object({
+      code: z.string(),
+      issuer: z.string().nullable(),
+    })
+  ),
+});
+
+// Treasury balance — single asset balance inside the treasury account
+const TreasuryBalanceSchema = z.object({
+  assetCode: z.string(),
+  assetIssuer: z.string().nullable(),
+  balance: DecimalStringSchema,
+});
+
+// Session shape reused by anchor session schemas
+const AnchorSessionSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  anchorName: z.string(),
+  kind: AnchorSessionKindSchema,
+  assetCode: z.string(),
+  interactiveUrl: z.string().nullable(),
+  externalTransactionId: z.string().nullable(),
+  status: AnchorSessionStatusSchema,
+  createdAt: IsoDateStringSchema,
+});
+
+// ---------------------------------------------------------------------------
+// Additional response envelopes
+// ---------------------------------------------------------------------------
+
+// Auth
+export const ChallengeResponseSchema = z.object({
+  transaction: z.string(),
+  networkPassphrase: z.string(),
+});
+
+export const VerifyResponseSchema = z.object({
+  token: z.string(),
+  user: UserSchema,
+});
+
+// Generic OK envelope used by logout, delete, leave, etc.
+export const OkResponseSchema = z.object({
+  ok: z.boolean(),
+});
+
+// Invites
+export const InviteResponseSchema = z.object({ invite: InviteSchema });
+
+// Treasury response envelopes
+export const TreasuryInfoResponseSchema = z.object({
+  publicKey: z.string(),
+  balances: z.array(TreasuryBalanceSchema),
+  signers: z.array(
+    z.object({ key: z.string(), weight: z.number().int() })
+  ),
+  thresholds: z.object({
+    low: z.number().int(),
+    med: z.number().int(),
+    high: z.number().int(),
   }),
 });
 
+export const TreasuryIntentResponseSchema = z.object({
+  treasuryTransaction: TreasuryTransactionSchema,
+  xdr: z.string(),
+  networkPassphrase: z.string(),
+});
+
+export const TreasuryTransactionResponseSchema = z.object({
+  treasuryTransaction: TreasuryTransactionSchema,
+});
+
+export const TreasuryHistoryResponseSchema = z.object({
+  transactions: z.array(TreasuryTransactionSchema),
+});
+
+// Anchors
+export const AnchorsResponseSchema = z.object({
+  anchors: z.array(AnchorInfoSchema),
+});
+
+export const AnchorStartResponseSchema = z.object({
+  session: AnchorSessionSchema,
+  challenge: z.object({
+    transaction: z.string(),
+    networkPassphrase: z.string(),
+  }),
+});
+
+// Override the previously internal session response with the shared shape
+export const AnchorSessionResponseSchema = z.object({
+  session: AnchorSessionSchema,
+});
+
 export const AnchorSessionsResponseSchema = z.object({
-  sessions: z.array(AnchorSessionResponseSchema.shape.session),
+  sessions: z.array(AnchorSessionSchema),
+});
+
+// Receipt upload
+export const UploadResponseSchema = z.object({
+  id: z.string(),
+  url: z.string(),
 });
 
 // Settlement intent (build/sign XDR step)
