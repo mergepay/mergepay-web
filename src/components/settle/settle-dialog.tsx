@@ -11,6 +11,8 @@ import { AssetBadge } from "@/components/asset-badge";
 import { TxLink } from "@/components/tx-link";
 import { api, ApiRequestError } from "@/lib/api";
 import { connectWallet, signXdr, WalletError, WalletErrorCode, NotInstalledMessage } from "@/lib/stellar";
+import { useWalletStatus } from "@/hooks/useWalletStatus";
+import { WalletPrerequisiteNotice } from "@/components/wallet/wallet-status";
 import { useConfirmSettlement, useSettlementStatus } from "@/lib/queries";
 import { validateSettlementInput } from "@/lib/paymentValidation";
 import { recoveryActionFor, retryLabelFor } from "@/lib/settlementRetry";
@@ -45,6 +47,7 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
   // The settle target lives in props and is never mutated here, so a failed
   // attempt leaves the amount, asset, and recipient intact for the retry.
   const recovery = recoveryActionFor(errorCode);
+  const { refresh: refreshWallet, ...wallet } = useWalletStatus();
 
   function close() {
     if (transactionInFlight) return;
@@ -54,8 +57,14 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
     }, 200);
   }
 
-  async function run() {
+  async function run(options?: { skipWalletGate?: boolean }) {
     if (!target) return;
+    // The "Settle now" control is disabled while prerequisites are missing and
+    // the notice above it explains what to fix; this guard covers keyboard and
+    // programmatic activation. `skipWalletGate` is for callers that have just
+    // established the connection themselves — the polled status is still a
+    // tick behind at that point and would block a valid attempt.
+    if (!options?.skipWalletGate && !wallet.canSign) return;
     const validation = validateSettlementInput({ amount: target.amount, assetCode: target.assetCode, assetIssuer: target.assetIssuer });
     if (!validation.valid) { setError(validation.error ?? "Invalid payment input"); setErrorCode(null); setStep("failed"); return; }
     // Clear the previous attempt's residue so a retry never shows a stale tx
@@ -94,7 +103,8 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
     } finally {
       setReconnecting(false);
     }
-    await run();
+    refreshWallet();
+    await run({ skipWalletGate: true });
   }
 
   useEffect(() => {
@@ -114,7 +124,7 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
   >
     <div className="space-y-5">
       <div className="rounded-2xl border-3 border-ink bg-paper p-5"><div className="flex items-center justify-between"><span className="font-display text-xs uppercase tracking-widest text-ink/50">Paying</span><AssetBadge code={target.assetCode} /></div><div className="mt-3 flex items-center gap-3"><Avatar user={target.to} size="lg" /><div><p className="font-display text-lg uppercase tracking-tight">{target.to.displayName}</p><Money value={target.amount} assetCode={target.assetCode} className="text-2xl" /></div></div></div>
-      {step === "review" && <><ol className="space-y-2 text-sm text-ink/70"><StepLine icon={<Wallet className="h-4 w-4" />}>Mergepay builds the payment — your keys never leave your wallet.</StepLine><StepLine icon={<PenLine className="h-4 w-4" />}>You sign it in Freighter.</StepLine><StepLine icon={<Send className="h-4 w-4" />}>It settles on Stellar and the ledger updates with the tx hash.</StepLine></ol><div className="flex justify-end gap-2"><Button variant="ghost" onClick={close}>Cancel</Button><Button onClick={run}><Wallet className="h-4 w-4" /> Settle now</Button></div></>}
+      {step === "review" && <><ol className="space-y-2 text-sm text-ink/70"><StepLine icon={<Wallet className="h-4 w-4" />}>Mergepay builds the payment — your keys never leave your wallet.</StepLine><StepLine icon={<PenLine className="h-4 w-4" />}>You sign it in Freighter.</StepLine><StepLine icon={<Send className="h-4 w-4" />}>It settles on Stellar and the ledger updates with the tx hash.</StepLine></ol><WalletPrerequisiteNotice status={wallet} onRefresh={refreshWallet} /><div className="flex justify-end gap-2"><Button variant="ghost" onClick={close}>Cancel</Button><Button onClick={() => run()} disabled={!wallet.canSign} title={wallet.canSign ? undefined : wallet.message}><Wallet className="h-4 w-4" /> Settle now</Button></div></>}
       {step === "submitting" && <div className="flex flex-col items-center gap-3 py-4" aria-busy aria-live="polite"><Button loading variant="outline" className="pointer-events-none">Submitting to Stellar…</Button><p className="text-center text-sm text-ink/60">Approve the transaction in your Freighter wallet, and we'll record it on the ledger.</p></div>}
       {step === "submitted" && !statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-butter-pale px-4 py-5" role="status" aria-live="polite"><Loader2 className="h-7 w-7 animate-spin text-grape" /><p className="font-display text-sm uppercase tracking-tight">Waiting for confirmation</p><p className="text-center text-xs text-ink/60">Polling the network for the terminal transaction state. Keep this dialog open until the result is known.</p></div>}
       {step === "submitted" && statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-flamingo-pale px-4 py-5" role="alert" aria-live="polite"><AlertTriangle className="h-7 w-7" /><p className="font-display text-sm uppercase tracking-tight">Couldn't check status</p><p className="text-center text-xs text-ink/60">We lost the connection while waiting for confirmation. Your transaction may still be processing — this hasn't submitted anything new.</p><Button variant="outline" onClick={() => statusQuery.refetch()}><RefreshCcw className="h-4 w-4" /> Check status</Button></div>}
@@ -138,7 +148,7 @@ export function SettleDialog({ open, onClose, groupId, target }: { open: boolean
             </Button>
           )}
           {recovery === "retry" && (
-            <Button onClick={run}>
+            <Button onClick={() => run()}>
               <RefreshCcw className="h-4 w-4" /> {retryLabelFor(errorCode)}
             </Button>
           )}
