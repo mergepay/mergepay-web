@@ -18,6 +18,7 @@ import { api } from "./api";
 import { useAuth } from "./auth-store";
 import { NETWORK_PASSPHRASE } from "./constants";
 import type { User } from "./types";
+import type { WalletSnapshot } from "./walletSession";
 
 export const FREIGHTER_INSTALL_URL = "https://freighter.app";
 
@@ -182,6 +183,30 @@ export async function isFreighterAvailable(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Read the active public key **without prompting**.
+ *
+ * `getAddress` resolves to an empty address (or an error field) when the
+ * app has not been granted access, and never opens a Freighter popup —
+ * so this is safe to call on load to find out whether a persisted
+ * session can be resumed at all.
+ */
+export async function readWalletSnapshot(): Promise<WalletSnapshot> {
+  if (!(await isFreighterAvailable())) {
+    return { status: "unavailable", publicKey: null };
+  }
+  try {
+    const res = await getAddress();
+    if (isObject(res) && !extractError(res) && typeof res.address === "string") {
+      return { status: "resolved", publicKey: res.address || null };
+    }
+  } catch {
+    // The extension answered badly — treat it as "no account shared"
+    // rather than "no wallet", so the user is asked to reconnect.
+  }
+  return { status: "resolved", publicKey: null };
 }
 
 /** Ask Freighter for the active public key (prompting for access if needed). */

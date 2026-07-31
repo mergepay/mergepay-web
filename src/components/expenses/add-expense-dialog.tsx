@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Upload, AlertTriangle } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea, Label, Select, FieldHint } from "@/components/ui/input";
+import {
+  Input,
+  Textarea,
+  Label,
+  Select,
+  FieldHint,
+  FormError,
+} from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { shouldBlockExpenseSubmit, useCreateExpense } from "@/lib/queries";
@@ -64,14 +70,6 @@ export function AddExpenseDialog({
   const [memo, setMemo] = useState("");
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  // Message returned by the API for the last rejected submit. Kept separate
-  // from client validation so a server-side rule we don't mirror locally stays
-  // on screen instead of being replaced by a generic client message.
-  const [serverError, setServerError] = useState<string | null>(null);
-  // Form-level latch: a synchronous guard preventing double-clicks and
-  // auto-repeat Enter from issuing a second mutation while the first is
-  // in flight. Mirrors `create.isPending` for keyboard paths the native
-  // disabled state can't always intercept.
   // Rendering state for the pending request — drives the spinner, the
   // busy announcement, and the disabled submit control.
   const [submitting, setSubmitting] = useState(false);
@@ -164,11 +162,9 @@ export function AddExpenseDialog({
   async function submit(e?: React.FormEvent) {
     if (e) e.preventDefault();
 
-    // Defense-in-depth: ignore Enter-repeats, double-clicks, and any other
-    // re-entry of the submit handler while a request is in flight or has
-    // already started. The button is also disabled via `loading` below; the
-    // check here covers keyboard activation paths browsers handle natively.
-    if (create.isPending || submitting) return;
+    if (shouldBlockExpenseSubmit({ isPending: create.isPending, submitting })) {
+      return;
+    }
 
     // No request is issued while the draft is invalid — the API is the second
     // line of defence, not the first source of feedback.
@@ -177,44 +173,11 @@ export function AddExpenseDialog({
         Object.values(validation.errors)[0] ??
         Object.values(validation.participantErrors)[0];
       if (first) toast.error(first);
-    if (shouldBlockExpenseSubmit({ isPending: create.isPending, submitting })) {
-      return;
-    }
-    if (validationErrors) {
-      const first = Object.values(validationErrors)[0];
-      toast.error(first);
       return;
     }
 
     const { title: cleanTitle, amount: cleanAmount, shares } = validation.normalized;
 
-    setSubmitting(true);
-    setServerError(null);
-    try {
-      await create.mutateAsync({
-        title: cleanTitle,
-        description: description.trim() || undefined,
-        amount: cleanAmount,
-        assetCode: asset.code,
-        assetIssuer: asset.issuer,
-        splitType,
-        shares,
-        payerUserId,
-        memo: memo.trim() || undefined,
-        receiptUrl,
-      });
-      toast.success("Expense added");
-      reset();
-      onClose();
-    } catch (e) {
-      // Keep the server's own wording — it may enforce rules this form does
-      // not mirror. Only fall back to generic copy for non-API failures.
-      const message =
-        e instanceof ApiRequestError ? e.message : "Could not add expense";
-      setServerError(message);
-      toast.error(message);
-    } finally {
-      setSubmitting(false);
     // Every activation funnels through the gate: only the one that claims
     // it issues a request, so a form instance can never have two creates
     // in flight. The gate is released again on success *and* on failure.
@@ -223,9 +186,9 @@ export function AddExpenseDialog({
       setSubmitting(true);
       try {
         return await create.mutateAsync({
-          title: title.trim(),
+          title: cleanTitle,
           description: description.trim() || undefined,
-          amount: String(total),
+          amount: cleanAmount,
           assetCode: asset.code,
           assetIssuer: asset.issuer,
           splitType,
@@ -277,10 +240,8 @@ export function AddExpenseDialog({
     setPercent({});
     setMemo("");
     setReceiptUrl(null);
-    setServerError(null);
-    setParticipants(memberIds);
     setSubmitError(null);
-    setParticipants(members.map((m) => m.userId));
+    setParticipants(memberIds);
     // Rotate idempotency key on success / explicit reset so a new
     // logical submission gets a fresh deduplication identity.
     idemKey.current = crypto.randomUUID();
@@ -316,11 +277,9 @@ export function AddExpenseDialog({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Dinner at Terra Kulture"
             maxLength={80}
-            autoFocus
+            data-autofocus
             aria-invalid={fieldErrors.title ? true : undefined}
             aria-describedby={fieldErrors.title ? "e-title-error" : undefined}
-            data-autofocus
-            aria-describedby={validationErrors?.title ? "e-title-error" : undefined}
           />
           {fieldErrors.title && (
             <p id="e-title-error" className="mt-1 text-xs text-flamingo" role="alert">
@@ -547,22 +506,6 @@ export function AddExpenseDialog({
           </label>
         </div>
 
-        {serverError && (
-          <div
-            className="rounded-xl border-2 border-ink bg-flamingo-pale px-4 py-3 text-sm"
-            role="alert"
-          >
-            {serverError}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 pt-2">
-        </div>          {isPayerAlsoParticipant && (
-            <div className="rounded-xl border-2 border-flamingo bg-flamingo/10 px-3 py-2 text-sm text-flamingo">
-              You cannot be both payer and participant.
-            </div>
-          )}
-
           {submitError && (
             <div
               id="e-submit-error"
@@ -589,18 +532,14 @@ export function AddExpenseDialog({
           </Button>
           <Button
             type="submit"
-            loading={create.isPending || submitting}
-            disabled={!validation.valid || create.isPending || submitting}
+            loading={pending}
+            disabled={!validation.valid || pending}
             title={
               validation.valid
                 ? undefined
                 : Object.values(validation.errors)[0] ??
                   Object.values(validation.participantErrors)[0]
             }
-            aria-busy={create.isPending || submitting}
-            loading={pending}
-            disabled={validationErrors !== null || pending}
-            title={validationErrors ? Object.values(validationErrors)[0] : undefined}
             aria-busy={pending}
             aria-describedby={submitError ? "e-submit-error" : undefined}
           >

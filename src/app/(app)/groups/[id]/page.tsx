@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useGroupStore } from "@/lib/group-store";
-import { ApiRequestError } from "@/lib/api";
 import {
   Landmark,
   Plus,
@@ -25,22 +24,11 @@ import { LedgerPanel } from "@/components/ledger/ledger-panel";
 import { TreasuryPanel } from "@/components/treasury/treasury-panel";
 import { MembersPanel } from "@/components/groups/members-panel";
 import {
-  QueryErrorState,
-  RefreshingBadge,
-  StaleDataNotice,
-} from "@/components/ui/query-state";
   SectionBoundary,
   SectionError,
   SectionLoading,
 } from "@/components/ui/section";
 import { useExpenses, useGroup, useMe } from "@/lib/queries";
-import {
-  resolveQueryView,
-  showsEmptyState,
-  showsErrorPanel,
-  showsRefreshHint,
-  showsSkeleton,
-} from "@/lib/queryState";
 import { sortExpensesByDateDesc } from "@/lib/expenses";
 import { resolveSectionStatus } from "@/lib/sectionState";
 
@@ -48,9 +36,6 @@ type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
 
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const me = useMe();
-  const groupQuery = useGroup(id);
-  const { data: detail } = groupQuery;
   // The profile request only supplies "(you)" markers; a failure must not
   // take the whole group page down with it.
   const { data: me } = useMe();
@@ -63,14 +48,6 @@ export default function GroupDetailPage() {
     setSelectedGroup(id);
   }, [id, setSelectedGroup]);
 
-  const currentUserId = me.data?.user.id ?? "";
-
-  // A 404 is a different situation from a failed request: one is not
-  // recoverable by retrying, the other is.
-  const notFound =
-    groupQuery.error instanceof ApiRequestError && groupQuery.error.status === 404;
-
-  if (groupQuery.isError && notFound) {
   const currentUserId = me?.user.id ?? "";
 
   if (isError && !detail) {
@@ -83,19 +60,7 @@ export default function GroupDetailPage() {
     );
   }
 
-  if (groupQuery.isError && !detail) {
-    return (
-      <QueryErrorState
-        icon={<Users className="h-6 w-6" />}
-        title="Couldn't load this group"
-        description="The request didn't get through. Check your connection and try again."
-        onRetry={() => groupQuery.refetch()}
-        retrying={groupQuery.isFetching}
-      />
-    );
-  }
-
-  if (!detail) {
+  if (isLoading || !detail) {
     return (
       <SectionLoading label="Loading this group" minHeight="min-h-[24rem]">
         <div className="mb-8 h-10 w-48 animate-pulse rounded-xl bg-ink/10" />
@@ -196,29 +161,6 @@ function ExpensesTab({
   members: import("@/lib/types").GroupMember[];
   onAdd: () => void;
 }) {
-  const expensesQuery = useExpenses(groupId);
-  const { data } = expensesQuery;
-  const expenses = sortExpensesByDateDesc(data?.expenses ?? []);
-
-  const view = resolveQueryView({
-    status: expensesQuery.status,
-    fetchStatus: expensesQuery.fetchStatus,
-    hasData: data !== undefined,
-    isEmpty: expenses.length === 0,
-    isPlaceholder: expensesQuery.isPlaceholderData,
-    enabled: expensesQuery.isEnabled,
-  });
-
-  if (showsSkeleton(view)) return <ListSkeleton rows={4} />;
-
-  if (showsErrorPanel(view)) {
-    return (
-      <QueryErrorState
-        icon={<Receipt className="h-6 w-6" />}
-        title="Couldn't load expenses"
-        description="The request didn't get through. Your expenses are safe — try again in a moment."
-        onRetry={() => expensesQuery.refetch()}
-        retrying={expensesQuery.isFetching}
   const { data, isLoading, isError, error, refetch } = useExpenses(groupId);
 
   const status = resolveSectionStatus({
@@ -246,7 +188,8 @@ function ExpensesTab({
     );
   }
 
-  if (showsEmptyState(view)) {
+  const expenses = sortExpensesByDateDesc(data?.expenses ?? []);
+  if (expenses.length === 0) {
     return (
       <EmptyState
         icon={<Receipt className="h-7 w-7" />}
@@ -263,19 +206,6 @@ function ExpensesTab({
 
   return (
     <div className="space-y-3">
-      {view === "stale-error" && (
-        <StaleDataNotice
-          onRetry={() => expensesQuery.refetch()}
-          retrying={expensesQuery.isFetching}
-        >
-          Showing the expenses we loaded earlier — the latest refresh failed.
-        </StaleDataNotice>
-      )}
-      {showsRefreshHint(view) && (
-        <div className="flex justify-end">
-          <RefreshingBadge show />
-        </div>
-      )}
       {expenses.map((e) => (
         <ExpenseCard
           key={e.id}
