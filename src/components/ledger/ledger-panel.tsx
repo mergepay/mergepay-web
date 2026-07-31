@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Money } from "@/components/amount";
 import { TxLink } from "@/components/tx-link";
+import { SettlementStatusBadge } from "@/components/settle/settlement-status";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -97,13 +98,10 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                     value={entry.settlement.amount}
                     assetCode={entry.settlement.assetCode}
                   />
-                  <div className="mt-1 flex justify-end">
-                    {entry.settlement.stellarTxHash ? (
+                  <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
+                    <SettlementStatusBadge status={entry.settlement.status} />
+                    {entry.settlement.stellarTxHash && (
                       <TxLink hash={entry.settlement.stellarTxHash} />
-                    ) : (
-                      <Badge tone={statusTone(entry.settlement.status)}>
-                        {entry.settlement.status}
-                      </Badge>
                     )}
                   </div>
                 </div>

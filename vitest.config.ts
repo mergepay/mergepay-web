@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import path from "node:path";
 
 export default defineConfig({
   resolve: {
@@ -10,11 +11,14 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "node",
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.vitest.test.{ts,tsx}"],
     coverage: {
       provider: "v8",
-      include: ["src/app/api/**/*.ts"],
-      exclude: ["**/*.test.ts"],
+      include: ["src/lib/**/*.ts", "src/components/**/*.tsx"],
+      exclude: ["**/*.test.ts", "**/*.test.tsx", "**/*.vitest.test.ts", "**/*.vitest.test.tsx"],
     },
   },
 });

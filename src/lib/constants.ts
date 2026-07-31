@@ -1,10 +1,18 @@
 import type { StellarNetwork } from "./types";
+import {
+  CONFIGURED_NETWORK,
+  explorerBaseUrl,
+} from "./explorer";
 
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
-export const STELLAR_NETWORK =
-  (process.env.NEXT_PUBLIC_STELLAR_NETWORK as StellarNetwork) ?? "public";
+/**
+ * The Stellar network this build targets. Resolved through
+ * `normalizeNetwork` so aliases ("mainnet", "pubnet", "test") and
+ * unexpected values are handled in exactly one place.
+ */
+export const STELLAR_NETWORK: StellarNetwork = CONFIGURED_NETWORK;
 
 export const HORIZON_URL =
   process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org";
@@ -55,9 +63,7 @@ export function describeNetwork(
   return name ? name : "an unrecognised network";
 }
 
-export const EXPLORER_BASE = `https://stellar.expert/explorer/${
-  STELLAR_NETWORK === "public" ? "public" : "testnet"
-}`;
+export const EXPLORER_BASE = explorerBaseUrl(STELLAR_NETWORK);
 
 export const STABLE_ASSET = {
   code: process.env.NEXT_PUBLIC_STABLE_ASSET_CODE ?? "USDC",
@@ -75,10 +81,9 @@ export const SETTLEMENT_ASSETS = [
 
 export const TOKEN_STORAGE_KEY = "mergepay.token";
 
-export function explorerTxUrl(hash: string) {
-  return `${EXPLORER_BASE}/tx/${hash}`;
-}
-
-export function explorerAccountUrl(publicKey: string) {
-  return `${EXPLORER_BASE}/account/${publicKey}`;
-}
+/**
+ * Explorer helpers live in `./explorer`; re-exported here so existing
+ * `@/lib/constants` imports keep working. Both return `null` for
+ * missing or malformed identifiers.
+ */
+export { explorerTxUrl, explorerAccountUrl } from "./explorer";

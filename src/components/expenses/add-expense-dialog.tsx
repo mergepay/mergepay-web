@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Loader2, Upload } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea, Label, Select, FieldHint, FormError } from "@/components/ui/input";
+import { Input, Label, Select, FieldHint } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useCreateExpense } from "@/lib/queries";
@@ -45,18 +45,12 @@ export function AddExpenseDialog({
   const [assetKey, setAssetKey] = useState("XLM");
   const [payerUserId, setPayerUserId] = useState(currentUserId);
   const [splitType, setSplitType] = useState<SplitType>("equal");
-  const [participants, setParticipants] = useState<string[]>(
-    members.map((m) => m.userId)
-  );
+  const [participants, setParticipants] = useState<string[]>(members.map((m) => m.userId));
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [percent, setPercent] = useState<Record<string, string>>({});
   const [memo, setMemo] = useState("");
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  // Form-level latch: a synchronous guard preventing double-clicks and
-  // auto-repeat Enter from issuing a second mutation while the first is
-  // in flight. Mirrors `create.isPending` for keyboard paths the native
-  // disabled state can't always intercept.
   const [submitting, setSubmitting] = useState(false);
   // Error from the last failed attempt. Kept alongside the entered values
   // so the user can correct and retry without re-typing the form.
@@ -177,11 +171,6 @@ export function AddExpenseDialog({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-
-    // Defense-in-depth: ignore Enter-repeats, double-clicks, and any other
-    // re-entry of the submit handler while a request is in flight or has
-    // already started. The button is also disabled via `loading` below; the
-    // check here covers keyboard activation paths browsers handle natively.
     if (create.isPending || submitting) return;
     // No API request is made while anything is invalid — the button is
     // also disabled, but a keyboard submit can still reach this handler.
@@ -209,7 +198,6 @@ export function AddExpenseDialog({
         return { userId, percent: Number(percent[userId] ?? "0") };
       return { userId };
     });
-
     setSubmitting(true);
     try {
       await create.mutateAsync({
@@ -236,13 +224,6 @@ export function AddExpenseDialog({
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
-    if (e.key === "Enter" && e.repeat && (create.isPending || submitting)) {
-      // Suppress repeated Enter auto-submits while a mutation is in flight.
-      e.preventDefault();
-    }
-  }
-
   function reset() {
     setTitle("");
     setDescription("");
@@ -259,7 +240,7 @@ export function AddExpenseDialog({
 
   return (
     <Dialog open={open} onClose={onClose} title="Add expense">
-      <form onSubmit={submit} onKeyDown={handleKeyDown} className="space-y-4">
+      <form onSubmit={submit} className="space-y-4">
         <div>
           <Label htmlFor="e-title">Title</Label>
           <Input
@@ -279,7 +260,6 @@ export function AddExpenseDialog({
             </p>
           )}
         </div>
-
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label htmlFor="e-amount">Amount</Label>
@@ -332,7 +312,6 @@ export function AddExpenseDialog({
             )}
           </div>
         </div>
-
         <div>
           <Label htmlFor="e-payer">Paid by</Label>
           <Select
@@ -356,26 +335,12 @@ export function AddExpenseDialog({
             </p>
           )}
         </div>
-
         <div>
           <Label>Split</Label>
-          <div className="flex gap-2">
-            {(["equal", "custom", "percentage"] as SplitType[]).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setSplitType(t)}
-                className={cn(
-                  "flex-1 rounded-xl border-2 border-ink py-2 font-display text-xs uppercase tracking-wide shadow-brutal-sm transition-all",
-                  splitType === t ? "bg-grape text-white" : "bg-cream hover:bg-butter"
-                )}
-              >
-                {t}
-              </button>
-            ))}
+          <div className="flex gap-2" role="group" aria-label="Split type">
+            {(["equal", "custom", "percentage"] as SplitType[]).map((t) => <button key={t} type="button" onClick={() => setSplitType(t)} aria-pressed={splitType === t} className={cn("flex-1 rounded-xl border-2 border-ink py-2 font-display text-xs uppercase tracking-wide shadow-brutal-sm transition-all", splitType === t ? "bg-grape text-white" : "bg-cream hover:bg-butter")}>{t}</button>)}
           </div>
         </div>
-
         <div>
           <Label>Participants</Label>
           <div
@@ -503,37 +468,17 @@ export function AddExpenseDialog({
             </>
           )}
         </div>
-
         <div>
           <Label htmlFor="e-memo">Memo reference (optional)</Label>
-          <Input
-            id="e-memo"
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-            placeholder="Auto-generated if blank"
-            maxLength={24}
-          />
+          <Input id="e-memo" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Auto-generated if blank" maxLength={24} />
           <FieldHint>Attached to each Stellar settlement for this expense.</FieldHint>
         </div>
-
         <div>
           <Label>Receipt (optional)</Label>
           <label className="flex cursor-pointer items-center gap-2 rounded-xl border-2 border-dashed border-ink bg-paper px-4 py-3 text-sm hover:bg-cream">
-            {uploading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Upload className="h-4 w-4" />
-            )}
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             {receiptUrl ? "Receipt attached — replace" : "Upload image or PDF"}
-            <input
-              type="file"
-              accept="image/*,application/pdf"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleUpload(f);
-              }}
-            />
+            <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
           </label>
         </div>
 
