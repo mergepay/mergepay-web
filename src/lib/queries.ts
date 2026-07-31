@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -24,6 +24,10 @@ import type {
   UpdateMeRequest,
 } from "./types";
 import type { ExpensesPage } from "./expenses";
+import { shouldResetQueryCache } from "./queryState";
+import { mergeHistoryPages, type AccumulatedHistory } from "./expenses";
+import type { Expense, LedgerEntry, Settlement } from "./types";
+import type { HistoryResponse, LedgerResponse } from "./types";
 
 export const qk = {
   me: ["me"] as const,
@@ -100,12 +104,31 @@ export function useMe() {
   });
 }
 
+/**
+ * Session-scoped queries.
+ *
+ * Group data is only ever fetched while a session exists. Without this gate a
+ * logged-out render still issues the request and briefly parks another
+ * wallet's groups in the cache.
+ */
+function useSessionEnabled() {
+  return Boolean(useAuth((s) => s.token));
+}
+
 export function useGroups() {
-  return useQuery({ queryKey: qk.groups, queryFn: api.listGroups });
+  return useQuery({
+    queryKey: qk.groups,
+    queryFn: api.listGroups,
+    enabled: useSessionEnabled(),
+  });
 }
 
 export function useGroup(id: string) {
-  return useQuery({ queryKey: qk.group(id), queryFn: () => api.getGroup(id) });
+  return useQuery({
+    queryKey: qk.group(id),
+    queryFn: () => api.getGroup(id),
+    enabled: useSessionEnabled() && Boolean(id),
+  });
 }
 
 export function useExpenses(groupId: string) {
@@ -116,6 +139,8 @@ export function useExpenses(groupId: string) {
   return useQuery({
     queryKey: qk.expenses(groupId),
     queryFn: () => api.listExpenses(groupId),
+    staleTime: 30_000,
+    enabled: useSessionEnabled() && Boolean(groupId),
   });
 }
 
@@ -160,6 +185,7 @@ export function useBalances(groupId: string) {
     // amounts a user signs on-chain. Always revalidate on mount/focus
     // (in addition to the invalidation that follows every settlement).
     staleTime: 0,
+    enabled: useSessionEnabled() && Boolean(groupId),
   });
 }
 
@@ -167,6 +193,31 @@ export function useLedger(groupId: string) {
   return useQuery({
     queryKey: qk.ledger(groupId),
     queryFn: () => api.getLedger(groupId),
+  });
+}
+
+/**
+ * Cursor-paginated ledger backed by GET /groups/:id/ledger.
+ *
+ * Use this for groups with many entries — loading the full dataset
+ * at once is slow and burns memory. The first call uses
+ * `options.limit` (default 20); each subsequent page uses the
+ * `nextCursor` returned by the server.
+ */
+export function useInfiniteLedger(
+  groupId: string,
+  options: { limit?: number } = {}
+) {
+  return useInfiniteQuery({
+    queryKey: [...qk.ledger(groupId), "page", options.limit ?? 20],
+    queryFn: ({ pageParam }) =>
+      api.getLedger(groupId, {
+        limit: options.limit,
+        cursor: pageParam as string | undefined,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
   });
 }
 
@@ -198,8 +249,62 @@ export function useAnchorSessions() {
   });
 }
 
-export function useHistory() {
-  return useQuery({ queryKey: qk.history, queryFn: api.history });
+export function useInfiniteHistory(options: { limit?: number } = {}) {
+  return useInfiniteQuery({
+    queryKey: [...qk.history, "page", options.limit ?? 20],
+    queryFn: ({ pageParam }) =>
+      api.history({
+        limit: options.limit,
+        cursor: pageParam as string | undefined,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Pure utility: merge all loaded history pages into a single accumulated
+ * view, deduplicating by id across pages.
+ */
+export function accumulateHistoryPages(
+  pages: HistoryResponse[] | undefined
+): AccumulatedHistory {
+  if (!pages) return { expenses: [], settlements: [] };
+  return pages.reduce(
+    (acc, page) =>
+      mergeHistoryPages(acc, {
+        expenses: page.expenses,
+        settlements: page.settlements,
+      }),
+    { expenses: [] as Expense[], settlements: [] as Settlement[] }
+  );
+}
+
+/**
+ * Pure utility: merge all loaded ledger pages into a single accumulated
+ * array, deduplicating by entry position.
+ */
+export function accumulateLedgerPages(
+  pages: LedgerResponse[] | undefined
+): LedgerEntry[] {
+  if (!pages) return [];
+  const seen = new Set<string>();
+  return pages.flatMap((page) =>
+    page.entries.filter((entry) => {
+      // Use the embedded id for stable deduplication across pages.
+      const id =
+        entry.type === "expense"
+          ? entry.expense.id
+          : entry.type === "settlement"
+            ? entry.settlement.id
+            : entry.treasuryTransaction.id;
+      const key = `${entry.type}-${id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+  );
 }
 
 /**
@@ -216,6 +321,7 @@ export function useHistory() {
  */
 export function useSettlementStatus(settlementId: string | null, enabled = true) {
   const failureCount = useRef(0);
+  const [pollingStalled, setPollingStalled] = useState(false);
 
   const query = useQuery({
     queryKey: settlementId ? qk.settlement(settlementId) : ["settlement", "_"],
@@ -241,25 +347,69 @@ export function useSettlementStatus(settlementId: string | null, enabled = true)
   // eventually return `false` once the cap is exceeded. `errorUpdatedAt`
   // / `dataUpdatedAt` change whenever the underlying query state moves
   // between error / success, so they're the right signal sources.
+  //
+  // Once the cap is hit, `refetchInterval` freezes at `false` and no more
+  // ticks fire — nothing else would ever flip `pollingStalled` back off,
+  // so callers need this flag to offer a manual "check status" retry
+  // instead of leaving the UI spinning on a dead poll forever.
   useEffect(() => {
     if (query.isError) {
       failureCount.current += 1;
+      if (failureCount.current >= SETTLEMENT_POLL_MAX_PERSISTENT_FAILURES) {
+        setPollingStalled(true);
+      }
     } else if (query.isSuccess) {
       failureCount.current = 0;
+      setPollingStalled(false);
     }
   }, [query.isError, query.isSuccess, query.errorUpdatedAt, query.dataUpdatedAt]);
 
-  return query;
+  return { ...query, pollingStalled };
 }
 
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
 
+/**
+ * A query key to invalidate. React Query matches keys by prefix, so
+ * `exact` is available for keys that are a prefix of unrelated keys —
+ * `qk.groups` (`["groups"]`) otherwise sweeps every group-scoped query.
+ */
+export type InvalidationTarget =
+  | readonly unknown[]
+  | { queryKey: readonly unknown[]; exact?: boolean };
+
+/** Normalise an `InvalidationTarget` into React Query filters. */
+export function invalidationFilters(target: InvalidationTarget): {
+  queryKey: readonly unknown[];
+  exact?: boolean;
+} {
+  return "queryKey" in target ? target : { queryKey: target };
+}
+
 function useInvalidator() {
   const qc = useQueryClient();
-  return (keys: readonly (readonly unknown[])[]) =>
-    Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
+  return (targets: readonly InvalidationTarget[]) =>
+    Promise.all(targets.map((t) => qc.invalidateQueries(invalidationFilters(t))));
+}
+
+/**
+ * The queries whose data an expense mutation can change: the group's
+ * expense list (including its paginated variants, matched by prefix), the
+ * group's balances and ledger, and the group list whose `yourNet` totals
+ * are derived from them.
+ *
+ * The group list is invalidated exactly: `["groups"]` is a prefix of every
+ * per-group key, so a non-exact match would refetch unrelated groups.
+ */
+export function expenseCacheKeys(groupId: string): InvalidationTarget[] {
+  return [
+    qk.expenses(groupId),
+    qk.balances(groupId),
+    qk.ledger(groupId),
+    { queryKey: qk.groups, exact: true },
+  ];
 }
 
 export function useCreateGroup() {
@@ -390,14 +540,11 @@ export function useCreateExpense(groupId: string) {
           : "Failed to create expense. Balances reverted."
       );
     },
-    // Refetch canonical data on settlement (success or error)
+    // Refetch canonical data on settlement (success or error) so the list,
+    // balances and ledger reflect the server's view — an optimistic entry
+    // is never left alongside the persisted one.
     onSettled: () => {
-      invalidate([
-        qk.expenses(groupId),
-        qk.balances(groupId),
-        qk.ledger(groupId),
-        qk.groups,
-      ]);
+      invalidate(expenseCacheKeys(groupId));
     },
   });
 }
@@ -406,13 +553,7 @@ export function useDeleteExpense(groupId: string) {
   const invalidate = useInvalidator();
   return useMutation({
     mutationFn: (expenseId: string) => api.deleteExpense(expenseId),
-    onSuccess: () =>
-      invalidate([
-        qk.expenses(groupId),
-        qk.balances(groupId),
-        qk.ledger(groupId),
-        qk.groups,
-      ]),
+    onSuccess: () => invalidate(expenseCacheKeys(groupId)),
   });
 }
 
@@ -485,6 +626,26 @@ export function useTreasuryWithdraw(groupId: string) {
     onSuccess: () =>
       invalidate([qk.treasury(groupId), qk.treasuryHistory(groupId)]),
   });
+}
+
+/**
+ * Drop every cached response when the signed-in wallet changes.
+ *
+ * `invalidateQueries` would keep the previous wallet's groups on screen while
+ * the refetch runs; removing them means a new session can never render the old
+ * one's data, even for a frame.
+ */
+export function useWalletScopedCache() {
+  const qc = useQueryClient();
+  const publicKey = useAuth((s) => s.user?.stellarPublicKey ?? null);
+  const previous = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (shouldResetQueryCache(previous.current, publicKey)) {
+      qc.removeQueries();
+    }
+    previous.current = publicKey;
+  }, [publicKey, qc]);
 }
 
 export function useUpdateMe() {

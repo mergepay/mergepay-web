@@ -11,13 +11,17 @@ import {
   fetchExpensesPage,
   parseExpensesQuery,
 } from "@/lib/expenses";
+import { validateExpenseAmount } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const createExpenseSchema = z.object({
   title: z.string().trim().min(1, "Title is required").max(80),
-  amount: z.string().min(1, "Amount is required"),
+  // Deliberately unconstrained here: `validateExpenseAmount` owns the amount
+  // contract, so every bad amount — wrong type, negative, zero, over-precise
+  // — gets the same "Invalid amount" response with a specific reason.
+  amount: z.unknown(),
   assetCode: z.string().min(1, "assetCode is required"),
   assetIssuer: z.string().nullable().optional(),
   splitType: z.enum(["equal", "custom", "percentage"]),
@@ -104,8 +108,8 @@ async function handleGet(request: Request): Promise<Response> {
  * POST /api/expenses?groupId=...
  *
  * Rate-limited (30 / minute / authenticated user) expense creation
- * endpoint. Forwarded verbatim to the upstream after
- * authorization-bearing validation.
+ * endpoint. Forwarded to the upstream after authorization-bearing
+ * validation, with the amount normalized to a plain decimal string.
  */
 async function handlePost(request: Request): Promise<Response> {
   const token = bearerToken(request);
@@ -134,11 +138,26 @@ async function handlePost(request: Request): Promise<Response> {
     );
   }
 
+  // Amounts must be strictly positive and fit the asset's precision. Reject
+  // them here rather than letting an unusable value reach the ledger path,
+  // where it surfaces as a silent failure.
+  const amountCheck = validateExpenseAmount(
+    parsed.data.amount,
+    parsed.data.assetCode
+  );
+  if (!amountCheck.valid) {
+    return apiError(400, "Invalid amount", COMMON_CODES.INVALID_INPUT, [
+      { path: ["amount"], message: amountCheck.error },
+    ]);
+  }
+
   const url = new URL(request.url);
   const groupId = url.searchParams.get("groupId");
   if (!groupId) {
     return apiError(400, "Missing groupId.", COMMON_CODES.INVALID_INPUT);
   }
+
+  const payload = { ...parsed.data, amount: amountCheck.normalized as string };
 
   let upstream: Response;
   try {
@@ -148,7 +167,7 @@ async function handlePost(request: Request): Promise<Response> {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify(parsed.data),
+      body: JSON.stringify(payload),
     });
   } catch {
     return apiError(502, "Could not create expense.", COMMON_CODES.UPSTREAM);

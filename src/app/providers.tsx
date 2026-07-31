@@ -4,6 +4,7 @@ import { useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { createQueryClient } from "@/lib/queryClient";
+import { ApiRequestError, ApiValidationError, isSessionExpired } from "@/lib/api";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   // One QueryClient per browser session, created lazily inside useState so

@@ -37,6 +37,7 @@ import {
 } from "@/lib/stellar";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import { fullDate } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 import { validateAmount, normalizeAmount, exceedsBalance } from "@/lib/money";
 import type { Group, GroupDetail } from "@/lib/types";
 
@@ -231,6 +232,9 @@ export function TreasuryPanel({
                   <div>
                     <p className="font-bold capitalize">{t.direction}</p>
                     <p className="text-xs text-ink/50">{fullDate(t.createdAt)}</p>
+                    <p className="text-xs text-ink/50">
+                      <Timestamp value={t.createdAt} />
+                    </p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -432,6 +436,7 @@ function DepositDialog({
           </Button>
           <Button type="submit" loading={busy} disabled={!amount || busy}>
             Sign & deposit
+            Sign &amp; deposit
           </Button>
         </div>
       </form>
@@ -555,6 +560,7 @@ function WithdrawDialog({
           </Button>
           <Button type="submit" loading={busy} disabled={!amount || !destination || busy}>
             Sign & withdraw
+            Sign &amp; withdraw
           </Button>
         </div>
       </form>

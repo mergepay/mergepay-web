@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, FieldHint } from "@/components/ui/input";
 import CopyButton from "@/components/ui/CopyButton";
 import { useCreateInvite } from "@/lib/queries";
-import { ApiRequestError } from "@/lib/api";
+import { describeInviteFailure, isSafeInviteUrl } from "@/lib/inviteLink";
 import type { Invite } from "@/lib/types";
 
 export function InviteDialog({
@@ -37,12 +37,22 @@ export function InviteDialog({
       });
       setInvite(invite);
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not create invite");
+      toast.error(describeInviteFailure(e).description);
     }
   }
 
+  // A share link is only rendered — as a QR code, a copyable value, or
+  // text — once it is a plain http(s) URL without embedded credentials.
+  // The invite code itself is always safe to show.
+  const shareUrl = invite && isSafeInviteUrl(invite.url) ? invite.url : null;
+
   return (
-    <Dialog open={open} onClose={onClose} title="Invite members">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Invite members"
+      description="Generate a shareable code and link that lets people join this group."
+    >
       {!invite ? (
         <div className="space-y-4">
           <p className="text-sm text-ink/60">
@@ -85,11 +95,13 @@ export function InviteDialog({
         </div>
       ) : (
         <div className="space-y-5">
-          <div className="flex justify-center">
-            <div className="rounded-2xl border-3 border-ink bg-white p-4 shadow-brutal">
-              <QRCodeSVG value={invite.url} size={160} fgColor="#18130E" />
+          {shareUrl && (
+            <div className="flex justify-center">
+              <div className="rounded-2xl border-3 border-ink bg-white p-4 shadow-brutal">
+                <QRCodeSVG value={shareUrl} size={160} fgColor="#18130E" />
+              </div>
             </div>
-          </div>
+          )}
           <div>
             <Label>Invite code</Label>
             <div className="flex items-center gap-2">
@@ -101,10 +113,17 @@ export function InviteDialog({
           </div>
           <div>
             <Label>Share link</Label>
-            <div className="flex items-center gap-2">
-              <Input readOnly value={invite.url} className="font-mono text-xs" />
-              <CopyButton text={invite.url} />
-            </div>
+            {shareUrl ? (
+              <div className="flex items-center gap-2">
+                <Input readOnly value={shareUrl} className="font-mono text-xs" />
+                <CopyButton text={shareUrl} />
+              </div>
+            ) : (
+              <FieldHint>
+                No share link is available for this invite — send the code above
+                instead.
+              </FieldHint>
+            )}
           </div>
           <div className="flex justify-between text-xs text-ink/50">
             <span>

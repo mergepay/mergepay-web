@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { ArrowRight, Landmark, Receipt, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge, statusTone } from "@/components/ui/badge";
@@ -9,10 +10,23 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useLedger } from "@/lib/queries";
-import { fullDate } from "@/lib/format";
+import { Timestamp } from "@/components/timestamp";
 
 export function LedgerPanel({ groupId }: { groupId: string }) {
-  const { data, isLoading, isError, refetch } = useLedger(groupId);
+  const {
+    data: pages,
+    isLoading,
+    isError,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteLedger(groupId);
+
+  const entries = useMemo(
+    () => accumulateLedgerPages(pages?.pages),
+    [pages?.pages]
+  );
 
   if (isLoading) return <ListSkeleton rows={4} />;
 
@@ -31,7 +45,6 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
     );
   }
 
-  const entries = data?.entries ?? [];
   if (entries.length === 0) {
     return (
       <EmptyState
@@ -53,7 +66,8 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                 <div>
                   <p className="font-bold">{entry.expense.title}</p>
                   <p className="text-xs text-ink/50">
-                    {entry.expense.payer.displayName} paid · {fullDate(entry.createdAt)}
+                    {entry.expense.payer.displayName} paid ·{" "}
+                    <Timestamp value={entry.createdAt} />
                   </p>
                 </div>
                 <Money
@@ -70,7 +84,9 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                     <ArrowRight className="h-3.5 w-3.5 text-ink/40" />
                     {entry.settlement.to.displayName}
                   </p>
-                  <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
+                  <p className="text-xs text-ink/50">
+                    <Timestamp value={entry.createdAt} />
+                  </p>
                 </div>
                 <div className="text-right">
                   <Money
@@ -95,7 +111,9 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                   <p className="font-bold capitalize">
                     Treasury {entry.treasuryTransaction.direction}
                   </p>
-                  <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
+                  <p className="text-xs text-ink/50">
+                    <Timestamp value={entry.createdAt} />
+                  </p>
                 </div>
                 <div className="text-right">
                   <Money
@@ -111,12 +129,50 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                       </Badge>
                     )}
                   </div>
-                </div>
-              </div>
-            )}
-          </Card>
+                )}
+                {entry.type === "treasury" && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-bold capitalize">
+                        Treasury {entry.treasuryTransaction.direction}
+                      </p>
+                      <p className="text-xs text-ink/50">{fullDate(entry.createdAt)}</p>
+                    </div>
+                    <div className="text-right">
+                      <Money
+                        value={entry.treasuryTransaction.amount}
+                        assetCode={entry.treasuryTransaction.assetCode}
+                      />
+                      <div className="mt-1 flex justify-end">
+                        {entry.treasuryTransaction.stellarTxHash ? (
+                          <TxLink hash={entry.treasuryTransaction.stellarTxHash} />
+                        ) : (
+                          <Badge tone={statusTone(entry.treasuryTransaction.status)}>
+                            {entry.treasuryTransaction.status.replace(/_/g, " ")}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </div>
+          );
+        })}
+      </div>
+      {/* Load-more control — hidden when all pages are loaded */}
+      {hasNextPage && (
+        <div className="flex justify-center pt-4">
+          <Button
+            variant="outline"
+            onClick={() => fetchNextPage()}
+            loading={isFetchingNextPage}
+            aria-label="Load more ledger entries"
+          >
+            {isFetchingNextPage ? "Loading…" : "Load More"}
+          </Button>
         </div>
-      ))}
+      )}
     </div>
   );
 }
