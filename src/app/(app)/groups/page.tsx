@@ -11,12 +11,25 @@ import { NetAmount } from "@/components/amount";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Tabs } from "@/components/ui/tabs";
+import {
+  QueryErrorState,
+  RefreshingBadge,
+  StaleDataNotice,
+} from "@/components/ui/query-state";
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { useGroups } from "@/lib/queries";
+import {
+  resolveQueryView,
+  showsEmptyState,
+  showsErrorPanel,
+  showsRefreshHint,
+  showsSkeleton,
+} from "@/lib/queryState";
 
 export default function GroupsPage() {
-  const { data, isLoading, isError, refetch } = useGroups();
+  const groupsQuery = useGroups();
+  const { data, refetch } = groupsQuery;
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [filter, setFilter] = useState<"active" | "archived">("active");
@@ -25,6 +38,17 @@ export default function GroupsPage() {
     const all = data?.groups ?? [];
     return all.filter((g) => (filter === "archived" ? g.archived : !g.archived));
   }, [data, filter]);
+
+  // The filter is applied client-side, so an empty tab is only an empty state
+  // once the request behind it actually succeeded.
+  const view = resolveQueryView({
+    status: groupsQuery.status,
+    fetchStatus: groupsQuery.fetchStatus,
+    hasData: data !== undefined,
+    isEmpty: groups.length === 0,
+    isPlaceholder: groupsQuery.isPlaceholderData,
+    enabled: groupsQuery.isEnabled,
+  });
 
   return (
     <>
@@ -43,6 +67,10 @@ export default function GroupsPage() {
         }
       />
 
+      <div className="mb-3 flex justify-end">
+        <RefreshingBadge show={showsRefreshHint(view)} />
+      </div>
+
       <Tabs
         className="mb-6"
         active={filter}
@@ -53,20 +81,26 @@ export default function GroupsPage() {
         ]}
       />
 
-      {isLoading ? (
+      {view === "stale-error" && (
+        <StaleDataNotice
+          onRetry={() => refetch()}
+          retrying={groupsQuery.isFetching}
+        >
+          Showing the groups we loaded earlier — the latest refresh failed.
+        </StaleDataNotice>
+      )}
+
+      {showsSkeleton(view) ? (
         <ListSkeleton rows={4} />
-      ) : isError ? (
-        <EmptyState
-          icon={<Users className="h-7 w-7 text-red-500" />}
-          title="Error loading groups"
-          description="We couldn't load your groups. Please try again."
-          action={
-            <Button onClick={() => refetch()} variant="outline">
-              Retry
-            </Button>
-          }
+      ) : showsErrorPanel(view) ? (
+        <QueryErrorState
+          icon={<Users className="h-6 w-6" />}
+          title="Couldn't load your groups"
+          description="The request didn't get through. Check your connection and try again — nothing has been lost."
+          onRetry={() => refetch()}
+          retrying={groupsQuery.isFetching}
         />
-      ) : groups.length === 0 ? (
+      ) : showsEmptyState(view) ? (
         <EmptyState
           icon={<Users className="h-7 w-7" />}
           title={filter === "archived" ? "No archived groups" : "No groups yet"}
