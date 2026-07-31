@@ -39,6 +39,7 @@ import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import { fullDate } from "@/lib/format";
 import { Timestamp } from "@/components/timestamp";
 import { validateAmount, normalizeAmount, exceedsBalance } from "@/lib/money";
+import { useWalletDisconnected } from "@/lib/wallet-store";
 import type { Group, GroupDetail } from "@/lib/types";
 
 export function TreasuryPanel({
@@ -52,6 +53,9 @@ export function TreasuryPanel({
   const [enableOpen, setEnableOpen] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  // Treasury transfers are signed by the wallet — lock them while the
+  // wallet is disconnected.
+  const walletDisconnected = useWalletDisconnected();
 
   const info = useTreasuryInfo(group.id, group.treasuryEnabled);
   const history = useTreasuryHistory(group.id, group.treasuryEnabled);
@@ -191,7 +195,16 @@ export function TreasuryPanel({
           )}
 
           <div className="flex gap-2 pt-1">
-            <Button onClick={() => setDepositOpen(true)} className="flex-1">
+            <Button
+              onClick={() => setDepositOpen(true)}
+              className="flex-1"
+              disabled={walletDisconnected}
+              title={
+                walletDisconnected
+                  ? "Reconnect your wallet to deposit"
+                  : undefined
+              }
+            >
               <ArrowDownToLine className="h-4 w-4" /> Deposit
             </Button>
             {isAdmin && (
@@ -199,6 +212,12 @@ export function TreasuryPanel({
                 variant="outline"
                 onClick={() => setWithdrawOpen(true)}
                 className="flex-1"
+                disabled={walletDisconnected}
+                title={
+                  walletDisconnected
+                    ? "Reconnect your wallet to withdraw"
+                    : undefined
+                }
               >
                 <ArrowUpFromLine className="h-4 w-4" /> Withdraw
               </Button>
@@ -370,6 +389,7 @@ function DepositDialog({
   const [amount, setAmount] = useState("");
   const [assetKey, setAssetKey] = useState("XLM");
   const [busy, setBusy] = useState(false);
+  const walletDisconnected = useWalletDisconnected();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -434,7 +454,7 @@ function DepositDialog({
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" loading={busy} disabled={!amount || busy}>
+          <Button type="submit" loading={busy} disabled={!amount || busy || walletDisconnected}>
             Sign & deposit
             Sign &amp; deposit
           </Button>
@@ -461,6 +481,7 @@ function WithdrawDialog({
   const [assetKey, setAssetKey] = useState("XLM");
   const [destination, setDestination] = useState("");
   const [busy, setBusy] = useState(false);
+  const walletDisconnected = useWalletDisconnected();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -558,7 +579,7 @@ function WithdrawDialog({
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" loading={busy} disabled={!amount || !destination || busy}>
+          <Button type="submit" loading={busy} disabled={!amount || !destination || busy || walletDisconnected}>
             Sign & withdraw
             Sign &amp; withdraw
           </Button>

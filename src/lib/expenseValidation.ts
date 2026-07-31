@@ -1,298 +1,305 @@
 /**
- * Expense split validation and normalization.
+ * Client-side validation for the add-expense form.
  *
- * Client-side validation exists to give precise, immediate feedback — it never
- * replaces the server's own checks. Everything here is a pure function so the
- * rules can be tested without React.
+ * Everything here is a pure function over plain values so it can be
+ * tested without React, and so the form and any future caller apply the
+ * same rules. This is a *first* boundary only — the API validates the
+ * same payload again, and these checks never replace that.
  *
- * Split totals are compared as exact integers (stroops for amounts, ten-
- * thousandths of a percent for percentages) via `parseExactDecimal`. Binary
- * floating-point comparison would report false mismatches for perfectly valid
- * inputs such as three shares of `0.1` against a total of `0.3`.
+ * All amount arithmetic runs on integer stroops (1 stroop = 10^-7, the
+ * smallest unit Stellar represents). Comparing decimal sums as
+ * JavaScript numbers gives wrong answers for ordinary inputs — `0.1 +
+ * 0.2 === 0.3` is false — so no split total is ever compared as a float.
  */
 
-import { MAX_DECIMAL_PLACES, parseExactDecimal } from "./money";
-import { validateSettlementAsset } from "./paymentValidation";
-import type { ExpenseShareInput, SplitType } from "./types";
+import { MAX_DECIMAL_PLACES } from "./money";
 
-/** Fractional digits accepted on a percentage share. */
-export const MAX_PERCENT_DECIMAL_PLACES = 4;
+/** Decimal places accepted for an expense amount (Stellar's precision). */
+export const AMOUNT_DECIMAL_PLACES = MAX_DECIMAL_PLACES;
 
-/** Percentage shares must add up to exactly 100%. */
-const PERCENT_TOTAL = BigInt(100) * BigInt(10) ** BigInt(MAX_PERCENT_DECIMAL_PLACES);
+/** Decimal places accepted for a percentage share. */
+export const PERCENT_DECIMAL_PLACES = 2;
+
+/** 100% in the integer units used for percentage arithmetic. */
+const ONE_HUNDRED_PERCENT = 100n * 10n ** BigInt(PERCENT_DECIMAL_PLACES);
 
 export const MAX_TITLE_LENGTH = 80;
 
-const SPLIT_TYPES: readonly SplitType[] = ["equal", "custom", "percentage"];
+/**
+ * Plain decimal notation only. Exponential forms ("1e5"), signs, and the
+ * trailing junk `parseFloat` happily ignores ("50abc") are all rejected.
+ */
+const DECIMAL_PATTERN = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
 
-/** Field-level errors, keyed by form field name. */
+/**
+ * Parse a decimal string into integer units scaled by `decimalPlaces`.
+ *
+ * Returns `null` when the string is not plain decimal notation, and
+ * `"too_precise"` when it carries more decimals than the scale allows,
+ * so callers can tell "not a number" from "too many decimals" and show
+ * the right message.
+ */
+export function parseDecimalUnits(
+  raw: string,
+  decimalPlaces: number
+): bigint | null | "too_precise" {
+  const trimmed = raw.trim();
+  if (!DECIMAL_PATTERN.test(trimmed)) return null;
+
+  const dot = trimmed.indexOf(".");
+  const intPart = dot === -1 ? trimmed : trimmed.slice(0, dot);
+  const fracPart = dot === -1 ? "" : trimmed.slice(dot + 1);
+
+  if (fracPart.length > decimalPlaces) return "too_precise";
+
+  const scaled = fracPart.padEnd(decimalPlaces, "0");
+  return (
+    BigInt(intPart || "0") * 10n ** BigInt(decimalPlaces) +
+    BigInt(scaled || "0")
+  );
+}
+
+/** Render integer units back as a plain decimal string. */
+export function formatDecimalUnits(
+  units: bigint,
+  decimalPlaces: number
+): string {
+  const scale = 10n ** BigInt(decimalPlaces);
+  const whole = units / scale;
+  const frac = (units % scale).toString().padStart(decimalPlaces, "0");
+  const trimmed = frac.replace(/0+$/, "");
+  return trimmed ? `${whole}.${trimmed}` : `${whole}`;
+}
+
+/** Convenience wrapper for expense amounts. */
+export function formatAmountUnits(units: bigint): string {
+  return formatDecimalUnits(units, AMOUNT_DECIMAL_PLACES);
+}
+
+/**
+ * Split `total` stroops across `count` participants without losing or
+ * inventing a stroop: everyone gets the floor share and the remainder is
+ * handed out one stroop at a time to the earliest participants. The sum
+ * of the result is exactly `total`.
+ *
+ * The form renders these values, so a split that cannot divide evenly is
+ * visible to the user rather than silently rounded.
+ */
+export function splitEqualUnits(total: bigint, count: number): bigint[] {
+  if (count <= 0) return [];
+  const size = BigInt(count);
+  const base = total / size;
+  const remainder = total % size;
+  return Array.from({ length: count }, (_, i) =>
+    BigInt(i) < remainder ? base + 1n : base
+  );
+}
+
 export type FormErrors = Partial<Record<string, string>>;
 
-/** Per-participant errors, keyed by user id. */
-export type ParticipantErrors = Record<string, string>;
-
-export interface ExpenseSplitDraft {
+export interface ExpenseFormInput {
   title: string;
   amount: string;
+  assetCode: string;
   splitType: string;
-  /** User ids of the members sharing this expense. */
+  payerUserId: string;
   participants: string[];
-  /** splitType=custom — user id → decimal amount string. */
+  /** Per-participant amounts keyed by user id (splitType "custom"). */
   custom: Record<string, string>;
-  /** splitType=percentage — user id → percentage string. */
+  /** Per-participant percentages keyed by user id (splitType "percentage"). */
   percent: Record<string, string>;
-  assetCode?: string;
-  assetIssuer?: string | null;
-  /**
-   * User ids that may currently be selected. Supply the group's live member
-   * list so participants who left mid-edit are reported instead of being sent
-   * to the API. Omit to skip the membership check.
-   */
-  eligibleParticipantIds?: string[];
 }
 
-/** The exact values to send to the API once a draft validates. */
-export interface NormalizedExpenseSplit {
-  title: string;
-  /** Plain decimal, at most 7 dp, numerically identical to the input. */
-  amount: string;
-  splitType: SplitType;
-  shares: ExpenseShareInput[];
+export interface ExpenseFormContext {
+  /** User ids of the current group members. */
+  memberIds: readonly string[];
+  /** Asset codes the app is configured to accept. */
+  supportedAssetCodes: readonly string[];
 }
 
-export interface ExpenseValidationResult {
-  valid: boolean;
-  errors: FormErrors;
-  participantErrors: ParticipantErrors;
-  /** Populated only when `valid` is true. */
-  normalized: NormalizedExpenseSplit | null;
+function validateAmount(raw: string, errors: FormErrors): bigint | null {
+  if (!raw.trim()) {
+    errors.amount = "Amount is required";
+    return null;
+  }
+
+  const units = parseDecimalUnits(raw, AMOUNT_DECIMAL_PLACES);
+  if (units === "too_precise") {
+    errors.amount = `Amount can have at most ${AMOUNT_DECIMAL_PLACES} decimal places`;
+    return null;
+  }
+  if (units === null) {
+    errors.amount = "Enter an amount as a plain number, for example 42.50";
+    return null;
+  }
+  if (units <= 0n) {
+    errors.amount = "Amount must be greater than zero";
+    return null;
+  }
+  return units;
 }
 
-function isSplitType(value: string): value is SplitType {
-  return (SPLIT_TYPES as readonly string[]).includes(value);
+function validateParticipants(
+  input: ExpenseFormInput,
+  members: ReadonlySet<string>,
+  errors: FormErrors
+): string[] {
+  const participants = input.participants;
+
+  if (participants.length === 0) {
+    errors.participants = "Select at least one participant";
+    return [];
+  }
+
+  if (new Set(participants).size !== participants.length) {
+    errors.participants = "A participant is selected more than once";
+    return participants;
+  }
+
+  if (participants.some((id) => !members.has(id))) {
+    errors.participants =
+      "One of the selected participants is not a member of this group";
+  }
+
+  return participants;
 }
 
-/**
- * Validate a single share value (a custom amount or a percentage).
- * Returns the exact scaled integer, or a user-facing error message.
- */
-function parseShareValue(
-  raw: string,
-  scale: number,
-  label: "amount" | "percentage"
-): { scaled: bigint; plain: string } | { error: string } {
-  const parsed = parseExactDecimal(raw ?? "", scale);
-  if (!parsed.ok) {
-    if (parsed.error === "empty") return { error: `Enter ${label === "amount" ? "an amount" : "a percentage"}` };
-    if (parsed.error === "too_precise") {
-      return { error: `At most ${scale} decimal place${scale === 1 ? "" : "s"}` };
+function validateCustomSplit(
+  input: ExpenseFormInput,
+  participants: string[],
+  amountUnits: bigint | null,
+  errors: FormErrors
+): void {
+  let sum = 0n;
+
+  for (const id of participants) {
+    const raw = input.custom[id] ?? "";
+    if (!raw.trim()) {
+      errors.custom = "Enter an amount for every participant";
+      return;
     }
-    return { error: `Enter a valid ${label}` };
+    const units = parseDecimalUnits(raw, AMOUNT_DECIMAL_PLACES);
+    if (units === "too_precise") {
+      errors.custom = `Each share can have at most ${AMOUNT_DECIMAL_PLACES} decimal places`;
+      return;
+    }
+    if (units === null) {
+      errors.custom = "Each share must be a plain number";
+      return;
+    }
+    if (units <= 0n) {
+      errors.custom = "Each share must be greater than zero";
+      return;
+    }
+    sum += units;
   }
-  if (parsed.value.scaled <= BigInt(0)) {
-    return { error: `Must be greater than zero` };
+
+  // Comparing against the total is only meaningful once it parsed.
+  if (amountUnits === null) return;
+
+  if (sum !== amountUnits) {
+    const difference = sum - amountUnits;
+    const target = formatAmountUnits(amountUnits);
+    errors.custom =
+      difference > 0n
+        ? `Shares are over by ${formatAmountUnits(difference)} — they must add up to ${target}`
+        : `Shares are short by ${formatAmountUnits(-difference)} — they must add up to ${target}`;
   }
-  return { scaled: parsed.value.scaled, plain: parsed.value.plain };
 }
 
-/** Render a scaled integer back as a plain decimal string. */
-function scaledToPlain(scaled: bigint, scale: number): string {
-  const negative = scaled < BigInt(0);
-  const digits = (negative ? -scaled : scaled).toString().padStart(scale + 1, "0");
-  const intPart = digits.slice(0, digits.length - scale);
-  const frac = scale === 0 ? "" : digits.slice(digits.length - scale).replace(/0+$/, "");
-  return `${negative ? "-" : ""}${intPart}${frac ? `.${frac}` : ""}`;
+function validatePercentageSplit(
+  input: ExpenseFormInput,
+  participants: string[],
+  errors: FormErrors
+): void {
+  let sum = 0n;
+
+  for (const id of participants) {
+    const raw = input.percent[id] ?? "";
+    if (!raw.trim()) {
+      errors.percent = "Enter a percentage for every participant";
+      return;
+    }
+    const units = parseDecimalUnits(raw, PERCENT_DECIMAL_PLACES);
+    if (units === "too_precise") {
+      errors.percent = `Percentages can have at most ${PERCENT_DECIMAL_PLACES} decimal places`;
+      return;
+    }
+    if (units === null) {
+      errors.percent = "Each percentage must be a plain number";
+      return;
+    }
+    if (units <= 0n) {
+      errors.percent = "Each percentage must be greater than zero";
+      return;
+    }
+    sum += units;
+  }
+
+  if (sum !== ONE_HUNDRED_PERCENT) {
+    errors.percent = `Percentages add up to ${formatDecimalUnits(
+      sum,
+      PERCENT_DECIMAL_PLACES
+    )}% — they must add up to 100%`;
+  }
 }
 
 /**
- * Exact sum of decimal strings, for the "so far" hint shown next to a split.
- * Unparseable entries contribute nothing so the hint stays stable while the
- * user is mid-keystroke.
+ * Validate the whole form. Returns `null` when everything passes, or a
+ * map of field name to message. The keys match the field ids the form
+ * uses to wire up `aria-describedby`.
  */
-export function sumDecimalStrings(values: string[], scale: number): string {
-  let sum = BigInt(0);
-  for (const value of values) {
-    const parsed = parseExactDecimal(value ?? "", scale);
-    if (parsed.ok) sum += parsed.value.scaled;
-  }
-  return scaledToPlain(sum, scale);
-}
-
-/**
- * Validate an expense draft and, when it is valid, produce the exact payload
- * fields for `CreateExpenseRequest`.
- */
-export function validateExpenseSplit(
-  draft: ExpenseSplitDraft
-): ExpenseValidationResult {
+export function validateExpenseForm(
+  input: ExpenseFormInput,
+  context: ExpenseFormContext
+): FormErrors | null {
   const errors: FormErrors = {};
-  const participantErrors: ParticipantErrors = {};
+  const members = new Set(context.memberIds);
 
-  // --- title ---------------------------------------------------------------
-  const title = draft.title.trim();
+  const title = input.title.trim();
   if (!title) {
     errors.title = "Title is required";
   } else if (title.length > MAX_TITLE_LENGTH) {
     errors.title = `Title must be ${MAX_TITLE_LENGTH} characters or fewer`;
   }
 
-  // --- amount --------------------------------------------------------------
-  let totalStroops: bigint | null = null;
-  let normalizedAmount = "";
-  const invalidAmountMessage = `Amount must be positive with at most ${MAX_DECIMAL_PLACES} decimal places`;
-  const parsedAmount = parseExactDecimal(draft.amount ?? "", MAX_DECIMAL_PLACES);
-  if (!parsedAmount.ok) {
-    errors.amount =
-      parsedAmount.error === "empty" ? "Amount is required" : invalidAmountMessage;
-  } else if (parsedAmount.value.scaled <= BigInt(0)) {
-    errors.amount = invalidAmountMessage;
-  } else {
-    totalStroops = parsedAmount.value.scaled;
-    normalizedAmount = parsedAmount.value.plain;
+  const amountUnits = validateAmount(input.amount, errors);
+
+  if (!context.supportedAssetCodes.includes(input.assetCode)) {
+    errors.assetCode = "Choose one of the supported assets";
   }
 
-  // --- asset ---------------------------------------------------------------
-  if (draft.assetCode !== undefined) {
-    const assetResult = validateSettlementAsset(
-      draft.assetCode,
-      draft.assetIssuer ?? null
-    );
-    if (!assetResult.valid) {
-      errors.asset = assetResult.error ?? "Unsupported asset";
+  if (!input.payerUserId) {
+    errors.payer = "Choose who paid";
+  } else if (!members.has(input.payerUserId)) {
+    errors.payer = "The selected payer is not a member of this group";
+  }
+
+  const participants = validateParticipants(input, members, errors);
+
+  if (input.splitType === "custom") {
+    if (!errors.participants) {
+      validateCustomSplit(input, participants, amountUnits, errors);
     }
-  }
-
-  // --- split type ----------------------------------------------------------
-  const splitType = isSplitType(draft.splitType) ? draft.splitType : null;
-  if (!splitType) {
+  } else if (input.splitType === "percentage") {
+    if (!errors.participants) {
+      validatePercentageSplit(input, participants, errors);
+    }
+  } else if (input.splitType === "equal") {
+    // An equal split is derived, so it always sums to the amount — but
+    // only while every participant can receive at least one stroop.
+    // Below that the split would silently drop people to zero.
+    if (
+      amountUnits !== null &&
+      !errors.participants &&
+      participants.length > 0 &&
+      amountUnits < BigInt(participants.length)
+    ) {
+      errors.amount = `Amount is too small to split between ${participants.length} people`;
+    }
+  } else {
     errors.splitType = "Choose how to split this expense";
   }
 
-  // --- participants --------------------------------------------------------
-  const participants = draft.participants ?? [];
-  const eligible = draft.eligibleParticipantIds;
-
-  if (eligible !== undefined && eligible.length === 0) {
-    errors.participants =
-      "This group has no members who can share an expense yet";
-  } else if (participants.length === 0) {
-    errors.participants = "Select at least one participant";
-  } else {
-    const seen = new Set<string>();
-    const duplicates = new Set<string>();
-    for (const id of participants) {
-      if (seen.has(id)) duplicates.add(id);
-      seen.add(id);
-    }
-    if (duplicates.size > 0) {
-      errors.participants = "Each participant can only be selected once";
-      for (const id of duplicates) {
-        participantErrors[id] = "Selected more than once";
-      }
-    }
-
-    if (eligible !== undefined) {
-      const eligibleSet = new Set(eligible);
-      const missing = participants.filter((id) => !eligibleSet.has(id));
-      if (missing.length > 0) {
-        errors.participants =
-          missing.length === 1
-            ? "A selected participant is no longer a member of this group"
-            : "Some selected participants are no longer members of this group";
-        for (const id of missing) {
-          participantErrors[id] = "No longer a member of this group";
-        }
-      }
-    }
-  }
-
-  // Participant-dependent split checks only make sense once the selection and
-  // the total are themselves usable.
-  const uniqueParticipants = Array.from(new Set(participants));
-  const canCheckSplit =
-    !errors.participants && uniqueParticipants.length > 0 && totalStroops !== null;
-
-  const shares: ExpenseShareInput[] = [];
-
-  if (splitType === "equal" && canCheckSplit) {
-    for (const userId of uniqueParticipants) shares.push({ userId });
-  }
-
-  if (splitType === "custom" && canCheckSplit) {
-    let sum = BigInt(0);
-    let anyInvalid = false;
-    for (const userId of uniqueParticipants) {
-      const result = parseShareValue(draft.custom?.[userId] ?? "", MAX_DECIMAL_PLACES, "amount");
-      if ("error" in result) {
-        participantErrors[userId] = result.error;
-        anyInvalid = true;
-        continue;
-      }
-      sum += result.scaled;
-      shares.push({ userId, amount: result.plain });
-    }
-
-    if (anyInvalid) {
-      errors.custom = "Fix the highlighted share amounts";
-    } else if (sum !== totalStroops) {
-      errors.custom = `Custom amounts must sum to ${normalizedAmount} (currently ${scaledToPlain(sum, MAX_DECIMAL_PLACES)})`;
-    }
-  }
-
-  if (splitType === "percentage" && canCheckSplit) {
-    let sum = BigInt(0);
-    let anyInvalid = false;
-    for (const userId of uniqueParticipants) {
-      const result = parseShareValue(
-        draft.percent?.[userId] ?? "",
-        MAX_PERCENT_DECIMAL_PLACES,
-        "percentage"
-      );
-      if ("error" in result) {
-        participantErrors[userId] = result.error;
-        anyInvalid = true;
-        continue;
-      }
-      if (result.scaled > PERCENT_TOTAL) {
-        participantErrors[userId] = "Cannot exceed 100%";
-        anyInvalid = true;
-        continue;
-      }
-      sum += result.scaled;
-      shares.push({ userId, percent: Number(result.plain) });
-    }
-
-    if (anyInvalid) {
-      errors.percent = "Fix the highlighted percentages";
-    } else if (sum !== PERCENT_TOTAL) {
-      errors.percent = "Percentages must sum to 100";
-    }
-  }
-
-  const valid =
-    Object.keys(errors).length === 0 && Object.keys(participantErrors).length === 0;
-
-  return {
-    valid,
-    errors,
-    participantErrors,
-    normalized:
-      valid && splitType && totalStroops !== null
-        ? { title, amount: normalizedAmount, splitType, shares }
-        : null,
-  };
-}
-
-/**
- * Backwards-compatible wrapper returning only field-level errors.
- *
- * @returns `null` when the draft is valid, otherwise a map of field → message.
- */
-export function validateExpenseForm(draft: ExpenseSplitDraft): FormErrors | null {
-  const result = validateExpenseSplit(draft);
-  if (result.valid) return null;
-  if (Object.keys(result.errors).length > 0) return result.errors;
-  // Defensive: every participant-level error is also reported at field level,
-  // but never hand back an "invalid with no errors" result.
-  return { participants: "Fix the highlighted participants" };
+  return Object.keys(errors).length > 0 ? errors : null;
 }

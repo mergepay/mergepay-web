@@ -33,8 +33,10 @@ import {
   SectionLoading,
 } from "@/components/ui/section";
 import { useExpenses, useGroup, useMe } from "@/lib/queries";
+import type { GroupMember } from "@/lib/types";
 import { sortExpensesByDateDesc } from "@/lib/expenses";
 import { resolveSectionStatus } from "@/lib/sectionState";
+import { useWalletDisconnected } from "@/lib/wallet-store";
 
 type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
 
@@ -49,6 +51,9 @@ export default function GroupDetailPage() {
   // Keep the active group id in a tiny client store so sibling routes
   // (e.g. balances, treasury) can reuse it without re-fetching.
   const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
+  // Expense creation feeds on-chain settlement — lock it while the
+  // wallet is disconnected.
+  const walletDisconnected = useWalletDisconnected();
 
   useEffect(() => {
     setSelectedGroup(id);
@@ -85,7 +90,15 @@ export default function GroupDetailPage() {
         description={group.description ?? undefined}
         action={
           tab === "expenses" && (
-            <Button onClick={() => setAddOpen(true)}>
+            <Button
+              onClick={() => setAddOpen(true)}
+              disabled={walletDisconnected}
+              title={
+                walletDisconnected
+                  ? "Reconnect your wallet to add an expense"
+                  : undefined
+              }
+            >
               <Plus className="h-4 w-4" /> Add expense
             </Button>
           )
@@ -193,6 +206,7 @@ function ExpensesTab({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkTarget, setBulkTarget] = useState<BulkSettleTarget | null>(null);
+  const walletDisconnected = useWalletDisconnected();
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) =>
@@ -256,7 +270,15 @@ function ExpensesTab({
         title="No expenses yet"
         description="Log your first shared bill and let Mergepay split it."
         action={
-          <Button onClick={onAdd}>
+          <Button
+            onClick={onAdd}
+            disabled={walletDisconnected}
+            title={
+              walletDisconnected
+                ? "Reconnect your wallet to add an expense"
+                : undefined
+            }
+          >
             <Plus className="h-4 w-4" /> Add expense
           </Button>
         }
