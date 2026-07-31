@@ -346,3 +346,8 @@ Program organizers will review and notify you by email + in-app when accepted.
 > Need to deploy the app to a live URL too? That's optional. The step-by-step
 > hosting guide (Neon + Render + Vercel) is preserved in git history — ask and I'll
 > bring it back into its own file.
+
+<!-- > Need to deploy the app to a live URL too? That's optional. The step-by-step
+> hosting guide (Neon + Render + Vercel) is preserved in git history — ask and I'll
+> bring it back into its own file. -->
+

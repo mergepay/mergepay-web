@@ -1,10 +1,13 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import path from "node:path";
 
 export default defineConfig({
   resolve: {
+    // Mirror the "@/*" path alias from tsconfig.json so route handlers that
+    // import shared libs can be tested.
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
   test: {
