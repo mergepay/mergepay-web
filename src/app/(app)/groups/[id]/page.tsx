@@ -33,9 +33,10 @@ import {
   SectionError,
   SectionLoading,
 } from "@/components/ui/section";
-import { useExpenses, useGroup, useMe } from "@/lib/queries";
+import { useGroup, useInfiniteExpenses, useMe } from "@/lib/queries";
 import type { GroupMember } from "@/lib/types";
-import { sortExpensesByDateDesc } from "@/lib/expenses";
+import { mergeExpensePages, sortExpensesByDateDesc } from "@/lib/expenses";
+import { apiErrorMessage } from "@/lib/errorHandler";
 import { resolveSectionStatus } from "@/lib/sectionState";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 
@@ -362,9 +363,7 @@ function ExpensesTab({
             className="rounded-xl border-2 border-ink bg-flamingo-pale px-4 py-3 text-sm"
             role="alert"
           >
-            {error instanceof ApiRequestError
-              ? error.message
-              : "We couldn't load more expenses."}
+            {apiErrorMessage(error, "We couldn't load more expenses.")}
           </div>
         )}
 

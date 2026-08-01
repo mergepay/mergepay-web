@@ -5,9 +5,12 @@ import {
   decodeCursor,
   encodeCursor,
   fetchExpensesPage,
+  hasMoreExpensePages,
+  mergeExpensePages,
   mergeHistoryPages,
   parseExpensesQuery,
   sortExpensesByDateDesc,
+  type ExpensesPage,
 } from "../expenses";
 import type { Expense, Settlement } from "../types";
 

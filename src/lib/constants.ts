@@ -17,6 +17,12 @@ export const STELLAR_NETWORK: StellarNetwork = CONFIGURED_NETWORK;
 export const HORIZON_URL =
   process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org";
 
+/**
+ * Prefix stamped on the memo of every settlement payment, so a Mergepay
+ * transaction is identifiable on-chain (`MP:dinner-8f3a`).
+ */
+export const SETTLEMENT_MEMO_PREFIX = "MP:";
+
 /** Canonical SEP-10 network passphrases, keyed by network. */
 export const NETWORK_PASSPHRASES: Record<StellarNetwork, string> = {
   public: "Public Global Stellar Network ; September 2015",

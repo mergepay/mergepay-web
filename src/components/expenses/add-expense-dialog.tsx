@@ -26,6 +26,9 @@ import {
 import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 
+/** The asset codes the form offers, and the only ones validation accepts. */
+const SUPPORTED_ASSET_CODES = SETTLEMENT_ASSETS.map((a) => a.code);
+
 export function AddExpenseDialog({
   open,
   onClose,
@@ -56,14 +59,18 @@ export function AddExpenseDialog({
   // Error from the last failed attempt. Kept alongside the entered values
   // so the user can correct and retry without re-typing the form.
   const [submitError, setSubmitError] = useState<string | null>(null);
-  // Synchronous single-flight latch. `submitting` and `create.isPending`
-  // are React state and only settle on the next render, so they cannot by
-  // themselves reject a second activation that lands in the same tick
-  // (double-click, Enter auto-repeat, tap plus synthesised click).
-  const gate = useRef(createSubmissionGate());
+  // Per-field "has been visited" marks, so a field only shows its error
+  // once the user has left it rather than while they are still typing.
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  // Set by a rejected submit attempt, which reveals every outstanding
+  // error at once regardless of what has been touched.
+  const [showErrors, setShowErrors] = useState(false);
   // Expenses are settled on-chain — block submission while the wallet is
   // disconnected.
   const walletDisconnected = useWalletDisconnected();
+
+  /** Request in flight, by either the mutation or this form's own latch. */
+  const pending = create.isPending || submitting;
 
   const asset = useMemo(
     () => SETTLEMENT_ASSETS.find((a) => a.code === assetKey) ?? SETTLEMENT_ASSETS[0],
@@ -507,14 +514,13 @@ export function AddExpenseDialog({
           <Button
             type="submit"
             loading={pending}
-            disabled={!validation.valid || pending || walletDisconnected}
+            disabled={validationErrors !== null || pending || walletDisconnected}
             title={
               walletDisconnected
                 ? "Reconnect your wallet to add an expense"
-                : validation.valid
-                  ? undefined
-                  : Object.values(validation.errors)[0] ??
-                    Object.values(validation.participantErrors)[0]
+                : validationErrors
+                  ? Object.values(validationErrors)[0]
+                  : undefined
             }
             aria-busy={pending}
             aria-describedby={submitError ? "e-submit-error" : undefined}

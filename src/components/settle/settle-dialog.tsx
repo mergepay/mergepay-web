@@ -18,7 +18,13 @@ import { useConfirmSettlement, useSettlementStatus } from "@/lib/queries";
 import { validateSettlementInput } from "@/lib/paymentValidation";
 import { recoveryActionFor, retryLabelFor } from "@/lib/settlementRetry";
 import { useWalletDisconnected } from "@/lib/wallet-store";
+import type { SettlementStep, SettleTarget } from "@/lib/useSettlementFlow";
 import type { SettlementSuggestion, User } from "@/lib/types";
+
+// The settlement types moved to `@/lib/useSettlementFlow` when the flow was
+// extracted into a hook. Re-exported here so existing consumers can keep
+// importing them from the dialog.
+export type { SettleTarget };
 
 type Step =
   | "review"
@@ -315,6 +321,3 @@ export function SettleDialog({
     </div>
   </Dialog>;
 }
-
-function StepLine({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) { return <li className="flex items-start gap-3"><span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 border-ink bg-cream">{icon}</span><span>{children}</span></li>; }
-function WalletErrorBanner({ code, message }: { code: WalletErrorCode | null; message: ReactNode }) { const icon = code === "locked" ? <Lock className="h-4 w-4" /> : code === "not_installed" ? <ShieldX className="h-4 w-4" /> : code === "disconnected" ? <Plug className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />; return <div className="flex items-start gap-3 rounded-xl border-2 border-ink bg-flamingo-pale px-4 py-3 text-sm" role="alert" aria-live="assertive"><span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 border-ink bg-cream">{icon}</span><span>{message}</span></div>; }
