@@ -22,6 +22,7 @@ import { ListSkeleton } from "@/components/ui/skeleton";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
 import { ExpenseCard } from "@/components/expenses/expense-card";
 import { ExportHistoryButton } from "@/components/expenses/ExportHistoryButton";
+import { GroupAnalytics } from "@/components/expenses/GroupAnalytics";
 import { SettleDialog, type BulkSettleTarget } from "@/components/settle/settle-dialog";
 import { BulkSettleBar } from "@/components/settle/bulk-settle-bar";
 import { buildBulkTarget, type UnsettledShare } from "@/lib/bulkSettle";
@@ -334,6 +335,7 @@ function ExpensesTab({
 
   return (
     <>
+      <GroupAnalytics expenses={expenses} />
       <div className="mb-4 flex items-center justify-between">{actionArea}</div>
       <div className="space-y-3">
         <ul className="space-y-3" aria-label="Group expenses">

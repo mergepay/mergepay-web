@@ -13,6 +13,7 @@ import {
   type ExportStatusFilter,
 } from "@/lib/utils";
 import type { Expense } from "@/lib/types";
+import { exportExpenseJson } from "@/lib/export";
 
 /**
  * Triggers a local, client-side export of a group's expense history to CSV.
@@ -121,6 +122,12 @@ export function ExportHistoryButton({
             <Button variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => exportExpenseJson(expenses, `mergepay-${groupId}.json`)}
+              loading={isLoading}
+              disabled={!hasExpenses}
+            >JSON</Button>
             <Button
               onClick={handleExport}
               loading={isLoading}

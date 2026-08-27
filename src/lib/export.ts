@@ -1,6 +1,18 @@
 import type { Expense, Settlement } from "./types";
 import { explorerTxUrl } from "./constants";
 
+export function buildExpenseExportJson(expenses: Expense[]): string {
+  return JSON.stringify(expenses.map((e) => ({
+    id: e.id, title: e.title, amount: e.amount, assetCode: e.assetCode,
+    splitType: e.splitType, paidBy: e.payer.displayName, createdAt: e.createdAt,
+    shares: e.shares.map((s) => ({ user: s.user.displayName, amount: s.shareAmount, status: s.status })),
+  })), null, 2);
+}
+
+export function exportExpenseJson(expenses: Expense[], filename: string): void {
+  download(filename, buildExpenseExportJson(expenses), "application/json;charset=utf-8");
+}
+
 /**
  * Characters that make a spreadsheet treat a cell as a formula.
  * Excel / LibreOffice / Google Sheets all evaluate a leading `=`, `+`, `-` or
