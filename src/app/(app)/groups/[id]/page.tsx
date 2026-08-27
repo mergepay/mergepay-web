@@ -22,6 +22,8 @@ import { ListSkeleton } from "@/components/ui/skeleton";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
 import { ExpenseCard } from "@/components/expenses/expense-card";
 import { ExportHistoryButton } from "@/components/expenses/ExportHistoryButton";
+import { ExpenseExportModal } from "@/components/ExpenseExportModal";
+import { RecurringExpenseScheduler } from "@/components/RecurringExpenseScheduler";
 import { GroupAnalytics } from "@/components/expenses/GroupAnalytics";
 import { SettleDialog, type BulkSettleTarget } from "@/components/settle/settle-dialog";
 import { BulkSettleBar } from "@/components/settle/bulk-settle-bar";
@@ -42,7 +44,8 @@ import { apiErrorMessage } from "@/lib/errorHandler";
 import { resolveSectionStatus } from "@/lib/sectionState";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 
-type Tab = "expenses" | "balances" | "ledger" | "treasury" | "members";
+type Tab = "expenses" | "recurring" | "balances" | "ledger" | "treasury" | "members";
+
 
 /**
  * Records per request. Large enough that most groups never need a second
@@ -133,6 +136,11 @@ export default function GroupDetailPage() {
             icon: <Receipt className="h-4 w-4" />,
           },
           {
+            id: "recurring",
+            label: "Recurring",
+            icon: <Landmark className="h-4 w-4" />,
+          },
+          {
             id: "balances",
             label: "Balances",
             icon: <Scale className="h-4 w-4" />,
@@ -168,7 +176,17 @@ export default function GroupDetailPage() {
           />
         </SectionBoundary>
       )}
+      {tab === "recurring" && (
+        <SectionBoundary subject="the recurring scheduler">
+          <RecurringExpenseScheduler
+            groupId={id}
+            members={detail.members}
+            currentUserId={currentUserId}
+          />
+        </SectionBoundary>
+      )}
       {tab === "balances" && (
+
         <SectionBoundary subject="the balances panel">
           <BalancesPanel groupId={id} currentUserId={currentUserId} />
         </SectionBoundary>

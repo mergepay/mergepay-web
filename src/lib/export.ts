@@ -2,16 +2,52 @@ import type { Expense, Settlement } from "./types";
 import { explorerTxUrl } from "./constants";
 
 export function buildExpenseExportJson(expenses: Expense[]): string {
-  return JSON.stringify(expenses.map((e) => ({
-    id: e.id, title: e.title, amount: e.amount, assetCode: e.assetCode,
-    splitType: e.splitType, paidBy: e.payer.displayName, createdAt: e.createdAt,
-    shares: e.shares.map((s) => ({ user: s.user.displayName, amount: s.shareAmount, status: s.status })),
-  })), null, 2);
+  return JSON.stringify(
+    expenses.map((e) => ({
+      id: e.id,
+      title: e.title,
+      description: e.description,
+      amount: e.amount,
+      assetCode: e.assetCode,
+      assetIssuer: e.assetIssuer,
+      splitType: e.splitType,
+      memo: e.memo,
+      paidBy: e.payer.displayName,
+      paidByAddress: e.payer.stellarPublicKey,
+      createdAt: e.createdAt,
+      shares: e.shares.map((s) => ({
+        user: s.user.displayName,
+        userAddress: s.user.stellarPublicKey,
+        amount: s.shareAmount,
+        status: s.status,
+      })),
+    })),
+    null,
+    2
+  );
+}
+
+export function buildFilteredExpenseExportJson(
+  expenses: Expense[],
+  options?: { startDate?: string; endDate?: string }
+): string {
+  const filtered = expenses.filter((e) => {
+    const date = e.createdAt.slice(0, 10);
+    if (options?.startDate && date < options.startDate) return false;
+    if (options?.endDate && date > options.endDate) return false;
+    return true;
+  });
+  return buildExpenseExportJson(filtered);
 }
 
 export function exportExpenseJson(expenses: Expense[], filename: string): void {
   download(filename, buildExpenseExportJson(expenses), "application/json;charset=utf-8");
 }
+
+export function exportExpenseCsv(csvContent: string, filename: string): void {
+  download(filename, csvContent, "text/csv;charset=utf-8");
+}
+
 
 /**
  * Characters that make a spreadsheet treat a cell as a formula.
