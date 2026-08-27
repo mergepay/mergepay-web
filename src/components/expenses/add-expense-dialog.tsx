@@ -22,6 +22,7 @@ import {
   parseDecimalUnits,
   splitEqualUnits,
   validateExpenseForm,
+  expenseSplitSchema,
 } from "@/lib/expenseValidation";
 import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
 import { useWalletDisconnected } from "@/lib/wallet-store";
@@ -206,6 +207,12 @@ export function AddExpenseDialog({
         return { userId, percent: Number(percent[userId] ?? "0") };
       return { userId };
     });
+    const splitCheck = expenseSplitSchema.safeParse({ amount: formatAmountUnits(amountUnits), splitType, shares });
+    if (!splitCheck.success) {
+      toast.error(splitCheck.error.issues[0]?.message ?? "Check the split allocations");
+      setShowErrors(true);
+      return;
+    }
     setSubmitting(true);
     try {
       await create.mutateAsync({
