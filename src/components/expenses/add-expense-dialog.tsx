@@ -22,9 +22,11 @@ import {
   parseDecimalUnits,
   splitEqualUnits,
   validateExpenseForm,
+  expenseSplitSchema,
 } from "@/lib/expenseValidation";
 import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
 import { useWalletDisconnected } from "@/lib/wallet-store";
+import { convertCurrency, currencyRate, rateDeviationPercent, SUPPORTED_FIAT_CURRENCIES, type SupportedFiatCurrency } from "@/lib/currency";
 
 /** The asset codes the form offers, and the only ones validation accepts. */
 const SUPPORTED_ASSET_CODES = SETTLEMENT_ASSETS.map((a) => a.code);
@@ -46,6 +48,9 @@ export function AddExpenseDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [fiatCurrency, setFiatCurrency] = useState<SupportedFiatCurrency>("USD");
+  const [fiatAmount, setFiatAmount] = useState("");
+  const [rateOverride, setRateOverride] = useState("");
   const [assetKey, setAssetKey] = useState("XLM");
   const [payerUserId, setPayerUserId] = useState(currentUserId);
   const [splitType, setSplitType] = useState<SplitType>("equal");
@@ -84,6 +89,10 @@ export function AddExpenseDialog({
     const parsed = parseDecimalUnits(amount, AMOUNT_DECIMAL_PLACES);
     return typeof parsed === "bigint" && parsed > 0n ? parsed : null;
   }, [amount]);
+  const marketRate = currencyRate(fiatCurrency);
+  const effectiveRate = rateOverride.trim() ? Number(rateOverride) : marketRate;
+  const convertedAmount = convertCurrency(fiatAmount, fiatCurrency, effectiveRate);
+  const rateWarning = rateOverride.trim() && rateDeviationPercent(effectiveRate, marketRate) > 10;
 
   /** Running totals, summed as integers so the hints never drift. */
   const customSum = useMemo(
@@ -206,6 +215,12 @@ export function AddExpenseDialog({
         return { userId, percent: Number(percent[userId] ?? "0") };
       return { userId };
     });
+    const splitCheck = expenseSplitSchema.safeParse({ amount: formatAmountUnits(amountUnits), splitType, shares });
+    if (!splitCheck.success) {
+      toast.error(splitCheck.error.issues[0]?.message ?? "Check the split allocations");
+      setShowErrors(true);
+      return;
+    }
     setSubmitting(true);
     try {
       await create.mutateAsync({
@@ -243,6 +258,9 @@ export function AddExpenseDialog({
     setTitle("");
     setDescription("");
     setAmount("");
+    setFiatCurrency("USD");
+    setFiatAmount("");
+    setRateOverride("");
     setSplitType("equal");
     setCustom({});
     setPercent({});
@@ -326,6 +344,21 @@ export function AddExpenseDialog({
               </p>
             )}
           </div>
+        </div>
+        <div className="rounded-xl border-2 border-ink bg-butter p-3 shadow-brutal-sm">
+          <p className="font-display text-xs font-bold uppercase tracking-wide">Currency converter</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Input aria-label="Foreign currency amount" type="number" min="0" step="any" value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value)} placeholder="Local amount" />
+            <Select aria-label="Foreign currency" value={fiatCurrency} onChange={(e) => setFiatCurrency(e.target.value as SupportedFiatCurrency)}>
+              {SUPPORTED_FIAT_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}
+            </Select>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Input aria-label="Manual conversion rate" type="number" min="0" step="any" value={rateOverride} onChange={(e) => setRateOverride(e.target.value)} placeholder={`Rate (${marketRate})`} />
+            <Button type="button" variant="secondary" disabled={!convertedAmount} onClick={() => convertedAmount && setAmount(convertedAmount)}>Apply</Button>
+          </div>
+          <p className="mt-2 text-xs" aria-live="polite">{convertedAmount ? `${fiatAmount || "0"} ${fiatCurrency} ≈ ${convertedAmount} ${assetKey} (rate ${effectiveRate})` : "Enter an amount to preview the conversion."}</p>
+          {rateWarning && <p className="mt-1 text-xs font-bold text-flamingo" role="alert">Manual rate differs from the indicative rate by more than 10%.</p>}
         </div>
         <div>
           <Label htmlFor="e-payer">Paid by</Label>

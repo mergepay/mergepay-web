@@ -13,6 +13,32 @@
  */
 
 import { MAX_DECIMAL_PLACES } from "./money";
+import { z } from "zod";
+
+/** API-bound schema: decimal strings are retained as strings to avoid float drift. */
+export const expenseSplitSchema = z.object({
+  amount: z.string().regex(/^\d+(?:\.\d{1,7})?$/),
+  splitType: z.enum(["equal", "custom", "percentage"]),
+  shares: z.array(z.object({
+    userId: z.string().min(1),
+    amount: z.string().regex(/^\d+(?:\.\d{1,7})?$/).optional(),
+    percent: z.number().finite().min(0).max(100).optional(),
+  })).min(1),
+}).superRefine((value, ctx) => {
+  if (value.splitType === "custom") {
+    const total = value.shares.reduce((sum, share) => sum + toUnits(share.amount ?? "0"), 0n);
+    if (total !== toUnits(value.amount)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["shares"], message: "Exact shares must equal the expense total" });
+  }
+  if (value.splitType === "percentage") {
+    const total = value.shares.reduce((sum, share) => sum + BigInt(Math.round((share.percent ?? 0) * 100)), 0n);
+    if (total !== 10000n) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["shares"], message: "Percentages must total exactly 100%" });
+  }
+});
+
+function toUnits(value: string): bigint {
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(whole) * 10_000_000n + BigInt(fraction.padEnd(7, "0"));
+}
 
 /** Decimal places accepted for an expense amount (Stellar's precision). */
 export const AMOUNT_DECIMAL_PLACES = MAX_DECIMAL_PLACES;
