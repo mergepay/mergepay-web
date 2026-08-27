@@ -27,6 +27,9 @@ import {
 import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 import { convertCurrency, currencyRate, rateDeviationPercent, SUPPORTED_FIAT_CURRENCIES, type SupportedFiatCurrency } from "@/lib/currency";
+import { useLocalStorageDraft } from "@/lib/useLocalStorageDraft";
+import { parseExpenseDeepLink } from "@/lib/deepLink";
+
 
 /** The asset codes the form offers, and the only ones validation accepts. */
 const SUPPORTED_ASSET_CODES = SETTLEMENT_ASSETS.map((a) => a.code);
@@ -61,6 +64,49 @@ export function AddExpenseDialog({
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const { draft, isRestored, saveDraft, clearDraft, acknowledgeRestored } = useLocalStorageDraft(groupId);
+
+  // Restore draft if available
+  useEffect(() => {
+    if (draft && isRestored) {
+      if (draft.title) setTitle(draft.title);
+      if (draft.description) setDescription(draft.description);
+      if (draft.amount) setAmount(draft.amount);
+      if (draft.fiatCurrency) setFiatCurrency(draft.fiatCurrency as SupportedFiatCurrency);
+      if (draft.fiatAmount) setFiatAmount(draft.fiatAmount);
+      if (draft.rateOverride) setRateOverride(draft.rateOverride);
+      if (draft.assetKey) setAssetKey(draft.assetKey);
+      if (draft.payerUserId) setPayerUserId(draft.payerUserId);
+      if (draft.splitType) setSplitType(draft.splitType as SplitType);
+      if (draft.participants?.length) setParticipants(draft.participants);
+      if (draft.custom) setCustom(draft.custom);
+      if (draft.percent) setPercent(draft.percent);
+      if (draft.memo) setMemo(draft.memo);
+    }
+  }, [draft, isRestored]);
+
+  // Autosave draft when form fields change
+  useEffect(() => {
+    if (title || amount || description || memo) {
+      saveDraft({
+        title,
+        description,
+        amount,
+        fiatCurrency,
+        fiatAmount,
+        rateOverride,
+        assetKey,
+        payerUserId,
+        splitType,
+        participants,
+        custom,
+        percent,
+        memo,
+      });
+    }
+  }, [title, description, amount, fiatCurrency, fiatAmount, rateOverride, assetKey, payerUserId, splitType, participants, custom, percent, memo, saveDraft]);
+
   // Error from the last failed attempt. Kept alongside the entered values
   // so the user can correct and retry without re-typing the form.
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -255,6 +301,7 @@ export function AddExpenseDialog({
   }
 
   function reset() {
+    clearDraft();
     setTitle("");
     setDescription("");
     setAmount("");
@@ -274,8 +321,35 @@ export function AddExpenseDialog({
   return (
     <Dialog open={open} onClose={onClose} title="Add expense">
       <form onSubmit={submit} className="space-y-4">
+        {isRestored && (
+          <div className="flex items-center justify-between rounded-xl border border-mustard bg-mustard-pale px-3 py-2 text-xs text-ink">
+            <span>Draft restored from your last session</span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-cherry hover:bg-cherry/10"
+                onClick={() => {
+                  clearDraft();
+                  reset();
+                }}
+              >
+                Discard draft
+              </Button>
+              <button
+                type="button"
+                className="text-xs font-bold text-ink/70 hover:text-ink"
+                onClick={acknowledgeRestored}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
         <div>
           <Label htmlFor="e-title">Title</Label>
+
           <Input
             id="e-title"
             value={title}

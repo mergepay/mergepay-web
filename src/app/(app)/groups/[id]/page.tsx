@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
@@ -8,6 +8,7 @@ import {
   Landmark,
   ListChecks,
   Plus,
+  QrCode,
   Receipt,
   Scale,
   ScrollText,
@@ -23,6 +24,8 @@ import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
 import { ExpenseCard } from "@/components/expenses/expense-card";
 import { ExportHistoryButton } from "@/components/expenses/ExportHistoryButton";
 import { RecurringExpenseScheduler } from "@/components/RecurringExpenseScheduler";
+import { ShareQrModal } from "@/components/ShareQrModal";
+
 import { GroupAnalytics } from "@/components/expenses/GroupAnalytics";
 import { SettleDialog, type BulkSettleTarget } from "@/components/settle/settle-dialog";
 import { BulkSettleBar } from "@/components/settle/bulk-settle-bar";
@@ -60,6 +63,7 @@ export default function GroupDetailPage() {
   const { data: detail, isLoading, isError, error, refetch } = useGroup(id);
   const [tab, setTab] = useState<Tab>("expenses");
   const [addOpen, setAddOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
   // Keep the active group id in a tiny client store so sibling routes
   // (e.g. balances, treasury) can reuse it without re-fetching.
   const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
@@ -101,21 +105,32 @@ export default function GroupDetailPage() {
         title={group.name}
         description={group.description ?? undefined}
         action={
-          tab === "expenses" && (
+          <div className="flex items-center gap-2">
             <Button
-              onClick={() => setAddOpen(true)}
-              disabled={walletDisconnected}
-              title={
-                walletDisconnected
-                  ? "Reconnect your wallet to add an expense"
-                  : undefined
-              }
+              variant="outline"
+              size="sm"
+              onClick={() => setQrOpen(true)}
+              title="Share Group QR Code"
             >
-              <Plus className="h-4 w-4" /> Add expense
+              <QrCode className="h-4 w-4" /> Share QR
             </Button>
-          )
+            {tab === "expenses" && (
+              <Button
+                onClick={() => setAddOpen(true)}
+                disabled={walletDisconnected}
+                title={
+                  walletDisconnected
+                    ? "Reconnect your wallet to add an expense"
+                    : undefined
+                }
+              >
+                <Plus className="h-4 w-4" /> Add expense
+              </Button>
+            )}
+          </div>
         }
       />
+
 
       {group.archived && (
         <div className="mb-6">
@@ -211,7 +226,16 @@ export default function GroupDetailPage() {
         members={detail.members}
         currentUserId={currentUserId}
       />
+
+      <ShareQrModal
+        open={qrOpen}
+        onClose={() => setQrOpen(false)}
+        title={`Share ${group.name}`}
+        description="Scan this QR code on any device to open this group directly."
+        shareUrl={typeof window !== "undefined" ? `${window.location.origin}/groups/${id}` : `https://mergepay.app/groups/${id}`}
+      />
     </>
+
   );
 }
 
