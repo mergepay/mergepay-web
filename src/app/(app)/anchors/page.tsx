@@ -21,11 +21,14 @@ import { handleApiError } from "@/lib/errorHandler";
 import { signXdr, WalletError, NotInstalledMessage } from "@/lib/stellar";
 import { Timestamp } from "@/components/timestamp";
 import type { AnchorSessionKind } from "@/lib/types";
+import type { AnchorSession } from "@/lib/types";
+import { AnchorFlowModal } from "@/components/AnchorFlowModal";
 
 export default function AnchorsPage() {
   const anchors = useAnchors();
   const sessions = useAnchorSessions();
   const [busy, setBusy] = useState<string | null>(null);
+  const [activeSession, setActiveSession] = useState<AnchorSession | null>(null);
 
   async function startFlow(
     kind: AnchorSessionKind,
@@ -53,9 +56,9 @@ export default function AnchorsPage() {
       });
 
       sessions.refetch();
+      setActiveSession(session);
       if (session.interactiveUrl) {
-        window.open(session.interactiveUrl, "_blank", "noopener,noreferrer");
-        toast.success("Anchor flow opened in a new tab");
+        toast.success("Anchor flow ready");
       } else {
         toast.success("Anchor session started");
       }
@@ -157,6 +160,8 @@ export default function AnchorsPage() {
           description="The API exposes available SEP-24 anchors. Configure one to enable fiat on/off-ramp."
         />
       )}
+
+      <AnchorFlowModal session={activeSession} onClose={() => setActiveSession(null)} />
 
       <h2 className="mb-3 mt-10 font-display text-xl uppercase tracking-tight">
         Your transfers
