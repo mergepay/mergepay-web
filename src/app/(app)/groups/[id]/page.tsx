@@ -98,38 +98,41 @@ export default function GroupDetailPage() {
 
   const { group } = detail;
 
+  const headerAction = (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setQrOpen(true)}
+        title="Share Group QR Code"
+      >
+        <QrCode className="h-4 w-4" /> Share QR
+      </Button>
+      {tab === "expenses" ? (
+        <Button
+          onClick={() => setAddOpen(true)}
+          disabled={walletDisconnected}
+          title={
+            walletDisconnected
+              ? "Reconnect your wallet to add an expense"
+              : undefined
+          }
+        >
+          <Plus className="h-4 w-4" /> Add expense
+        </Button>
+      ) : null}
+    </div>
+  );
+
   return (
     <>
       <PageHeader
         back={{ href: "/groups", label: "All groups" }}
         title={group.name}
         description={group.description ?? undefined}
-        action={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setQrOpen(true)}
-              title="Share Group QR Code"
-            >
-              <QrCode className="h-4 w-4" /> Share QR
-            </Button>
-            {tab === "expenses" && (
-              <Button
-                onClick={() => setAddOpen(true)}
-                disabled={walletDisconnected}
-                title={
-                  walletDisconnected
-                    ? "Reconnect your wallet to add an expense"
-                    : undefined
-                }
-              >
-                <Plus className="h-4 w-4" /> Add expense
-              </Button>
-            )}
-          </div>
-        }
+        action={headerAction}
       />
+
 
 
       {group.archived && (
