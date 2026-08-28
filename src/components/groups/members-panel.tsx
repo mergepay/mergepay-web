@@ -11,8 +11,8 @@ import { Avatar } from "@/components/ui/avatar";
 import { PubkeyChip } from "@/components/tx-link";
 import { InviteDialog } from "./invite-dialog";
 import { useArchiveGroup, useLeaveGroup } from "@/lib/queries";
-import { ApiRequestError } from "@/lib/api";
-import { timeAgo } from "@/lib/format";
+import { handleApiError } from "@/lib/errorHandler";
+import { Timestamp } from "@/components/timestamp";
 import type { GroupDetail } from "@/lib/types";
 
 export function MembersPanel({
@@ -34,7 +34,7 @@ export function MembersPanel({
       await archive.mutateAsync();
       toast.success("Group archived");
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not archive");
+      handleApiError(e, "Could not archive");
     }
   }
 
@@ -45,7 +45,7 @@ export function MembersPanel({
       toast.success("You left the group");
       router.push("/groups");
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not leave");
+      handleApiError(e, "Could not leave");
     }
   }
 
@@ -72,7 +72,10 @@ export function MembersPanel({
                     <span className="ml-1 text-ink/40">(you)</span>
                   )}
                 </p>
-                <p className="text-xs text-ink/50">joined {timeAgo(m.joinedAt)}</p>
+                <p className="text-xs text-ink/50">
+                  joined{" "}
+                  <Timestamp value={m.joinedAt} mode="relative" prefix="Joined" />
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">

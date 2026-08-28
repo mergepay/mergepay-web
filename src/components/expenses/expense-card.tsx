@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Trash2 } from "lucide-react";
+import { Check, FileText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Badge, statusTone } from "@/components/ui/badge";
@@ -9,10 +9,13 @@ import { Avatar } from "@/components/ui/avatar";
 import { Money } from "@/components/amount";
 import { AssetBadge } from "@/components/asset-badge";
 import { Button } from "@/components/ui/button";
-import { SettleDialog, type SettleTarget } from "@/components/settle/settle-dialog";
+import {
+  SettleDialog,
+  type SettleTarget,
+} from "@/components/settle/settle-dialog";
 import { useDeleteExpense } from "@/lib/queries";
-import { ApiRequestError } from "@/lib/api";
-import { timeAgo } from "@/lib/format";
+import { handleApiError } from "@/lib/errorHandler";
+import { Timestamp } from "@/components/timestamp";
 import type { Expense, GroupMember } from "@/lib/types";
 
 export function ExpenseCard({
@@ -20,11 +23,17 @@ export function ExpenseCard({
   groupId,
   currentUserId,
   members,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
 }: {
   expense: Expense;
   groupId: string;
   currentUserId: string;
   members: GroupMember[];
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [settleTarget, setSettleTarget] = useState<SettleTarget | null>(null);
@@ -34,6 +43,10 @@ export function ExpenseCard({
   const myShare = expense.shares.find((s) => s.userId === currentUserId);
   const canDelete = isPayer && expense.shares.every((s) => s.status !== "settled");
   const settledCount = expense.shares.filter((s) => s.status === "settled").length;
+  // Mirror the per-card "Settle my share" button below: only `pending` shares
+  // are directly settleable from the UI; "settling" is server-reconciled.
+  const canSelectForBulk =
+    selectable && !isPayer && !!myShare && myShare.status === "pending";
 
   async function handleDelete() {
     if (!confirm("Delete this expense? This cannot be undone.")) return;
@@ -41,7 +54,7 @@ export function ExpenseCard({
       await del.mutateAsync(expense.id);
       toast.success("Expense deleted");
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not delete");
+      handleApiError(e, "Could not delete");
     }
   }
 
@@ -59,35 +72,65 @@ export function ExpenseCard({
 
   return (
     <Card>
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-3 p-4 text-left"
-        aria-label={`${expanded ? "Collapse" : "Expand"} expense ${expense.title}`}
-        aria-expanded={expanded}
-      >
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-3 border-ink bg-butter shadow-brutal-sm">
-          <Avatar user={expense.payer} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="truncate font-display text-base uppercase tracking-tight">
-              {expense.title}
+      <div className="flex items-stretch">
+        {selectable && (
+          <button
+            type="button"
+            onClick={() => canSelectForBulk && onToggleSelect?.()}
+            disabled={!canSelectForBulk}
+            aria-label={
+              selected
+                ? `Deselect expense "${expense.title}"`
+                : `Select expense "${expense.title}" for bulk settlement`
+            }
+            aria-pressed={selected}
+            className={`flex shrink-0 items-center justify-center px-4 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ink ${
+              canSelectForBulk ? "hover:bg-cream" : "cursor-not-allowed opacity-40"
+            }`}
+          >
+            <span
+              // Visual indicator only — the wrapping <button aria-pressed>
+              // carries the toggle semantics. Don't add role="checkbox" here.
+              aria-hidden="true"
+              className={`flex h-6 w-6 items-center justify-center rounded-md border-2 border-ink transition-colors ${
+                selected ? "bg-lime shadow-brutal-sm" : "bg-white"
+              }`}
+            >
+              {selected && <Check className="h-4 w-4" strokeWidth={3} />}
+            </span>
+          </button>
+        )}
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center gap-3 p-4 text-left"
+          aria-label={`${expanded ? "Collapse" : "Expand"} expense ${expense.title}`}
+          aria-expanded={expanded}
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-3 border-ink bg-butter shadow-brutal-sm">
+            <Avatar user={expense.payer} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <p className="truncate font-display text-base uppercase tracking-tight">
+                {expense.title}
+              </p>
+              {expense.receiptUrl && <FileText className="h-3.5 w-3.5 text-ink/40" />}
+            </div>
+            <p className="text-xs text-ink/50">
+              {expense.payer.displayName}
+              {isPayer && " (you)"} paid ·{" "}
+              <Timestamp value={expense.createdAt} mode="relative" prefix="Paid" /> ·{" "}
+              <span className="capitalize">{expense.splitType}</span>
             </p>
-            {expense.receiptUrl && <FileText className="h-3.5 w-3.5 text-ink/40" />}
           </div>
-          <p className="text-xs text-ink/50">
-            {expense.payer.displayName}
-            {isPayer && " (you)"} paid · {timeAgo(expense.createdAt)} ·{" "}
-            <span className="capitalize">{expense.splitType}</span>
-          </p>
-        </div>
-        <div className="text-right">
-          <Money value={expense.amount} assetCode={expense.assetCode} />
-          <div className="mt-1 flex justify-end gap-1">
-            <AssetBadge code={expense.assetCode} />
+          <div className="text-right">
+            <Money value={expense.amount} assetCode={expense.assetCode} />
+            <div className="mt-1 flex justify-end gap-1">
+              <AssetBadge code={expense.assetCode} />
+            </div>
           </div>
-        </div>
-      </button>
+        </button>
+      </div>
 
       {expanded && (
         <div className="border-t-3 border-ink bg-paper px-4 py-3">
@@ -151,7 +194,11 @@ export function ExpenseCard({
               )}
             </div>
             {myShare && myShare.status === "pending" && !isPayer && (
-              <Button size="sm" onClick={settleMyShare} aria-label={`Settle my share for "${expense.title}"`}>
+              <Button
+                size="sm"
+                onClick={settleMyShare}
+                aria-label={`Settle my share for "${expense.title}"`}
+              >
                 Settle my share
               </Button>
             )}
