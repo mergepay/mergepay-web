@@ -39,15 +39,22 @@ export interface SettleTarget {
   assetCode: string;
   assetIssuer: string | null;
   label: string;
+  /** Client-generated memo preview for display in the review step. */
+  previewMemo?: string | null;
+  /** Short code extracted from the memo, for edit/reconciliation tracking. */
+  shortCode?: string | null;
 }
 
-export function suggestionToTarget(s: SettlementSuggestion): SettleTarget {
+export function suggestionToTarget(
+  s: SettlementSuggestion & { memo?: string | null }
+): SettleTarget {
   return {
     to: s.to,
     amount: s.amount,
     assetCode: s.assetCode,
     assetIssuer: s.assetIssuer,
     label: `Settle up with ${s.to.displayName}`,
+    previewMemo: s.memo ?? null,
   };
 }
 
