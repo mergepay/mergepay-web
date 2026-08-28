@@ -12,7 +12,7 @@ import { z } from "zod";
 // Primitives & enums — keep in sync with src/lib/types.ts
 // ---------------------------------------------------------------------------
 
-const RoleSchema = z.enum(["admin", "member"]);
+const RoleSchema = z.enum(["admin", "member", "viewer"]);
 const SplitTypeSchema = z.enum(["equal", "custom", "percentage"]);
 const ShareStatusSchema = z.enum(["pending", "settling", "settled"]);
 const SettlementStatusSchema = z.enum([

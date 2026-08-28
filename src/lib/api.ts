@@ -268,6 +268,18 @@ export const api = {
       method: "POST",
       schema: GroupResponseSchema as unknown as z.ZodType<GroupResponse>,
     }),
+  updateMemberRole: (groupId: string, memberId: string, role: Role) =>
+    request<{ ok: boolean }>(`/groups/${groupId}/members/${memberId}/role`, {
+      method: "PATCH",
+      json: { role },
+      schema: OkResponseSchema as unknown as z.ZodType<{ ok: boolean }>,
+    }),
+  removeMember: (groupId: string, memberId: string) =>
+    request<{ ok: boolean }>(`/groups/${groupId}/members/${memberId}`, {
+      method: "DELETE",
+      schema: OkResponseSchema as unknown as z.ZodType<{ ok: boolean }>,
+    }),
+
 
   // -- expenses ---------------------------------------------------------------
   /**

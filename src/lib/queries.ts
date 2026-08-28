@@ -450,6 +450,24 @@ export function useArchiveGroup(groupId: string) {
   });
 }
 
+export function useUpdateMemberRole(groupId: string) {
+  const invalidate = useInvalidator();
+  return useMutation({
+    mutationFn: ({ memberId, role }: { memberId: string; role: Role }) =>
+      api.updateMemberRole(groupId, memberId, role),
+    onSuccess: () => invalidate([qk.group(groupId)]),
+  });
+}
+
+export function useRemoveMember(groupId: string) {
+  const invalidate = useInvalidator();
+  return useMutation({
+    mutationFn: (memberId: string) => api.removeMember(groupId, memberId),
+    onSuccess: () => invalidate([qk.group(groupId), qk.groups]),
+  });
+}
+
+
 export function useCreateInvite(groupId: string) {
   return useMutation({
     mutationFn: (data: InviteRequest) => api.createInvite(groupId, data),

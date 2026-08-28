@@ -16,7 +16,7 @@
  */
 export type StellarNetwork = "testnet" | "public";
 
-export type Role = "admin" | "member";
+export type Role = "admin" | "member" | "viewer";
 export type SplitType = "equal" | "custom" | "percentage";
 export type ShareStatus = "pending" | "settling" | "settled";
 export type SettlementStatus = "pending" | "submitted" | "confirmed" | "failed";
