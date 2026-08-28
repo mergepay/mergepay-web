@@ -23,6 +23,7 @@ import type {
   TreasuryDepositRequest,
   TreasuryWithdrawRequest,
   UpdateMeRequest,
+  Role,
 } from "./types";
 import type { ExpensesPage } from "./expenses";
 import { shouldResetQueryCache } from "./queryState";

@@ -74,6 +74,7 @@ import type {
   UpdateMeRequest,
   UploadResponse,
   VerifyResponse,
+  Role,
 } from "./types";
 import type { ExpensesPage } from "./expenses";
 
