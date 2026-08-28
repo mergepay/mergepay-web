@@ -57,7 +57,7 @@ export function calculateOptimisticActivityList(
   newEvent: GroupActivityEvent
 ): GroupActivityResponse {
   const existing = current?.activities ?? [];
-  const updated = [newEvent, ...existing.filter((e) => e.id !== newEvent.id)];
+  const updated = [newEvent, ...existing.filter((e: GroupActivityEvent) => e.id !== newEvent.id)];
   return {
     activities: sortActivityEventsByDateDesc(updated),
   };

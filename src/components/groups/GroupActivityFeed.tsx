@@ -131,7 +131,7 @@ export function GroupActivityFeed({
       </div>
 
       <ul className="space-y-3" aria-label="Group activity events">
-        {activities.map((event) => (
+        {activities.map((event: GroupActivityEvent) => (
           <ActivityItem key={event.id} event={event} />
         ))}
       </ul>

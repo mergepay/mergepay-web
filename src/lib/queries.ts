@@ -571,7 +571,7 @@ export function useCreateExpense(groupId: string) {
         user ? { id: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl } : undefined
       );
 
-      qc.setQueryData<GroupActivityResponse>(activityKey, (old) => {
+      qc.setQueryData<GroupActivityResponse>(activityKey, (old: GroupActivityResponse | undefined) => {
         return calculateOptimisticActivityList(old, optEvent);
       });
 
