@@ -1,19 +1,20 @@
 "use client";
 
-import { useGroupActivity } from "@/lib/queries";
+import { useGroupActivityPolling } from "@/hooks/useGroupActivityPolling";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { AssetBadge } from "@/components/asset-badge";
 import { Money } from "@/components/amount";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
-import { SectionError, SectionLoading } from "@/components/ui/section";
+import { SectionBoundary, SectionError, SectionLoading } from "@/components/ui/section";
 import {
   Activity,
   CheckCircle2,
   Clock,
   Loader2,
   PlusCircle,
+  Radio,
   Trash2,
   UserPlus,
 } from "lucide-react";
@@ -22,6 +23,10 @@ import type { GroupActivityEvent, GroupActivityType } from "@/lib/types";
 export interface GroupActivityFeedProps {
   groupId: string;
   className?: string;
+  /** When true, polls for activity at a configurable interval. */
+  polling?: boolean;
+  /** Polling interval in ms (default 15 000). Ignored when polling is false. */
+  pollingIntervalMs?: number;
 }
 
 function formatRelativeTime(isoString: string): string {
@@ -86,32 +91,11 @@ function getActivityConfig(type: GroupActivityType) {
   }
 }
 
-export function GroupActivityFeed({
-  groupId,
-  className = "",
-}: GroupActivityFeedProps) {
-  const { data, isLoading, isError, error, refetch } = useGroupActivity(groupId);
-
-  if (isLoading) {
-    return (
-      <SectionLoading label="Loading group activity feed" minHeight="min-h-[16rem]">
-        <ListSkeleton rows={4} />
-      </SectionLoading>
-    );
-  }
-
-  if (isError) {
-    return (
-      <SectionError
-        subject="the activity feed for this group"
-        error={error}
-        onRetry={() => refetch()}
-      />
-    );
-  }
-
-  const activities = data?.activities ?? [];
-
+function ActivityList({
+  activities,
+}: {
+  activities: GroupActivityEvent[];
+}) {
   if (activities.length === 0) {
     return (
       <EmptyState
@@ -123,19 +107,97 @@ export function GroupActivityFeed({
   }
 
   return (
-    <div className={`space-y-4 ${className}`}>
-      <div className="flex items-center justify-between">
-        <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
-          Activity Feed ({activities.length})
-        </h3>
-      </div>
-
+    <div className="space-y-4">
       <ul className="space-y-3" aria-label="Group activity events">
         {activities.map((event: GroupActivityEvent) => (
           <ActivityItem key={event.id} event={event} />
         ))}
       </ul>
     </div>
+  );
+}
+
+function PollingIndicator({
+  isPolling,
+  pollingStalled,
+}: {
+  isPolling: boolean;
+  pollingStalled: boolean;
+}) {
+  if (pollingStalled) {
+    return (
+      <Badge tone="tangerine" className="text-[10px] px-2 py-0.5">
+        <Clock className="h-3 w-3 mr-1" />
+        Polling paused
+      </Badge>
+    );
+  }
+
+  if (isPolling) {
+    return (
+      <Badge tone="aqua" className="text-[10px] px-2 py-0.5">
+        <Radio className="h-3 w-3 mr-1 animate-pulse" />
+        Live
+      </Badge>
+    );
+  }
+
+  return null;
+}
+
+export function GroupActivityFeed({
+  groupId,
+  className = "",
+  polling = false,
+  pollingIntervalMs,
+}: GroupActivityFeedProps) {
+  const options = polling
+    ? { intervalMs: pollingIntervalMs ?? 15_000, enabled: true }
+    : { intervalMs: false as const, enabled: true };
+
+  const pollingResult = useGroupActivityPolling(groupId, options);
+
+  const {
+    activities,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isPolling: live,
+    pollingStalled,
+  } = pollingResult;
+
+  return (
+    <SectionBoundary subject="the activity feed">
+      <div className={className}>
+        {isLoading && (
+          <SectionLoading label="Loading group activity feed" minHeight="min-h-[16rem]">
+            <ListSkeleton rows={4} />
+          </SectionLoading>
+        )}
+
+        {isError && (
+          <SectionError
+            subject="the activity feed for this group"
+            error={error}
+            onRetry={() => refetch()}
+          />
+        )}
+
+        {!isLoading && !isError && (
+          <>
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
+                Activity Feed ({activities.length})
+              </h3>
+              {polling && <PollingIndicator isPolling={live} pollingStalled={pollingStalled} />}
+            </div>
+
+            <ActivityList activities={activities} />
+          </>
+        )}
+      </div>
+    </SectionBoundary>
   );
 }
 
