@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useGroupStore } from "@/lib/group-store";
 import {
+  Activity,
   ChevronDown,
   Landmark,
   ListChecks,
@@ -14,6 +15,7 @@ import {
   ScrollText,
   Users,
 } from "lucide-react";
+import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
 import { PageHeader } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +48,7 @@ import { apiErrorMessage } from "@/lib/errorHandler";
 import { resolveSectionStatus } from "@/lib/sectionState";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 
-type Tab = "expenses" | "recurring" | "balances" | "ledger" | "treasury" | "members";
+type Tab = "expenses" | "activity" | "recurring" | "balances" | "ledger" | "treasury" | "members";
 
 /**
  * Records per request. Large enough that most groups never need a second
@@ -133,8 +135,6 @@ export default function GroupDetailPage() {
         action={headerAction}
       />
 
-
-
       {group.archived && (
         <div className="mb-6">
           <Badge tone="paper">This group is archived</Badge>
@@ -150,6 +150,11 @@ export default function GroupDetailPage() {
             id: "expenses",
             label: "Expenses",
             icon: <Receipt className="h-4 w-4" />,
+          },
+          {
+            id: "activity",
+            label: "Activity",
+            icon: <Activity className="h-4 w-4" />,
           },
           {
             id: "recurring",
@@ -190,6 +195,11 @@ export default function GroupDetailPage() {
             members={detail.members}
             onAdd={() => setAddOpen(true)}
           />
+        </SectionBoundary>
+      )}
+      {tab === "activity" && (
+        <SectionBoundary subject="the activity feed">
+          <GroupActivityFeed groupId={id} />
         </SectionBoundary>
       )}
       {tab === "recurring" && (

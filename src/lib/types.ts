@@ -525,3 +525,36 @@ export interface TrustlineAsset {
   hasTrustline: boolean;
   limit?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Group Activity Feed
+// ---------------------------------------------------------------------------
+
+export type GroupActivityType =
+  | "expense_created"
+  | "payment_settled"
+  | "member_joined"
+  | "expense_deleted";
+
+export interface GroupActivityActor {
+  id: string;
+  displayName: string;
+  avatarUrl: string | null;
+}
+
+export interface GroupActivityEvent {
+  id: string;
+  groupId: string;
+  type: GroupActivityType;
+  actor: GroupActivityActor;
+  description: string;
+  amount?: string;
+  assetCode?: string;
+  timestamp: string;
+  isOptimistic?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface GroupActivityResponse {
+  activities: GroupActivityEvent[];
+}
