@@ -13,7 +13,9 @@ import {
   suggestionToTarget,
   type SettleTarget,
 } from "@/components/settle/settle-dialog";
+import { AssetSwitcher } from "@/components/AssetSwitcher";
 import { useBalances } from "@/lib/queries";
+import { useAssetStore } from "@/lib/asset-store";
 
 export function BalancesPanel({
   groupId,
@@ -23,6 +25,7 @@ export function BalancesPanel({
   currentUserId: string;
 }) {
   const { data, isLoading, isError, refetch } = useBalances(groupId);
+  const { activeAsset } = useAssetStore();
   const [target, setTarget] = useState<SettleTarget | null>(null);
 
   if (isLoading) return <ListSkeleton rows={3} />;
@@ -50,6 +53,8 @@ export function BalancesPanel({
 
   return (
     <div className="space-y-6">
+      <AssetSwitcher />
+
       <div>
         <h3 className="mb-3 font-display text-sm uppercase tracking-widest text-ink/60">
           Net balances
@@ -111,7 +116,14 @@ export function BalancesPanel({
                       {youPay && (
                         <Button
                           size="sm"
-                          onClick={() => setTarget(suggestionToTarget(s))}
+                          onClick={() => {
+                            const baseTarget = suggestionToTarget(s);
+                            setTarget({
+                              ...baseTarget,
+                              assetCode: activeAsset.code,
+                              assetIssuer: activeAsset.issuer,
+                            });
+                          }}
                         >
                           Settle
                         </Button>

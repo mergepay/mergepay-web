@@ -25,13 +25,17 @@ import {
   WalletError,
   WalletErrorCode,
   WalletNotInstalledError,
+  WalletLockedError,
+  UserRejectedError,
+  WalletDisconnectedError,
+  walletMessage,
   NotInstalledMessage,
 } from "@/lib/stellar";
-import { useConfirmSettlement } from "@/lib/queries";
+import { useConfirmSettlement, useSettlementStatus } from "@/lib/queries";
 import { validateSettlementInput } from "@/lib/paymentValidation";
 import type { SettlementSuggestion, User } from "@/lib/types";
 
-type Step = "review" | "submitting" | "submitted" | "confirmed" | "failed";
+type Step = "review" | "submitting" | "submitted" | "confirmed" | "failed" | "error";
 
 export interface SettleTarget {
   /** Either settle a specific expense share, or a freeform net suggestion. */

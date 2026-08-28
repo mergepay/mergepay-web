@@ -67,6 +67,13 @@ export class ApiRequestError extends Error {
   }
 }
 
+export class ApiValidationError extends Error {
+  constructor(message = "Response payload failed schema validation") {
+    super(message);
+    this.name = "ApiValidationError";
+  }
+}
+
 let expiryHandled = false;
 
 export function isSessionExpired(): boolean {
@@ -118,7 +125,7 @@ async function parseErrorBody(
 
 async function request<T>(
   path: string,
-  options: RequestInit & { json?: unknown } = {}
+  options: RequestInit & { json?: unknown; schema?: z.ZodType<unknown> } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
