@@ -525,3 +525,11 @@ export interface TrustlineAsset {
   hasTrustline: boolean;
   limit?: string;
 }
+
+export interface TrustlineCheckResult {
+  hasTrustline: boolean;
+  assetCode: string;
+  assetIssuer: string | null;
+  accountPublicKey: string;
+}
+

@@ -4,8 +4,8 @@ import {
   CheckCircle2,
   Clock,
   HelpCircle,
-  type LucideIcon,
 } from "lucide-react";
+import type { ComponentType } from "react";
 import { Badge } from "@/components/ui/badge";
 import { TxLink } from "@/components/tx-link";
 import { fullDate } from "@/lib/format";
@@ -16,7 +16,7 @@ import {
 } from "@/lib/settlementStatusDisplay";
 import type { Settlement } from "@/lib/types";
 
-const KIND_ICONS: Record<SettlementStatusKind, LucideIcon> = {
+const KIND_ICONS: Record<SettlementStatusKind, ComponentType<{ className?: string; "aria-hidden"?: string | boolean }>> = {
   pending: Clock,
   completed: CheckCircle2,
   failed: AlertTriangle,

@@ -7,6 +7,7 @@ import {
   HorizonBalanceItem,
   ConfiguredAsset,
 } from "../trustline";
+import { checkAccountHasTrustline } from "@/components/TrustlineDialog";
 import { XLM_ASSET, STABLE_ASSET } from "../constants";
 
 describe("Trustline Balancer & Verification Logic", () => {
@@ -106,4 +107,34 @@ describe("Trustline Balancer & Verification Logic", () => {
       assert.strictEqual(results[2].balance, "0.0000000");
     });
   });
+
+  describe("checkAccountHasTrustline", () => {
+    it("returns true for native XLM without checking issuer", () => {
+      assert.strictEqual(
+        checkAccountHasTrustline([], "XLM", null),
+        true
+      );
+    });
+
+    it("returns true when account balances contain matching credit asset code & issuer", () => {
+      const balances = [
+        { asset_type: "credit_alphanum4", asset_code: "USDC", asset_issuer: STABLE_ASSET.issuer },
+      ];
+      assert.strictEqual(
+        checkAccountHasTrustline(balances, "USDC", STABLE_ASSET.issuer),
+        true
+      );
+    });
+
+    it("returns false when account balances lack the asset", () => {
+      const balances = [
+        { asset_type: "native" },
+      ];
+      assert.strictEqual(
+        checkAccountHasTrustline(balances, "USDC", STABLE_ASSET.issuer),
+        false
+      );
+    });
+  });
 });
+
