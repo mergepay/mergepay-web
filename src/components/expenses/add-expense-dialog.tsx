@@ -12,6 +12,7 @@ import { useCreateExpense } from "@/lib/queries";
 import { api, ApiRequestError } from "@/lib/api";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
+import { useLocalStorageDraft } from "@/lib/useLocalStorageDraft";
 import { validateExpenseForm, type FormErrors } from "@/lib/expenseValidation";
 
 export function AddExpenseDialog({
@@ -28,21 +29,56 @@ export function AddExpenseDialog({
   currentUserId: string;
 }) {
   const create = useCreateExpense(groupId);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [amount, setAmount] = useState("");
+  const {
+    draft,
+    setDraft,
+    isRestored,
+    clearDraft,
+    dismissRestored,
+  } = useLocalStorageDraft(`expense-draft-${groupId}`, {
+    title: "",
+    description: "",
+    amount: "",
+    assetKey: "XLM",
+    payerUserId: currentUserId,
+    splitType: "equal" as SplitType,
+    participants: members.map((m) => m.userId),
+    custom: {} as Record<string, string>,
+    percent: {} as Record<string, string>,
+    memo: "",
+    receiptUrl: null as string | null,
+  });
+
+  const [title, setTitle] = useState(draft.title);
+  const [description, setDescription] = useState(draft.description);
+  const [amount, setAmount] = useState(draft.amount);
   const [amountError, setAmountError] = useState<string | null>(null);
-  const [assetKey, setAssetKey] = useState("XLM");
-  const [payerUserId, setPayerUserId] = useState(currentUserId);
-  const [splitType, setSplitType] = useState<SplitType>("equal");
-  const [participants, setParticipants] = useState<string[]>(
-    members.map((m) => m.userId)
-  );
-  const [custom, setCustom] = useState<Record<string, string>>({});
-  const [percent, setPercent] = useState<Record<string, string>>({});
-  const [memo, setMemo] = useState("");
-  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [assetKey, setAssetKey] = useState(draft.assetKey);
+  const [payerUserId, setPayerUserId] = useState(draft.payerUserId);
+  const [splitType, setSplitType] = useState<SplitType>(draft.splitType);
+  const [participants, setParticipants] = useState<string[]>(draft.participants);
+  const [custom, setCustom] = useState<Record<string, string>>(draft.custom);
+  const [percent, setPercent] = useState<Record<string, string>>(draft.percent);
+  const [memo, setMemo] = useState(draft.memo);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(draft.receiptUrl);
   const [uploading, setUploading] = useState(false);
+
+  // Sync draft whenever form changes
+  useMemo(() => {
+    setDraft({
+      title,
+      description,
+      amount,
+      assetKey,
+      payerUserId,
+      splitType,
+      participants,
+      custom,
+      percent,
+      memo,
+      receiptUrl,
+    });
+  }, [title, description, amount, assetKey, payerUserId, splitType, participants, custom, percent, memo, receiptUrl, setDraft]);
   // Form-level latch: a synchronous guard preventing double-clicks and
   // auto-repeat Enter from issuing a second mutation while the first is
   // in flight. Mirrors `create.isPending` for keyboard paths the native
@@ -137,6 +173,7 @@ export function AddExpenseDialog({
         receiptUrl,
       });
       toast.success("Expense added");
+      clearDraft();
       reset();
       onClose();
     } catch (e) {
@@ -170,6 +207,18 @@ export function AddExpenseDialog({
 
   return (
     <Dialog open={open} onClose={onClose} title="Add expense">
+      {isRestored && (
+        <div className="mb-4 flex items-center justify-between rounded-none border-2 border-ink bg-butter p-3 text-sm shadow-brutal-sm">
+          <p className="font-bold">Draft restored</p>
+          <button
+            type="button"
+            onClick={dismissRestored}
+            className="text-ink/60 hover:text-ink underline decoration-ink/40 decoration-2 underline-offset-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <form onSubmit={submit} onKeyDown={handleKeyDown} className="space-y-4">
         <div>
           <Label htmlFor="e-title">Title</Label>
