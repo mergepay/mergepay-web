@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Activity, CheckCircle, AlertTriangle, WifiOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { NEXT_PUBLIC_STELLAR_NETWORK } from "@/lib/constants";
+import { STELLAR_NETWORK } from "@/lib/constants";
 
 export type HealthStatus = "healthy" | "degraded" | "offline";
 
@@ -14,7 +14,7 @@ interface HorizonHealth {
 }
 
 export async function checkHorizonHealth(): Promise<HorizonHealth> {
-  const isPublic = NEXT_PUBLIC_STELLAR_NETWORK === "public";
+  const isPublic = STELLAR_NETWORK === "public";
   const networkName = isPublic ? "Mainnet" : "Testnet";
   const horizonUrl = isPublic
     ? "https://horizon.stellar.org"
@@ -50,7 +50,7 @@ export async function checkHorizonHealth(): Promise<HorizonHealth> {
 
 export function HorizonHealthIndicator({ className = "" }: { className?: string }) {
   const { data, isLoading } = useQuery({
-    queryKey: ["horizon-health", NEXT_PUBLIC_STELLAR_NETWORK],
+    queryKey: ["horizon-health", STELLAR_NETWORK],
     queryFn: checkHorizonHealth,
     refetchInterval: 30_000,
     staleTime: 15_000,
@@ -58,7 +58,7 @@ export function HorizonHealthIndicator({ className = "" }: { className?: string 
 
   const status = data?.status ?? (isLoading ? "healthy" : "offline");
   const latency = data?.latencyMs;
-  const network = data?.network ?? (NEXT_PUBLIC_STELLAR_NETWORK === "public" ? "Mainnet" : "Testnet");
+  const network = data?.network ?? (STELLAR_NETWORK === "public" ? "Mainnet" : "Testnet");
 
   return (
     <div
@@ -71,14 +71,14 @@ export function HorizonHealthIndicator({ className = "" }: { className?: string 
       </span>
 
       {status === "healthy" && (
-        <Badge tone="mint" className="text-[10px] py-0.5 px-1.5">
+        <Badge tone="lime" className="text-[10px] py-0.5 px-1.5">
           <CheckCircle className="mr-1 h-3 w-3 inline" />
           {latency ? `${latency}ms` : "Operational"}
         </Badge>
       )}
 
       {status === "degraded" && (
-        <Badge tone="mustard" className="text-[10px] py-0.5 px-1.5">
+        <Badge tone="butter" className="text-[10px] py-0.5 px-1.5">
           <AlertTriangle className="mr-1 h-3 w-3 inline" />
           {latency ? `${latency}ms` : "Degraded"}
         </Badge>

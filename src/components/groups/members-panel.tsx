@@ -86,7 +86,7 @@ export function MembersPanel({
             <UserPlus className="h-4 w-4" /> Invite
           </Button>
         ) : (
-          <Badge tone="default">Members</Badge>
+          <Badge tone="paper">Members</Badge>
         )}
       </div>
 
@@ -137,8 +137,8 @@ export function MembersPanel({
                 ) : (
                   <>
                     {m.role === "admin" && <Badge tone="grape">Admin</Badge>}
-                    {m.role === "member" && <Badge tone="default">Member</Badge>}
-                    {m.role === "viewer" && <Badge tone="mustard">Viewer</Badge>}
+                    {m.role === "member" && <Badge tone="paper">Member</Badge>}
+                    {m.role === "viewer" && <Badge tone="butter">Viewer</Badge>}
                   </>
                 )}
               </div>
