@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, FileText, Trash2 } from "lucide-react";
+import { Check, FileText, Receipt, Trash2 } from "lucide-react";
 import { ReceiptPreview } from "@/components/ui/receipt-preview";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import {
 import { useDeleteExpense } from "@/lib/queries";
 import { handleApiError } from "@/lib/errorHandler";
 import { Timestamp } from "@/components/timestamp";
+import { ExpenseReceiptModal } from "@/components/ExpenseReceiptModal";
 import type { Expense, GroupMember } from "@/lib/types";
 
 export function ExpenseCard({
@@ -39,6 +40,7 @@ export function ExpenseCard({
   const [expanded, setExpanded] = useState(false);
   const [settleTarget, setSettleTarget] = useState<SettleTarget | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const del = useDeleteExpense(groupId);
 
   const isPayer = expense.payerUserId === currentUserId;
@@ -175,15 +177,23 @@ export function ExpenseCard({
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setReceiptOpen(true)}
+                aria-label={`View receipt for \"${expense.title}\"`}
+              >
+                <Receipt className="h-3.5 w-3.5" /> Receipt
+              </Button>
               {expense.receiptUrl && (
                 <>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => setPreviewOpen(true)}
-                    aria-label={`Preview receipt for \"${expense.title}\"`}
+                    aria-label={`Preview image receipt for \"${expense.title}\"`}
                   >
-                    <FileText className="h-3.5 w-3.5" /> Receipt
+                    <FileText className="h-3.5 w-3.5" /> Image
                   </Button>
                 </>
               )}
@@ -228,6 +238,12 @@ export function ExpenseCard({
           title={`Receipt — ${expense.title}`}
         />
       )}
+
+      <ExpenseReceiptModal
+        open={receiptOpen}
+        onClose={() => setReceiptOpen(false)}
+        expense={expense}
+      />
     </Card>
   );
 }
