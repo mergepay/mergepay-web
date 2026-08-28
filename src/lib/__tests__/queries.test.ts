@@ -190,3 +190,43 @@ describe("Optimistic Group Balances Update", () => {
     assert.deepStrictEqual(restored, initialBalancesGroup1);
   });
 });
+
+describe("paginated expense query keys (#126)", () => {
+  it("scopes the expense cache to a single group", () => {
+    assert.notDeepEqual(qk.expenses("group-1"), qk.expenses("group-2"));
+    assert.deepEqual(qk.expenses("group-1"), ["groups", "group-1", "expenses"]);
+  });
+
+  it("nests page keys under the group key so an invalidation reaches them", () => {
+    const groupKey = qk.expenses("group-1");
+    const pageKey = [...groupKey, "page", 20, null];
+    assert.deepEqual(pageKey.slice(0, groupKey.length), groupKey);
+  });
+
+  it("keeps two groups' page caches apart", () => {
+    const a = [...qk.expenses("group-1"), "page", 20, null];
+    const b = [...qk.expenses("group-2"), "page", 20, null];
+    assert.notDeepEqual(a, b);
+  });
+
+  it("drops every group's cached pages when the client is cleared on sign-out", () => {
+    const client = new QueryClient();
+    client.setQueryData([...qk.expenses("group-1"), "page", 20, null], {
+      pages: [{ data: [], nextCursor: null }],
+    });
+    client.setQueryData([...qk.expenses("group-2"), "page", 20, null], {
+      pages: [{ data: [], nextCursor: null }],
+    });
+
+    client.clear();
+
+    assert.equal(
+      client.getQueryData([...qk.expenses("group-1"), "page", 20, null]),
+      undefined
+    );
+    assert.equal(
+      client.getQueryData([...qk.expenses("group-2"), "page", 20, null]),
+      undefined
+    );
+  });
+});

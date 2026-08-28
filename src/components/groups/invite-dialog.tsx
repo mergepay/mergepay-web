@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Label, FieldHint } from "@/components/ui/input";
 import CopyButton from "@/components/ui/CopyButton";
 import { useCreateInvite } from "@/lib/queries";
-import { ApiRequestError } from "@/lib/api";
+import { describeInviteFailure, isSafeInviteUrl } from "@/lib/inviteLink";
 import type { Invite } from "@/lib/types";
 
 export function InviteDialog({
@@ -24,10 +25,15 @@ export function InviteDialog({
   const [invite, setInvite] = useState<Invite | null>(null);
   const [maxUses, setMaxUses] = useState("");
   const [expiresInHours, setExpiresInHours] = useState("168");
+  const [shareSupported, setShareSupported] = useState(false);
 
   useEffect(() => {
     if (!open) setInvite(null);
   }, [open]);
+
+  useEffect(() => {
+    setShareSupported(typeof navigator !== "undefined" && "share" in navigator);
+  }, []);
 
   async function generate() {
     try {
@@ -37,12 +43,27 @@ export function InviteDialog({
       });
       setInvite(invite);
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not create invite");
+      toast.error(describeInviteFailure(e).description);
     }
   }
 
+  // A share link is only rendered — as a QR code, a copyable value, or
+  // text — once it is a plain http(s) URL without embedded credentials.
+  // The invite code itself is always safe to show.
+  const shareUrl = invite && isSafeInviteUrl(invite.url) ? invite.url : null;
+
+  async function shareInvite() {
+    if (!shareUrl || typeof navigator === "undefined" || !navigator.share) return;
+    await navigator.share({ title: "Join my MergePay group", url: shareUrl });
+  }
+
   return (
-    <Dialog open={open} onClose={onClose} title="Invite members">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Invite members"
+      description="Generate a shareable code and link that lets people join this group."
+    >
       {!invite ? (
         <div className="space-y-4">
           <p className="text-sm text-ink/60">
@@ -85,11 +106,18 @@ export function InviteDialog({
         </div>
       ) : (
         <div className="space-y-5">
-          <div className="flex justify-center">
-            <div className="rounded-2xl border-3 border-ink bg-white p-4 shadow-brutal">
-              <QRCodeSVG value={invite.url} size={160} fgColor="#18130E" />
+          {shareUrl && (
+            <div className="flex justify-center">
+              <div className="rounded-2xl border-3 border-ink bg-white p-4 shadow-brutal">
+                <QRCodeSVG value={shareUrl} size={160} fgColor="#18130E" />
+              </div>
             </div>
-          </div>
+          )}
+          {shareUrl && shareSupported && (
+            <Button variant="outline" onClick={() => void shareInvite()}>
+              <Share2 className="h-4 w-4" /> Share invite
+            </Button>
+          )}
           <div>
             <Label>Invite code</Label>
             <div className="flex items-center gap-2">
@@ -101,10 +129,17 @@ export function InviteDialog({
           </div>
           <div>
             <Label>Share link</Label>
-            <div className="flex items-center gap-2">
-              <Input readOnly value={invite.url} className="font-mono text-xs" />
-              <CopyButton text={invite.url} />
-            </div>
+            {shareUrl ? (
+              <div className="flex items-center gap-2">
+                <Input readOnly value={shareUrl} className="font-mono text-xs" />
+                <CopyButton text={shareUrl} />
+              </div>
+            ) : (
+              <FieldHint>
+                No share link is available for this invite — send the code above
+                instead.
+              </FieldHint>
+            )}
           </div>
           <div className="flex justify-between text-xs text-ink/50">
             <span>
@@ -127,3 +162,6 @@ export function InviteDialog({
     </Dialog>
   );
 }
+
+/** Issue-facing name retained alongside the existing dialog name. */
+export const InviteModal = InviteDialog;

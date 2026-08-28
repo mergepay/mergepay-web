@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { API_URL } from "./constants";
-import type { Expense } from "./types";
+import type { Expense, Settlement } from "./types";
 
 const expensesPaginationSchema = z.object({
   groupId: z.string().min(1, "groupId is required"),
@@ -134,4 +134,97 @@ export function sortExpensesByDateDesc(expenses: Expense[]): Expense[] {
     const bTime = new Date(b.createdAt).getTime();
     return bTime - aTime;
   });
+}
+
+// ---------------------------------------------------------------------------
+// History pagination helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Accumulated history across all loaded pages.
+ * Both arrays are kept in stable newest-first order regardless of the
+ * order pages arrive in, so the UI never shows re-ordered entries on
+ * re-render.
+ */
+export interface AccumulatedHistory {
+  expenses: Expense[];
+  settlements: Settlement[];
+}
+
+/**
+ * Merge a new page of history into the accumulated set, deduplicating
+ * by `id` so repeated records from overlapping page responses never
+ * appear twice.
+ *
+ * The returned arrays are sorted newest-first by `createdAt` (stable
+ * sort — equal timestamps keep their original relative order).
+ */
+export function mergeHistoryPages(
+  acc: AccumulatedHistory,
+  page: { expenses: Expense[]; settlements: Settlement[] }
+): AccumulatedHistory {
+  const seenExpenses = new Set(acc.expenses.map((e) => e.id));
+  const seenSettlements = new Set(acc.settlements.map((s) => s.id));
+
+  const newExpenses = page.expenses.filter((e) => !seenExpenses.has(e.id));
+  const newSettlements = page.settlements.filter(
+    (s) => !seenSettlements.has(s.id)
+  );
+
+  const mergedExpenses = sortExpensesByDateDesc([
+    ...acc.expenses,
+    ...newExpenses,
+  ]);
+
+  const mergedSettlements = [...acc.settlements, ...newSettlements].sort(
+    (a, b) => {
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return bTime - aTime;
+    }
+  );
+
+  return { expenses: mergedExpenses, settlements: mergedSettlements };
+}
+
+/**
+ * Flatten the pages held by an infinite query into the list to render.
+ *
+ * Cursor pages can overlap: a refetch re-issues page 1 while later pages
+ * are still cached, and an expense created between two fetches shifts the
+ * window. The expense id is the stable merge key — the first occurrence
+ * wins, so a record already on screen keeps its identity (and its React
+ * key) instead of being duplicated.
+ *
+ * The result is sorted newest-first so a late page cannot interleave out
+ * of order.
+ */
+export function mergeExpensePages(
+  pages: readonly ExpensesPage[] | undefined
+): Expense[] {
+  if (!pages || pages.length === 0) return [];
+
+  const seen = new Set<string>();
+  const merged: Expense[] = [];
+  for (const page of pages) {
+    for (const expense of page.data ?? []) {
+      if (seen.has(expense.id)) continue;
+      seen.add(expense.id);
+      merged.push(expense);
+    }
+  }
+  return sortExpensesByDateDesc(merged);
+}
+
+/**
+ * Whether the API reported another page after the ones already loaded.
+ * A `null` (or missing) `nextCursor` on the last page is the end of the
+ * list — that is the only signal we stop on, never a short page.
+ */
+export function hasMoreExpensePages(
+  pages: readonly ExpensesPage[] | undefined
+): boolean {
+  if (!pages || pages.length === 0) return false;
+  const last = pages[pages.length - 1];
+  return typeof last.nextCursor === "string" && last.nextCursor.length > 0;
 }

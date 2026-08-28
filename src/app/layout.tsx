@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Archivo_Black, Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { NetworkStatusBanner } from "@/components/NetworkStatusBanner";
+
 
 const display = Archivo_Black({
   weight: "400",
@@ -45,8 +47,10 @@ export default function RootLayout({
       <body
         className={`${display.variable} ${body.variable} ${mono.variable} font-body`}
       >
+        <NetworkStatusBanner />
         <Providers>{children}</Providers>
       </body>
+
     </html>
   );
 }

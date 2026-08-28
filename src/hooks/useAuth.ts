@@ -6,8 +6,26 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { WatchWalletChanges } from "@stellar/freighter-api";
 import { useAuth as useAuthStore } from "@/lib/auth-store";
-import { loginWithWallet, logout as walletLogout, isFreighterAvailable, NotInstalledMessage } from "@/lib/stellar";
+import { loginWithWallet, logout as walletLogout } from "@/lib/stellar";
+import { shortKey } from "@/lib/format";
 import { isSessionExpired, resetSessionExpired } from "@/lib/api";
+import { shouldPurgeAccountData } from "@/lib/walletSession";
+
+export type WalletChangeAction = "none" | "disconnected" | "changed";
+
+/**
+ * Pure decision for how to react to a `WatchWalletChanges` tick.
+ * Extracted so account-change / disconnect logic is unit-testable without
+ * mocking the Freighter watcher or React lifecycle.
+ */
+export function walletChangeAction(
+  params: { address: string; error?: unknown },
+  currentPublicKey: string
+): WalletChangeAction {
+  if (params.error || !params.address) return "disconnected";
+  if (params.address !== currentPublicKey) return "changed";
+  return "none";
+}
 
 export function useAuth() {
   const queryClient = useQueryClient();
@@ -16,46 +34,38 @@ export function useAuth() {
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
   const hydrated = useAuthStore((s) => s.hydrated);
+  const restoreStatus = useAuthStore((s) => s.restoreStatus);
 
   const isAuthenticated = !!token;
+  /** True until the persisted session has been resolved one way or another. */
+  const restoring = !hydrated || restoreStatus !== "settled";
 
   const logout = useCallback(async () => {
     try {
       await walletLogout();
     } finally {
+      // Groups, balances and history are all scoped to the authenticated
+      // account, so nothing cached may survive into the next session.
       queryClient.clear();
+      useAuthStore.getState().forgetWallet();
     }
   }, [queryClient]);
 
   const login = useCallback(async () => {
-    const available = await isFreighterAvailable();
-    if (!available) {
-      toast.error(<NotInstalledMessage />);
-      return;
-    }
-
     setIsLoading(true);
     try {
       const loggedInUser = await loginWithWallet();
       resetSessionExpired();
       await queryClient.invalidateQueries();
       return loggedInUser;
-    } catch (err: any) {
-      if (err?.message) {
-        toast.error(err.message);
-      }
+    } catch (err) {
+      // Error display is owned by the caller (via the central error
+      // handler) so a failure is never toasted twice.
       throw err;
     } finally {
       setIsLoading(false);
     }
   }, [queryClient]);
-
-  useEffect(() => {
-    if (hydrated && isSessionExpired() && !token) {
-      router.replace("/login");
-      toast.error("Session expired. Please sign in again.");
-    }
-  }, [hydrated, token, router]);
 
   // Watch for wallet account or network changes mid-session
   useEffect(() => {
@@ -65,9 +75,22 @@ export function useAuth() {
     try {
       watcher = new WatchWalletChanges(2000);
       watcher.watch((params) => {
-        if (params.error) return;
-        if (params.address && params.address !== user.stellarPublicKey) {
-          toast.info("Wallet account changed. Logging out...");
+        // The displayed wallet identity follows the extension, whether or
+        // not a session survives the change.
+        useAuthStore.getState().setActiveWalletPublicKey(params.address || null);
+        const action = walletChangeAction(params, user.stellarPublicKey);
+        if (action === "disconnected") {
+          toast.info("Wallet disconnected. Logging out...");
+          logout();
+        } else if (action === "changed") {
+          // The displayed public key follows the wallet immediately, then
+          // the previous account's data is dropped before anything else
+          // can render against it.
+          if (shouldPurgeAccountData(user.stellarPublicKey, params.address)) {
+            toast.info(
+              `Wallet account changed to ${shortKey(params.address)}. Sign in again to continue.`
+            );
+          }
           logout();
         }
       });
@@ -90,6 +113,7 @@ export function useAuth() {
     user,
     token,
     hydrated,
+    restoring,
     isAuthenticated,
     login,
     logout,

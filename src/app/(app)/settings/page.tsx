@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import CopyButton from "@/components/ui/CopyButton";
 import { useMe, useUpdateMe } from "@/lib/queries";
-import { ApiRequestError } from "@/lib/api";
+import { handleApiError } from "@/lib/errorHandler";
 import { explorerAccountUrl, STELLAR_NETWORK } from "@/lib/constants";
 
 export default function SettingsPage() {
@@ -40,12 +40,15 @@ export default function SettingsPage() {
       });
       toast.success("Profile updated");
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not save");
+      handleApiError(e, "Could not save");
     }
   }
 
   if (!me?.user) return null;
   const user = me.user;
+  // `null` if the stored key fails StrKey validation — we hide the link
+  // rather than sending the user to a 404 on the explorer.
+  const accountUrl = explorerAccountUrl(user.stellarPublicKey);
 
   return (
     <>
@@ -106,18 +109,16 @@ export default function SettingsPage() {
                 <code className="block flex-1 overflow-hidden text-ellipsis rounded-xl border-2 border-ink bg-paper px-3 py-2 font-mono text-xs">
                   {user.stellarPublicKey}
                 </code>
-                <CopyButton text={user.stellarPublicKey} />
+                <CopyButton text={user.stellarPublicKey} what="public key" />
               </div>
             </div>
-            <a
-              href={explorerAccountUrl(user.stellarPublicKey)}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Button variant="outline" className="w-full">
-                View on Stellar Explorer <ExternalLink className="h-4 w-4" />
-              </Button>
-            </a>
+            {accountUrl && (
+              <a href={accountUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" className="w-full">
+                  View on Stellar Explorer <ExternalLink className="h-4 w-4" />
+                </Button>
+              </a>
+            )}
             <p className="text-xs text-ink/50">
               Your public key is your Mergepay identity. Authentication uses
               SEP-10 — Mergepay never sees your secret key.

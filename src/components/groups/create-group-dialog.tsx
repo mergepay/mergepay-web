@@ -7,7 +7,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label, FieldHint } from "@/components/ui/input";
 import { useCreateGroup } from "@/lib/queries";
-import { ApiRequestError } from "@/lib/api";
+import { handleApiError } from "@/lib/errorHandler";
 
 export function CreateGroupDialog({
   open,
@@ -35,12 +35,17 @@ export function CreateGroupDialog({
       setDescription("");
       router.push(`/groups/${group.id}`);
     } catch (e) {
-      toast.error(e instanceof ApiRequestError ? e.message : "Could not create group");
+      handleApiError(e, "Could not create group");
     }
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="New group">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="New group"
+      description="Name a new circle. You can invite members once it exists."
+    >
       <form onSubmit={submit} className="space-y-4">
         <div>
           <Label htmlFor="g-name">Group name</Label>
@@ -50,7 +55,7 @@ export function CreateGroupDialog({
             onChange={(e) => setName(e.target.value)}
             placeholder="Apartment 4B, Lagos trip…"
             maxLength={60}
-            autoFocus
+            data-autofocus
           />
         </div>
         <div>
