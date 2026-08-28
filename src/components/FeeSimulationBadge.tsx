@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Activity, AlertCircle, CheckCircle2, DollarSign, Info, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -56,11 +56,12 @@ export function FeeSimulationBadge({
 
   if (!simulation.successful) {
     return (
-      <Badge tone="cherry" className="flex items-center gap-1">
+      <Badge tone="flamingo" className="flex items-center gap-1">
         <AlertCircle className="h-3.5 w-3.5" /> Simulation Failed
       </Badge>
     );
   }
+
 
   const feeInXlm = (parseFloat(simulation.recommendedFeeStroops) / 10_000_000).toFixed(7);
 
