@@ -17,6 +17,7 @@ import {
   signTransaction,
 } from "@stellar/freighter-api";
 import { api } from "./api";
+import { Asset, Operation, TransactionBuilder, Account } from "@stellar/stellar-sdk";
 import { useAuth } from "./auth-store";
 import {
   describeNetwork,
@@ -28,6 +29,29 @@ import type { WalletProbe } from "./walletReadiness";
 import type { WalletSnapshot } from "./walletSession";
 
 export const FREIGHTER_INSTALL_URL = "https://freighter.app";
+
+export async function hasTrustline(publicKey: string, assetCode: string, issuer: string): Promise<boolean> {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org"}/accounts/${encodeURIComponent(publicKey)}`);
+  if (response.status === 404) return false;
+  if (!response.ok) throw new Error("Could not check the asset trustline");
+  const account = (await response.json()) as { balances?: Array<{ asset_code?: string; asset_issuer?: string }> };
+  return account.balances?.some((balance) => balance.asset_code === assetCode && balance.asset_issuer === issuer) ?? false;
+}
+
+export function buildTrustlineXdr(publicKey: string, sequence: string, assetCode: string, issuer: string): string {
+  const account = new Account(publicKey, sequence);
+  return new TransactionBuilder(account, { fee: "100", networkPassphrase: NETWORK_PASSPHRASE })
+    .addOperation(Operation.changeTrust({ asset: new Asset(assetCode, issuer) }))
+    .setTimeout(300)
+    .build().toXDR();
+}
+
+export async function prepareTrustlineXdr(publicKey: string, assetCode: string, issuer: string): Promise<string> {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org"}/accounts/${encodeURIComponent(publicKey)}`);
+  if (!response.ok) throw new Error("Could not load the wallet sequence");
+  const account = (await response.json()) as { sequence: string };
+  return buildTrustlineXdr(publicKey, account.sequence, assetCode, issuer);
+}
 
 /**
  * Code representing a wallet-side failure mode. Codes are stable strings —

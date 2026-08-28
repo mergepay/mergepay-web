@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -24,10 +25,15 @@ export function InviteDialog({
   const [invite, setInvite] = useState<Invite | null>(null);
   const [maxUses, setMaxUses] = useState("");
   const [expiresInHours, setExpiresInHours] = useState("168");
+  const [shareSupported, setShareSupported] = useState(false);
 
   useEffect(() => {
     if (!open) setInvite(null);
   }, [open]);
+
+  useEffect(() => {
+    setShareSupported(typeof navigator !== "undefined" && "share" in navigator);
+  }, []);
 
   async function generate() {
     try {
@@ -45,6 +51,11 @@ export function InviteDialog({
   // text — once it is a plain http(s) URL without embedded credentials.
   // The invite code itself is always safe to show.
   const shareUrl = invite && isSafeInviteUrl(invite.url) ? invite.url : null;
+
+  async function shareInvite() {
+    if (!shareUrl || typeof navigator === "undefined" || !navigator.share) return;
+    await navigator.share({ title: "Join my MergePay group", url: shareUrl });
+  }
 
   return (
     <Dialog
@@ -102,6 +113,11 @@ export function InviteDialog({
               </div>
             </div>
           )}
+          {shareUrl && shareSupported && (
+            <Button variant="outline" onClick={() => void shareInvite()}>
+              <Share2 className="h-4 w-4" /> Share invite
+            </Button>
+          )}
           <div>
             <Label>Invite code</Label>
             <div className="flex items-center gap-2">
@@ -146,3 +162,6 @@ export function InviteDialog({
     </Dialog>
   );
 }
+
+/** Issue-facing name retained alongside the existing dialog name. */
+export const InviteModal = InviteDialog;

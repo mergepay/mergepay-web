@@ -18,6 +18,10 @@ import { useBalances } from "@/lib/queries";
 import { resolveSectionStatus } from "@/lib/sectionState";
 import { amountToStroops } from "@/lib/currency";
 import { useWalletDisconnected } from "@/lib/wallet-store";
+import { simplifyDebts } from "@/lib/settlementUtils";
+
+import { AssetSwitcher } from "@/components/AssetSwitcher";
+import { useAssetStore } from "@/lib/asset-store";
 
 export function BalancesPanel({
   groupId,
@@ -27,7 +31,9 @@ export function BalancesPanel({
   currentUserId: string;
 }) {
   const { data, isLoading, isError, error, refetch } = useBalances(groupId);
+  const { activeAsset } = useAssetStore();
   const [target, setTarget] = useState<SettleTarget | null>(null);
+
   // Settling requires a wallet signature — lock the action while the
   // wallet is disconnected.
   const walletDisconnected = useWalletDisconnected();
@@ -61,12 +67,15 @@ export function BalancesPanel({
 
   const balances = data?.balances ?? [];
   const suggestions = data?.suggestions ?? [];
+  const simplified = simplifyDebts(balances);
   const allSettled = balances.every(
     (b) => amountToStroops(b.net) === 0n
   );
 
   return (
     <div className="space-y-6">
+      <AssetSwitcher />
+
       <div>
         <h3 className="mb-3 font-display text-sm uppercase tracking-widest text-ink/60">
           Net balances
@@ -99,9 +108,9 @@ export function BalancesPanel({
 
       <div>
         <h3 className="mb-3 font-display text-sm uppercase tracking-widest text-ink/60">
-          Settle up
+          Simplified settlement paths
         </h3>
-        {allSettled || suggestions.length === 0 ? (
+        {allSettled || simplified.length === 0 ? (
           <EmptyState
             icon={<PartyPopper className="h-7 w-7" />}
             title="Everyone's square"
@@ -109,7 +118,7 @@ export function BalancesPanel({
           />
         ) : (
           <div className="space-y-2">
-            {suggestions.map((s, i) => {
+            {simplified.map((s, i) => {
               const youPay = s.fromUserId === currentUserId;
               return (
                 <Card key={i}>
@@ -128,7 +137,7 @@ export function BalancesPanel({
                       {youPay && (
                         <Button
                           size="sm"
-                          onClick={() => setTarget(suggestionToTarget(s))}
+                          onClick={() => setTarget({ to: s.to, amount: s.amount, assetCode: s.assetCode, assetIssuer: null, label: `Settle up with ${s.to.displayName}` })}
                           disabled={walletDisconnected}
                           title={
                             walletDisconnected

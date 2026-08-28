@@ -16,7 +16,7 @@
  */
 export type StellarNetwork = "testnet" | "public";
 
-export type Role = "admin" | "member";
+export type Role = "admin" | "member" | "viewer";
 export type SplitType = "equal" | "custom" | "percentage";
 export type ShareStatus = "pending" | "settling" | "settled";
 export type SettlementStatus = "pending" | "submitted" | "confirmed" | "failed";
@@ -497,4 +497,31 @@ export interface HistoryResponse {
 export interface UploadResponse {
   id: string;
   url: string;
+}
+
+// ---------------------------------------------------------------------------
+// Trustlines & Multi-Asset Balancer
+// ---------------------------------------------------------------------------
+
+export interface ConfiguredAsset {
+  code: string;
+  issuer: string | null;
+  name?: string;
+}
+
+export interface HorizonBalanceItem {
+  asset_type: string;
+  balance: string;
+  asset_code?: string;
+  asset_issuer?: string;
+  limit?: string;
+}
+
+export interface TrustlineAsset {
+  code: string;
+  issuer: string | null;
+  name?: string;
+  balance: string;
+  hasTrustline: boolean;
+  limit?: string;
 }

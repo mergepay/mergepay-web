@@ -23,6 +23,7 @@ import type {
   TreasuryDepositRequest,
   TreasuryWithdrawRequest,
   UpdateMeRequest,
+  Role,
 } from "./types";
 import type { ExpensesPage } from "./expenses";
 import { shouldResetQueryCache } from "./queryState";
@@ -449,6 +450,24 @@ export function useArchiveGroup(groupId: string) {
     onSuccess: () => invalidate([qk.groups, qk.group(groupId)]),
   });
 }
+
+export function useUpdateMemberRole(groupId: string) {
+  const invalidate = useInvalidator();
+  return useMutation({
+    mutationFn: ({ memberId, role }: { memberId: string; role: Role }) =>
+      api.updateMemberRole(groupId, memberId, role),
+    onSuccess: () => invalidate([qk.group(groupId)]),
+  });
+}
+
+export function useRemoveMember(groupId: string) {
+  const invalidate = useInvalidator();
+  return useMutation({
+    mutationFn: (memberId: string) => api.removeMember(groupId, memberId),
+    onSuccess: () => invalidate([qk.group(groupId), qk.groups]),
+  });
+}
+
 
 export function useCreateInvite(groupId: string) {
   return useMutation({

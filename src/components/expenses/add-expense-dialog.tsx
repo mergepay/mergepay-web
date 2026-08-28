@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
 import { toast } from "sonner";
 import { Loader2, Upload } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
@@ -26,6 +27,10 @@ import {
 } from "@/lib/expenseValidation";
 import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
 import { useWalletDisconnected } from "@/lib/wallet-store";
+import { convertCurrency, currencyRate, rateDeviationPercent, SUPPORTED_FIAT_CURRENCIES, type SupportedFiatCurrency } from "@/lib/currency";
+import { useLocalStorageDraft } from "@/lib/useLocalStorageDraft";
+import { parseExpenseDeepLink } from "@/lib/deepLink";
+
 
 /** The asset codes the form offers, and the only ones validation accepts. */
 const SUPPORTED_ASSET_CODES = SETTLEMENT_ASSETS.map((a) => a.code);
@@ -47,6 +52,9 @@ export function AddExpenseDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [fiatCurrency, setFiatCurrency] = useState<SupportedFiatCurrency>("USD");
+  const [fiatAmount, setFiatAmount] = useState("");
+  const [rateOverride, setRateOverride] = useState("");
   const [assetKey, setAssetKey] = useState("XLM");
   const [payerUserId, setPayerUserId] = useState(currentUserId);
   const [splitType, setSplitType] = useState<SplitType>("equal");
@@ -57,6 +65,49 @@ export function AddExpenseDialog({
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const { draft, isRestored, saveDraft, clearDraft, acknowledgeRestored } = useLocalStorageDraft(groupId);
+
+  // Restore draft if available
+  useEffect(() => {
+    if (draft && isRestored) {
+      if (draft.title) setTitle(draft.title);
+      if (draft.description) setDescription(draft.description);
+      if (draft.amount) setAmount(draft.amount);
+      if (draft.fiatCurrency) setFiatCurrency(draft.fiatCurrency as SupportedFiatCurrency);
+      if (draft.fiatAmount) setFiatAmount(draft.fiatAmount);
+      if (draft.rateOverride) setRateOverride(draft.rateOverride);
+      if (draft.assetKey) setAssetKey(draft.assetKey);
+      if (draft.payerUserId) setPayerUserId(draft.payerUserId);
+      if (draft.splitType) setSplitType(draft.splitType as SplitType);
+      if (draft.participants?.length) setParticipants(draft.participants);
+      if (draft.custom) setCustom(draft.custom);
+      if (draft.percent) setPercent(draft.percent);
+      if (draft.memo) setMemo(draft.memo);
+    }
+  }, [draft, isRestored]);
+
+  // Autosave draft when form fields change
+  useEffect(() => {
+    if (title || amount || description || memo) {
+      saveDraft({
+        title,
+        description,
+        amount,
+        fiatCurrency,
+        fiatAmount,
+        rateOverride,
+        assetKey,
+        payerUserId,
+        splitType,
+        participants,
+        custom,
+        percent,
+        memo,
+      });
+    }
+  }, [title, description, amount, fiatCurrency, fiatAmount, rateOverride, assetKey, payerUserId, splitType, participants, custom, percent, memo, saveDraft]);
+
   // Error from the last failed attempt. Kept alongside the entered values
   // so the user can correct and retry without re-typing the form.
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -85,6 +136,10 @@ export function AddExpenseDialog({
     const parsed = parseDecimalUnits(amount, AMOUNT_DECIMAL_PLACES);
     return typeof parsed === "bigint" && parsed > 0n ? parsed : null;
   }, [amount]);
+  const marketRate = currencyRate(fiatCurrency);
+  const effectiveRate = rateOverride.trim() ? Number(rateOverride) : marketRate;
+  const convertedAmount = convertCurrency(fiatAmount, fiatCurrency, effectiveRate);
+  const rateWarning = rateOverride.trim() && rateDeviationPercent(effectiveRate, marketRate) > 10;
 
   /** Running totals, summed as integers so the hints never drift. */
   const customSum = useMemo(
@@ -230,6 +285,7 @@ export function AddExpenseDialog({
         receiptUrl,
       });
       toast.success("Expense added");
+      clearDraft();
       reset();
       onClose();
     } catch (e) {
@@ -247,9 +303,13 @@ export function AddExpenseDialog({
   }
 
   function reset() {
+    clearDraft();
     setTitle("");
     setDescription("");
     setAmount("");
+    setFiatCurrency("USD");
+    setFiatAmount("");
+    setRateOverride("");
     setSplitType("equal");
     setCustom({});
     setPercent({});
@@ -263,8 +323,35 @@ export function AddExpenseDialog({
   return (
     <Dialog open={open} onClose={onClose} title="Add expense">
       <form onSubmit={submit} className="space-y-4">
+        {isRestored && (
+          <div className="flex items-center justify-between rounded-xl border border-mustard bg-mustard-pale px-3 py-2 text-xs text-ink">
+            <span>Draft restored from your last session</span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-cherry hover:bg-cherry/10"
+                onClick={() => {
+                  clearDraft();
+                  reset();
+                }}
+              >
+                Discard draft
+              </Button>
+              <button
+                type="button"
+                className="text-xs font-bold text-ink/70 hover:text-ink"
+                onClick={acknowledgeRestored}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
         <div>
           <Label htmlFor="e-title">Title</Label>
+
           <Input
             id="e-title"
             value={title}
@@ -333,6 +420,21 @@ export function AddExpenseDialog({
               </p>
             )}
           </div>
+        </div>
+        <div className="rounded-xl border-2 border-ink bg-butter p-3 shadow-brutal-sm">
+          <p className="font-display text-xs font-bold uppercase tracking-wide">Currency converter</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Input aria-label="Foreign currency amount" type="number" min="0" step="any" value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value)} placeholder="Local amount" />
+            <Select aria-label="Foreign currency" value={fiatCurrency} onChange={(e) => setFiatCurrency(e.target.value as SupportedFiatCurrency)}>
+              {SUPPORTED_FIAT_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}
+            </Select>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Input aria-label="Manual conversion rate" type="number" min="0" step="any" value={rateOverride} onChange={(e) => setRateOverride(e.target.value)} placeholder={`Rate (${marketRate})`} />
+            <Button type="button" variant="secondary" disabled={!convertedAmount} onClick={() => convertedAmount && setAmount(convertedAmount)}>Apply</Button>
+          </div>
+          <p className="mt-2 text-xs" aria-live="polite">{convertedAmount ? `${fiatAmount || "0"} ${fiatCurrency} ≈ ${convertedAmount} ${assetKey} (rate ${effectiveRate})` : "Enter an amount to preview the conversion."}</p>
+          {rateWarning && <p className="mt-1 text-xs font-bold text-flamingo" role="alert">Manual rate differs from the indicative rate by more than 10%.</p>}
         </div>
         <div>
           <Label htmlFor="e-payer">Paid by</Label>
