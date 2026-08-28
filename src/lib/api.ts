@@ -52,6 +52,7 @@ import type {
   EnableTreasuryRequest,
   ExpenseResponse,
   ExpensesResponse,
+  GroupActivityResponse,
   GroupDetail,
   GroupResponse,
   GroupsResponse,
@@ -281,6 +282,18 @@ export const api = {
       schema: OkResponseSchema as unknown as z.ZodType<{ ok: boolean }>,
     }),
 
+  getGroupActivity: async (groupId: string): Promise<GroupActivityResponse> => {
+    try {
+      return await request<GroupActivityResponse>(`/groups/${groupId}/activity`);
+    } catch {
+      const [detail, expensesRes] = await Promise.all([
+        api.getGroup(groupId).catch(() => null),
+        api.listExpenses(groupId).catch(() => ({ expenses: [] })),
+      ]);
+      const { synthesizeActivityEvents } = await import("./activity");
+      return { activities: synthesizeActivityEvents(detail, expensesRes.expenses) };
+    }
+  },
 
   // -- expenses ---------------------------------------------------------------
   /**

@@ -18,6 +18,7 @@ import type {
   CreateGroupRequest,
   CreateSettlementRequest,
   EnableTreasuryRequest,
+  GroupActivityResponse,
   InviteRequest,
   SettleExpenseRequest,
   TreasuryDepositRequest,
@@ -30,6 +31,10 @@ import { shouldResetQueryCache } from "./queryState";
 import { mergeHistoryPages, type AccumulatedHistory } from "./expenses";
 import type { Expense, LedgerEntry, Settlement } from "./types";
 import type { HistoryResponse, LedgerResponse } from "./types";
+import {
+  createOptimisticExpenseEvent,
+  calculateOptimisticActivityList,
+} from "./activity";
 
 export const qk = {
   me: ["me"] as const,
@@ -38,6 +43,7 @@ export const qk = {
   expenses: (groupId: string) => ["groups", groupId, "expenses"] as const,
   balances: (groupId: string) => ["groups", groupId, "balances"] as const,
   ledger: (groupId: string) => ["groups", groupId, "ledger"] as const,
+  activity: (groupId: string) => ["groups", groupId, "activity"] as const,
   settlement: (id: string) => ["settlement", id] as const,
   treasury: (groupId: string) => ["groups", groupId, "treasury"] as const,
   treasuryHistory: (groupId: string) =>
@@ -528,15 +534,20 @@ export function useCreateExpense(groupId: string) {
 
   return useMutation({
     mutationFn: (data: CreateExpenseRequest) => api.createExpense(groupId, data),
-    // Optimistically update group member balances before the API responds
+    // Optimistically update group member balances and activity feed before the API responds
     onMutate: async (data: CreateExpenseRequest) => {
       const balanceKey = qk.balances(groupId);
+      const activityKey = qk.activity(groupId);
 
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
-      await qc.cancelQueries({ queryKey: balanceKey });
+      await Promise.all([
+        qc.cancelQueries({ queryKey: balanceKey }),
+        qc.cancelQueries({ queryKey: activityKey }),
+      ]);
 
       // Save a snapshot of current query data for rollback on error
       const previousBalances = qc.getQueryData<BalancesResponse>(balanceKey);
+      const previousActivity = qc.getQueryData<GroupActivityResponse>(activityKey);
 
       // Apply optimistic update only if previous balance cache exists
       if (previousBalances) {
@@ -552,21 +563,44 @@ export function useCreateExpense(groupId: string) {
         });
       }
 
-      return { previousBalances };
+      // Optimistically insert new activity event into activity feed
+      const user = me.data?.user ?? useAuth.getState().user;
+      const optEvent = createOptimisticExpenseEvent(
+        groupId,
+        data,
+        user ? { id: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl } : undefined
+      );
+
+      qc.setQueryData<GroupActivityResponse>(activityKey, (old: GroupActivityResponse | undefined) => {
+        return calculateOptimisticActivityList(old, optEvent);
+      });
+
+      return { previousBalances, previousActivity };
     },
     // On failure, revert back to saved snapshot and display error toast
     onError: (err, _variables, context) => {
       if (context?.previousBalances) {
         qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
-      handleApiError(err, "Failed to create expense. Balances reverted.");
+      if (context?.previousActivity) {
+        qc.setQueryData(qk.activity(groupId), context.previousActivity);
+      }
+      handleApiError(err, "Failed to create expense. Balances and activity reverted.");
     },
     // Refetch canonical data on settlement (success or error) so the list,
-    // balances and ledger reflect the server's view — an optimistic entry
-    // is never left alongside the persisted one.
+    // balances, ledger, and activity feed reflect the server's view.
     onSettled: () => {
       invalidate(expenseCacheKeys(groupId));
+      qc.invalidateQueries({ queryKey: qk.activity(groupId) });
     },
+  });
+}
+
+export function useGroupActivity(groupId: string) {
+  return useQuery({
+    queryKey: qk.activity(groupId),
+    queryFn: () => api.getGroupActivity(groupId),
+    staleTime: 10_000,
   });
 }
 
