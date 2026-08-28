@@ -30,6 +30,7 @@ import { useWalletDisconnected } from "@/lib/wallet-store";
 import { convertCurrency, currencyRate, rateDeviationPercent, SUPPORTED_FIAT_CURRENCIES, type SupportedFiatCurrency } from "@/lib/currency";
 import { useLocalStorageDraft } from "@/lib/useLocalStorageDraft";
 import { parseExpenseDeepLink } from "@/lib/deepLink";
+import { useOfflineStore } from "@/lib/store/offlineStore";
 
 
 /** The asset codes the form offers, and the only ones validation accepts. */
@@ -268,22 +269,36 @@ export function AddExpenseDialog({
       setShowErrors(true);
       return;
     }
+    const request = {
+      title: title.trim(),
+      description: description.trim() || undefined,
+      // Sent from the parsed integer amount, so what reaches the API is
+      // exactly what was typed — never a float round-trip.
+      amount: formatAmountUnits(amountUnits),
+      assetCode: asset.code,
+      assetIssuer: asset.issuer,
+      splitType,
+      shares,
+      payerUserId,
+      memo: memo.trim() || undefined,
+      receiptUrl,
+    };
+
+    // Offline (no connection): queue the draft locally instead of failing
+    // the request. The offline store persists it and the sync runner posts
+    // it (with an idempotency key) once connectivity returns. (#197)
+    if (!navigator.onLine) {
+      useOfflineStore.getState().enqueue(groupId, request);
+      toast.success("Saved offline — it will sync automatically when you're back online");
+      clearDraft();
+      reset();
+      onClose();
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await create.mutateAsync({
-        title: title.trim(),
-        description: description.trim() || undefined,
-        // Sent from the parsed integer amount, so what reaches the API is
-        // exactly what was typed — never a float round-trip.
-        amount: formatAmountUnits(amountUnits),
-        assetCode: asset.code,
-        assetIssuer: asset.issuer,
-        splitType,
-        shares,
-        payerUserId,
-        memo: memo.trim() || undefined,
-        receiptUrl,
-      });
+      await create.mutateAsync(request);
       toast.success("Expense added");
       clearDraft();
       reset();

@@ -22,8 +22,15 @@ import { useAuth } from "./auth-store";
 import {
   describeNetwork,
   EXPECTED_NETWORK_LABEL,
+  HORIZON_URL,
   NETWORK_PASSPHRASE,
+  SETTLEMENT_ASSETS,
 } from "./constants";
+import {
+  calculateAssetBalances,
+  fetchHorizonAccountBalances,
+  type TrustlineAsset,
+} from "./trustline";
 import type { User } from "./types";
 import type { WalletProbe } from "./walletReadiness";
 import type { WalletSnapshot } from "./walletSession";
@@ -36,6 +43,69 @@ export async function hasTrustline(publicKey: string, assetCode: string, issuer:
   if (!response.ok) throw new Error("Could not check the asset trustline");
   const account = (await response.json()) as { balances?: Array<{ asset_code?: string; asset_issuer?: string }> };
   return account.balances?.some((balance) => balance.asset_code === assetCode && balance.asset_issuer === issuer) ?? false;
+}
+
+/**
+ * Live balances + trustline status for the configured settlement assets.
+ *
+ * Reads the account from Horizon (via the shared `trustline.ts` helpers)
+ * and derives, for every configured asset (XLM + the stable asset), the
+ * current balance and whether an active trustline exists. XLM is native
+ * and always "has a trustline".
+ *
+ * Failures degrade to an empty balance list (never a throw) so the widget
+ * can render "balance unavailable" without blocking the rest of the page.
+ */
+export async function getWalletAssets(
+  publicKey: string
+): Promise<TrustlineAsset[]> {
+  if (!publicKey) return [];
+  const balances = await fetchHorizonAccountBalances(publicKey);
+  return calculateAssetBalances(balances, SETTLEMENT_ASSETS);
+}
+
+/**
+ * Submit an already-signed transaction envelope to the configured network.
+ *
+ * Only the signed XDR crosses the wire — the private key never leaves the
+ * wallet. Returns the on-chain transaction hash on success.
+ */
+export async function submitSignedXdr(signedXdr: string): Promise<string> {
+  const response = await fetch(`${HORIZON_URL}/transactions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ tx: signedXdr }).toString(),
+  });
+  if (!response.ok) {
+    throw new Error("The trustline transaction could not be submitted to the network.");
+  }
+  const data = (await response.json()) as { hash?: string };
+  if (!data.hash) {
+    throw new Error("The network did not return a transaction hash.");
+  }
+  return data.hash;
+}
+
+/**
+ * Full "add trustline" flow, driven by Freighter signatures:
+ *
+ *  1. build a `changeTrust` transaction for the configured network,
+ *  2. sign it in Freighter (the only place the private key is used),
+ *  3. submit the signed envelope to the configured Horizon endpoint.
+ *
+ * Throws a `WalletError` (with a stable code) when the user rejects the
+ * signature or the wallet is locked/unavailable — callers should surface
+ * `e.code` and `e.message` rather than the raw provider string.
+ */
+export async function addTrustline(
+  publicKey: string,
+  assetCode: string,
+  issuer: string
+): Promise<{ txHash: string }> {
+  const xdr = await prepareTrustlineXdr(publicKey, assetCode, issuer);
+  const signedXdr = await signXdr(xdr, NETWORK_PASSPHRASE);
+  const txHash = await submitSignedXdr(signedXdr);
+  return { txHash };
 }
 
 export function buildTrustlineXdr(publicKey: string, sequence: string, assetCode: string, issuer: string): string {

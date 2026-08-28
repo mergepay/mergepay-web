@@ -27,6 +27,8 @@ import { shortKey } from "@/lib/format";
 import { FOCUSABLE_SELECTOR, nextFocusIndex } from "@/lib/dialog";
 
 import { HorizonHealthIndicator } from "./HorizonHealthIndicator";
+import { OfflineSyncBanner } from "./OfflineSyncBanner";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -102,6 +104,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Group content must never survive a switch to a different wallet.
   useWalletScopedCache();
+
+  // Host the network listeners + auto-flush for the offline draft queue.
+  useOfflineSync();
 
   async function handleLogout() {
     await logout();
@@ -231,6 +236,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Persistent reconnect prompt while the Freighter wallet is
             disconnected; also hosts the connection poll. */}
         <WalletDisconnectedBanner />
+        <OfflineSyncBanner />
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-10">
           {children}
         </div>

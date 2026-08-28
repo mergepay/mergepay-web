@@ -29,6 +29,7 @@ import { RecurringExpenseScheduler } from "@/components/RecurringExpenseSchedule
 import { ShareQrModal } from "@/components/ShareQrModal";
 
 import { GroupAnalytics } from "@/components/expenses/GroupAnalytics";
+import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { SettleDialog, type BulkSettleTarget } from "@/components/settle/settle-dialog";
 import { BulkSettleBar } from "@/components/settle/bulk-settle-bar";
 import { buildBulkTarget, type UnsettledShare } from "@/lib/bulkSettle";
@@ -193,6 +194,7 @@ export default function GroupDetailPage() {
             groupId={id}
             currentUserId={currentUserId}
             members={detail.members}
+            yourRole={detail.yourRole}
             onAdd={() => setAddOpen(true)}
           />
         </SectionBoundary>
@@ -256,11 +258,13 @@ function ExpensesTab({
   groupId,
   currentUserId,
   members,
+  yourRole,
   onAdd,
 }: {
   groupId: string;
   currentUserId: string;
   members: GroupMember[];
+  yourRole: "admin" | "member" | "viewer";
   onAdd: () => void;
 }) {
   // Bulk-settle selection state. Kept local to this tab so leaving the
@@ -387,6 +391,13 @@ function ExpensesTab({
 
   return (
     <>
+      <GroupBudgetTracker
+        className="mb-4"
+        groupId={groupId}
+        expenses={expenses}
+        assetCode={expenses[0]?.assetCode ?? null}
+        isAdmin={yourRole === "admin"}
+      />
       <GroupAnalytics expenses={expenses} />
       <div className="mb-4 flex items-center justify-between">{actionArea}</div>
       <div className="space-y-3">
