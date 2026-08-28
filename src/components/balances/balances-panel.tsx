@@ -20,6 +20,9 @@ import { amountToStroops } from "@/lib/currency";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 import { simplifyDebts } from "@/lib/settlementUtils";
 
+import { AssetSwitcher } from "@/components/AssetSwitcher";
+import { useAssetStore } from "@/lib/asset-store";
+
 export function BalancesPanel({
   groupId,
   currentUserId,
@@ -28,7 +31,9 @@ export function BalancesPanel({
   currentUserId: string;
 }) {
   const { data, isLoading, isError, error, refetch } = useBalances(groupId);
+  const { activeAsset } = useAssetStore();
   const [target, setTarget] = useState<SettleTarget | null>(null);
+
   // Settling requires a wallet signature — lock the action while the
   // wallet is disconnected.
   const walletDisconnected = useWalletDisconnected();
@@ -69,6 +74,8 @@ export function BalancesPanel({
 
   return (
     <div className="space-y-6">
+      <AssetSwitcher />
+
       <div>
         <h3 className="mb-3 font-display text-sm uppercase tracking-widest text-ink/60">
           Net balances
