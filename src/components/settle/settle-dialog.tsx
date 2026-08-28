@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Loader2, Lock, PenLine, Plug, RefreshCcw, Send, ShieldX, Wallet } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
@@ -21,6 +21,8 @@ import { useWalletDisconnected } from "@/lib/wallet-store";
 import type { SettlementStep, SettleTarget } from "@/lib/useSettlementFlow";
 import type { SettlementSuggestion, User } from "@/lib/types";
 import { FeeEstimatorWidget } from "@/components/FeeEstimatorWidget";
+import { MemoPreview } from "@/components/settle/MemoPreview";
+import { generateShortCode, buildSettlementMemo } from "@/lib/memoValidation";
 
 
 // The settlement types moved to `@/lib/useSettlementFlow` when the flow was
@@ -187,6 +189,22 @@ export function SettleDialog({
 
   const isBulk = !!bulkTarget;
   const active = isBulk ? bulkTarget : target;
+  const [editedMemo, setEditedMemo] = useState<string | null>(null);
+
+  // Generate a preview memo from the target label and amount
+  const previewMemo = useMemo(() => {
+    if (!active) return null;
+    const targetLabel = isBulk ? bulkTarget?.label ?? "settle-up" : target?.label ?? "settle-up";
+    const shortCode = generateShortCode(targetLabel, active.amount);
+    return buildSettlementMemo(shortCode);
+  }, [active, isBulk, target, bulkTarget]);
+
+  // Track memo deviations when the user edits
+  const originalShortCode = useMemo(() => {
+    if (!active) return null;
+    const targetLabel = isBulk ? bulkTarget?.label ?? "settle-up" : target?.label ?? "settle-up";
+    return generateShortCode(targetLabel, active.amount);
+  }, [active, isBulk, target, bulkTarget]);
 
   /** Prevent accidental dismissal while a transaction is in-flight. */
   const dismissible = step !== "submitting" && step !== "submitted";
@@ -287,7 +305,7 @@ export function SettleDialog({
   >
     <div className="space-y-5">
       <div className="rounded-2xl border-3 border-ink bg-paper p-5"><div className="flex items-center justify-between"><span className="font-display text-xs uppercase tracking-widest text-ink/50">Paying</span><AssetBadge code={active.assetCode} /></div><div className="mt-3 flex items-center gap-3"><Avatar user={active.to} size="lg" /><div><p className="font-display text-lg uppercase tracking-tight">{active.to.displayName}</p><Money value={active.amount} assetCode={active.assetCode} className="text-2xl" /></div></div></div>
-      {step === "review" && <><ol className="space-y-2 text-sm text-ink/70"><StepLine icon={<Wallet className="h-4 w-4" />}>Mergepay builds the payment — your keys never leave your wallet.</StepLine><StepLine icon={<PenLine className="h-4 w-4" />}>You sign it in Freighter.</StepLine><StepLine icon={<Send className="h-4 w-4" />}>It settles on Stellar and the ledger updates with the tx hash.</StepLine></ol><FeeEstimatorWidget operationCount={isBulk && bulkTarget ? bulkTarget.expenseIds.length + 1 : 1} amount={active.amount} assetCode={active.assetCode} /><WalletPrerequisiteNotice status={wallet} onRefresh={refreshWallet} /><div className="flex justify-end gap-2"><Button variant="ghost" onClick={close}>Cancel</Button><Button onClick={() => run()} disabled={!wallet.canSign || walletDisconnected} title={walletDisconnected ? "Reconnect your wallet to settle" : wallet.canSign ? undefined : wallet.message}><Wallet className="h-4 w-4" /> Settle now</Button></div></>}
+      {step === "review" && <><MemoPreview memo={previewMemo} expectedCode={originalShortCode} editable editedMemo={editedMemo ?? previewMemo ?? ""} onEdit={(v) => setEditedMemo(v)} /><ol className="space-y-2 text-sm text-ink/70"><StepLine icon={<Wallet className="h-4 w-4" />}>Mergepay builds the payment — your keys never leave your wallet.</StepLine><StepLine icon={<PenLine className="h-4 w-4" />}>You sign it in Freighter.</StepLine><StepLine icon={<Send className="h-4 w-4" />}>It settles on Stellar and the ledger updates with the tx hash.</StepLine></ol><FeeEstimatorWidget operationCount={isBulk && bulkTarget ? bulkTarget.expenseIds.length + 1 : 1} amount={active.amount} assetCode={active.assetCode} /><WalletPrerequisiteNotice status={wallet} onRefresh={refreshWallet} /><div className="flex justify-end gap-2"><Button variant="ghost" onClick={close}>Cancel</Button><Button onClick={() => run()} disabled={!wallet.canSign || walletDisconnected} title={walletDisconnected ? "Reconnect your wallet to settle" : wallet.canSign ? undefined : wallet.message}><Wallet className="h-4 w-4" /> Settle now</Button></div></>}
 
       {step === "submitting" && <div className="flex flex-col items-center gap-3 py-4" aria-busy aria-live="polite"><Button loading variant="outline" className="pointer-events-none">Submitting to Stellar…</Button><p className="text-center text-sm text-ink/60">Approve the transaction in your Freighter wallet, and we'll record it on the ledger.</p></div>}
       {step === "submitted" && !statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-butter-pale px-4 py-5" role="status" aria-live="polite"><Loader2 className="h-7 w-7 animate-spin text-grape" /><p className="font-display text-sm uppercase tracking-tight">Waiting for confirmation</p><p className="text-center text-xs text-ink/60">Polling the network for the terminal transaction state. Keep this dialog open until the result is known.</p></div>}
