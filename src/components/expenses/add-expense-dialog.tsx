@@ -285,6 +285,7 @@ export function AddExpenseDialog({
         receiptUrl,
       });
       toast.success("Expense added");
+      clearDraft();
       reset();
       onClose();
     } catch (e) {
