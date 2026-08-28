@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { toast } from "sonner";
-import { Loader2, Upload } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ReceiptUploader } from "@/components/ui/receipt-uploader";
 import { Input, Label, Select, FieldHint } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -614,11 +614,13 @@ export function AddExpenseDialog({
         </div>
         <div>
           <Label>Receipt (optional)</Label>
-          <label className="flex cursor-pointer items-center gap-2 rounded-xl border-2 border-dashed border-ink bg-paper px-4 py-3 text-sm hover:bg-cream">
-            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            {receiptUrl ? "Receipt attached — replace" : "Upload image or PDF"}
-            <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
-          </label>
+          <ReceiptUploader
+            value={receiptUrl}
+            disabled={walletDisconnected || pending}
+            onSelect={(file) => void handleUpload(file)}
+            onClear={() => setReceiptUrl(null)}
+          />
+          <FieldHint>JPG, PNG or WEBP · large images are compressed automatically.</FieldHint>
         </div>
 
         {/* Single announcement point for the first outstanding problem,

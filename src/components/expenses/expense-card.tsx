@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check, FileText, Trash2 } from "lucide-react";
+import { ReceiptPreview } from "@/components/ui/receipt-preview";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Badge, statusTone } from "@/components/ui/badge";
@@ -37,6 +38,7 @@ export function ExpenseCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [settleTarget, setSettleTarget] = useState<SettleTarget | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const del = useDeleteExpense(groupId);
 
   const isPayer = expense.payerUserId === currentUserId;
@@ -174,11 +176,16 @@ export function ExpenseCard({
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex gap-2">
               {expense.receiptUrl && (
-                <a href={expense.receiptUrl} target="_blank" rel="noopener noreferrer">
-                  <Button variant="ghost" size="sm">
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPreviewOpen(true)}
+                    aria-label={`Preview receipt for \"${expense.title}\"`}
+                  >
                     <FileText className="h-3.5 w-3.5" /> Receipt
                   </Button>
-                </a>
+                </>
               )}
               {canDelete && (
                 <Button
@@ -212,6 +219,15 @@ export function ExpenseCard({
         groupId={groupId}
         target={settleTarget}
       />
+
+      {expense.receiptUrl && (
+        <ReceiptPreview
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          url={expense.receiptUrl}
+          title={`Receipt — ${expense.title}`}
+        />
+      )}
     </Card>
   );
 }
