@@ -22,7 +22,8 @@ interface Step {
 
 const DEPOSIT_STEPS: Step[] = [
   { id: "incomplete", label: "Flow Initialized", description: "SEP-24 session created" },
-  { id: "pending_user_transfer_start", label: "User Deposit Pending", description: "Send fiat funds to anchor" },
+  { id: "pending_user_transfer_start", label: "Awaiting Deposit", description: "Send fiat funds to anchor" },
+  { id: "pending_external", label: "User Action Required", description: "Finish the secure bank flow" },
   { id: "pending_anchor", label: "Anchor Processing", description: "Anchor verifying & minting tokens" },
   { id: "completed", label: "Settlement Complete", description: "Tokens credited to your wallet" },
 ];
@@ -30,6 +31,7 @@ const DEPOSIT_STEPS: Step[] = [
 const WITHDRAWAL_STEPS: Step[] = [
   { id: "incomplete", label: "Flow Initialized", description: "SEP-24 session created" },
   { id: "pending_user_transfer_start", label: "Stellar Transfer Pending", description: "Send tokens to anchor address" },
+  { id: "pending_external", label: "User Action Required", description: "Complete the interactive bank portal" },
   { id: "pending_anchor", label: "Payout Processing", description: "Anchor sending fiat to bank" },
   { id: "completed", label: "Settlement Complete", description: "Fiat delivered to your bank account" },
 ];
@@ -40,12 +42,16 @@ function getStepIndex(status: AnchorSessionStatus): number {
       return 0;
     case "pending_user_transfer_start":
       return 1;
-    case "pending_anchor":
+    case "pending_external":
       return 2;
+    case "pending_anchor":
+      return 3;
     case "completed":
+      return 4;
+    case "no_market_active":
     case "refunded":
     case "error":
-      return 3;
+      return 4;
     default:
       return 0;
   }
@@ -57,7 +63,7 @@ export function AnchorStatusModal({ session: initialSession, onClose, open = tru
   if (!session) return null;
 
   const currentStatus = session.status;
-  const isTerminal = ["completed", "error", "refunded"].includes(currentStatus);
+  const isTerminal = ["completed", "error", "refunded", "no_market_active"].includes(currentStatus);
   const steps = session.kind === "deposit" ? DEPOSIT_STEPS : WITHDRAWAL_STEPS;
   const activeStepIndex = getStepIndex(currentStatus);
 
@@ -108,9 +114,9 @@ export function AnchorStatusModal({ session: initialSession, onClose, open = tru
           </h4>
           <ol className="space-y-3">
             {steps.map((step, idx) => {
-              const isDone = idx < activeStepIndex || (idx === 3 && currentStatus === "completed");
+              const isDone = idx < activeStepIndex || (idx === steps.length - 1 && currentStatus === "completed");
               const isCurrent = idx === activeStepIndex && !isTerminal;
-              const isFailed = idx === activeStepIndex && (currentStatus === "error" || currentStatus === "refunded");
+              const isFailed = idx === activeStepIndex && (currentStatus === "error" || currentStatus === "refunded" || currentStatus === "no_market_active");
 
               return (
                 <li key={step.id} className="flex items-start gap-3">

@@ -10,6 +10,7 @@ export const TERMINAL_ANCHOR_STATUSES: AnchorSessionStatus[] = [
   "completed",
   "error",
   "refunded",
+  "no_market_active",
 ];
 
 export interface UseAnchorStatusPollingResult {
