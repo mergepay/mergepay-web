@@ -412,7 +412,7 @@ export function invalidationFilters(target: InvalidationTarget): {
   return "queryKey" in target ? target : { queryKey: target };
 }
 
-function useInvalidator() {
+export function useInvalidator() {
   const qc = useQueryClient();
   return (targets: readonly InvalidationTarget[]) =>
     Promise.all(targets.map((t) => qc.invalidateQueries(invalidationFilters(t))));

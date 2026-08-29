@@ -215,3 +215,40 @@ export function roundRobinRemainder(
     amounts[i % amounts.length] += 1;
   }
 }
+
+/** Convenience split functions utilizing computeSharesAmounts */
+export function splitEqual(
+  amount: string,
+  participants: string[]
+): Array<{ userId: string; amount: string }> {
+  const stroops = toStroops(amount);
+  const weights = participants.map(() => 1);
+  const shares = computeSharesAmounts(stroops, weights);
+  return participants.map((userId, i) => ({
+    userId,
+    amount: fromStroops(shares[i]),
+  }));
+}
+
+export function splitByPercentage(
+  amount: string,
+  allocations: Array<{ userId: string; percent: number }>
+): Array<{ userId: string; amount: string }> {
+  const stroops = toStroops(amount);
+  const weights = allocations.map((a) => a.percent);
+  const shares = computeSharesAmounts(stroops, weights);
+  return allocations.map((alloc, i) => ({
+    userId: alloc.userId,
+    amount: fromStroops(shares[i]),
+  }));
+}
+
+export function splitByCustom(
+  totalAmount: string,
+  customShares: Array<{ userId: string; amount: string }>
+): Array<{ userId: string; amount: string }> {
+  return customShares.map((s) => ({
+    userId: s.userId,
+    amount: fromStroops(toStroops(s.amount)),
+  }));
+}
