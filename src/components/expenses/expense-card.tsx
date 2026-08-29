@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, FileText, Receipt, Trash2 } from "lucide-react";
+import { Check, FileText, Loader2, Receipt, Trash2 } from "lucide-react";
 import { ReceiptPreview } from "@/components/ui/receipt-preview";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -44,14 +44,15 @@ export function ExpenseCard({
   const [receiptOpen, setReceiptOpen] = useState(false);
   const del = useDeleteExpense(groupId);
 
+  const isPending = Boolean(expense.isOptimistic || expense.pending);
   const isPayer = expense.payerUserId === currentUserId;
   const myShare = expense.shares.find((s) => s.userId === currentUserId);
-  const canDelete = isPayer && expense.shares.every((s) => s.status !== "settled");
+  const canDelete = !isPending && isPayer && expense.shares.every((s) => s.status !== "settled");
   const settledCount = expense.shares.filter((s) => s.status === "settled").length;
   // Mirror the per-card "Settle my share" button below: only `pending` shares
   // are directly settleable from the UI; "settling" is server-reconciled.
   const canSelectForBulk =
-    selectable && !isPayer && !!myShare && myShare.status === "pending";
+    !isPending && selectable && !isPayer && !!myShare && myShare.status === "pending";
 
   async function handleDelete() {
     if (!confirm("Delete this expense? This cannot be undone.")) return;
@@ -76,7 +77,7 @@ export function ExpenseCard({
   }
 
   return (
-    <Card>
+    <Card className={isPending ? "opacity-70 bg-cream/50" : undefined}>
       <div className="flex items-stretch">
         {selectable && (
           <button
@@ -94,8 +95,6 @@ export function ExpenseCard({
             }`}
           >
             <span
-              // Visual indicator only — the wrapping <button aria-pressed>
-              // carries the toggle semantics. Don't add role="checkbox" here.
               aria-hidden="true"
               className={`flex h-6 w-6 items-center justify-center rounded-md border-2 border-ink transition-colors ${
                 selected ? "bg-lime shadow-brutal-sm" : "bg-white"
@@ -119,6 +118,12 @@ export function ExpenseCard({
               <p className="truncate font-display text-base uppercase tracking-tight">
                 {expense.title}
               </p>
+              {isPending && (
+                <span className="inline-flex items-center gap-1">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ink/60" />
+                  <Badge tone="paper" className="text-[10px] uppercase">Posting…</Badge>
+                </span>
+              )}
               {expense.receiptUrl && <FileText className="h-3.5 w-3.5 text-ink/40" />}
             </div>
             <p className="text-xs text-ink/50">

@@ -23,6 +23,7 @@ import { Timestamp } from "@/components/timestamp";
 import type { AnchorSessionKind } from "@/lib/types";
 import type { AnchorSession } from "@/lib/types";
 import { AnchorFlowModal } from "@/components/AnchorFlowModal";
+import { AnchorStatusModal } from "@/components/AnchorStatusModal";
 
 export default function AnchorsPage() {
   const anchors = useAnchors();
@@ -197,6 +198,9 @@ export default function AnchorsPage() {
                 <Badge tone={statusTone(s.status)}>
                   {s.status.replace(/_/g, " ")}
                 </Badge>
+                <Button size="sm" variant="outline" onClick={() => setActiveSession(s)}>
+                  Status Modal
+                </Button>
                 {s.interactiveUrl && (
                   <a
                     href={s.interactiveUrl}
@@ -214,6 +218,13 @@ export default function AnchorsPage() {
         </div>
       ) : (
         <p className="text-sm text-ink/50">No anchor transfers yet.</p>
+      )}
+
+      {activeSession && (
+        <AnchorStatusModal
+          session={activeSession}
+          onClose={() => setActiveSession(null)}
+        />
       )}
     </>
   );

@@ -29,7 +29,7 @@ import type {
 import type { ExpensesPage } from "./expenses";
 import { shouldResetQueryCache } from "./queryState";
 import { mergeHistoryPages, type AccumulatedHistory } from "./expenses";
-import type { Expense, LedgerEntry, Settlement } from "./types";
+import type { Expense, LedgerEntry, Settlement, User } from "./types";
 import type { HistoryResponse, LedgerResponse } from "./types";
 import {
   createOptimisticExpenseEvent,
@@ -545,20 +545,23 @@ export function useCreateExpense(groupId: string) {
 
   return useMutation({
     mutationFn: (data: CreateExpenseRequest) => api.createExpense(groupId, data),
-    // Optimistically update group member balances and activity feed before the API responds
+    // Optimistically update expense list, balances, and activity feed before the API responds
     onMutate: async (data: CreateExpenseRequest) => {
       const balanceKey = qk.balances(groupId);
       const activityKey = qk.activity(groupId);
+      const expensesKeyPrefix = qk.expenses(groupId);
 
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
       await Promise.all([
         qc.cancelQueries({ queryKey: balanceKey }),
         qc.cancelQueries({ queryKey: activityKey }),
+        qc.cancelQueries({ queryKey: expensesKeyPrefix }),
       ]);
 
       // Save a snapshot of current query data for rollback on error
       const previousBalances = qc.getQueryData<BalancesResponse>(balanceKey);
       const previousActivity = qc.getQueryData<GroupActivityResponse>(activityKey);
+      const previousExpenses = qc.getQueriesData({ queryKey: expensesKeyPrefix });
 
       // Apply optimistic update only if previous balance cache exists
       if (previousBalances) {
@@ -586,7 +589,72 @@ export function useCreateExpense(groupId: string) {
         return calculateOptimisticActivityList(old, optEvent);
       });
 
-      return { previousBalances, previousActivity };
+      // Optimistically prepend new expense to cached expense list queries
+      const optId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const payerUser: User = user ?? {
+        id: data.payerUserId || "",
+        displayName: "You",
+        avatarUrl: null,
+        stellarPublicKey: "",
+        createdAt: new Date().toISOString(),
+      };
+
+      const optExpense: Expense = {
+        id: optId,
+        groupId,
+        payerUserId: data.payerUserId || payerUser.id,
+        payer: payerUser,
+        title: data.title,
+        description: data.description ?? null,
+        amount: data.amount,
+        assetCode: data.assetCode,
+        assetIssuer: data.assetIssuer ?? null,
+        splitType: data.splitType,
+        memo: data.memo ?? null,
+        receiptUrl: data.receiptUrl ?? null,
+        createdAt: new Date().toISOString(),
+        shares: (data.shares ?? []).map((s, idx) => ({
+          id: `share-opt-${idx}`,
+          expenseId: optId,
+          userId: s.userId,
+          user: {
+            id: s.userId,
+            displayName: "Member",
+            avatarUrl: null,
+            stellarPublicKey: "",
+            createdAt: new Date().toISOString(),
+          },
+          shareAmount: s.amount ?? "0",
+          status: "pending",
+        })),
+        isOptimistic: true,
+        pending: true,
+      };
+
+      for (const [key, oldData] of previousExpenses) {
+        if (!oldData) continue;
+        if (typeof oldData === "object" && "pages" in oldData && Array.isArray((oldData as any).pages)) {
+          qc.setQueryData(key, (old: any) => {
+            if (!old || !old.pages || old.pages.length === 0) return old;
+            const firstPage = old.pages[0];
+            const updatedFirstPage = {
+              ...firstPage,
+              expenses: [optExpense, ...(firstPage.expenses || [])],
+            };
+            return {
+              ...old,
+              pages: [updatedFirstPage, ...old.pages.slice(1)],
+            };
+          });
+        } else if (typeof oldData === "object" && "expenses" in oldData && Array.isArray((oldData as any).expenses)) {
+          qc.setQueryData(key, (old: any) => ({
+            ...old,
+            expenses: [optExpense, ...(old.expenses || [])],
+          }));
+        }
+      }
+
+      return { previousBalances, previousActivity, previousExpenses };
     },
     // On failure, revert back to saved snapshot and display error toast
     onError: (err, _variables, context) => {
@@ -596,7 +664,12 @@ export function useCreateExpense(groupId: string) {
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
       }
-      handleApiError(err, "Failed to create expense. Balances and activity reverted.");
+      if (context?.previousExpenses) {
+        for (const [key, oldData] of context.previousExpenses) {
+          qc.setQueryData(key, oldData);
+        }
+      }
+      handleApiError(err, "Failed to create expense. Cache reverted.");
     },
     // Refetch canonical data on settlement (success or error) so the list,
     // balances, ledger, and activity feed reflect the server's view.
