@@ -36,6 +36,30 @@ import type { WalletProbe } from "./walletReadiness";
 import type { WalletSnapshot } from "./walletSession";
 
 export const FREIGHTER_INSTALL_URL = "https://freighter.app";
+export const WALLET_CONNECTED_SESSION_KEY = "mergepay_wallet_connected";
+export const WALLET_ADDRESS_SESSION_KEY = "mergepay_last_connected_wallet";
+
+/**
+ * Timeout wrapper for Freighter API promises.
+ * Prevents requests from hanging indefinitely if the extension is locked/unresponsive.
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs = 5000,
+  errorMessage = "Freighter request timed out"
+): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new WalletNetworkError(errorMessage));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
 
 export async function hasTrustline(publicKey: string, assetCode: string, issuer: string): Promise<boolean> {
   const response = await fetch(`${process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org"}/accounts/${encodeURIComponent(publicKey)}`);
@@ -398,34 +422,75 @@ export async function readWalletSnapshot(): Promise<WalletSnapshot> {
 export async function connectWallet(): Promise<string> {
   const available = await isFreighterAvailable();
   if (!available) {
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+    }
     throw new WalletNotInstalledError();
   }
   try {
-    const res = await requestAccess();
+    const res = await withTimeout(requestAccess(), 8000, "Freighter connection request timed out.");
     throwOnError(res);
-    if (typeof res === "string") return res;
+    let pk: string | undefined;
+    if (typeof res === "string") pk = res;
     if (isObject(res)) {
       const r = res as Record<string, unknown>;
-      const pk =
+      pk =
         (typeof r.address === "string" ? r.address : undefined) ??
         (typeof r.publicKey === "string" ? r.publicKey : undefined);
-      if (pk) return pk;
+    }
+    if (!pk) {
+      const fallbackRes = await withTimeout(getAddress(), 5000, "Freighter address read timed out.");
+      throwOnError(fallbackRes);
+      if (isObject(fallbackRes)) {
+        const r = fallbackRes as Record<string, unknown>;
+        pk =
+          (typeof r.address === "string" ? r.address : undefined) ??
+          (typeof r.publicKey === "string" ? r.publicKey : undefined);
+      }
+    }
+    if (pk) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(WALLET_CONNECTED_SESSION_KEY, "true");
+        sessionStorage.setItem(WALLET_ADDRESS_SESSION_KEY, pk);
+      }
+      return pk;
     }
     throw new WalletError("Wallet returned an empty response.");
   } catch (e) {
-    if (e instanceof WalletError) throw e;
-    // Older Freighter versions expose getAddress / getPublicKey instead.
-    const res = await getAddress();
-    throwOnError(res);
-    if (isObject(res)) {
-      const r = res as Record<string, unknown>;
-      const pk =
-        (typeof r.address === "string" ? r.address : undefined) ??
-        (typeof r.publicKey === "string" ? r.publicKey : undefined);
-      if (pk) return pk;
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
     }
-    throw new WalletError("Wallet returned an empty response.");
+    if (e instanceof WalletError) throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    const code = classifyWalletMessage(msg);
+    throw errorForCode(code, msg);
   }
+}
+
+/**
+ * Silent auto-reconnect fallback on reload if connection state
+ * was previously persisted in session storage.
+ */
+export async function autoReconnectWallet(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const isPreviouslyConnected = sessionStorage.getItem(WALLET_CONNECTED_SESSION_KEY) === "true";
+  if (!isPreviouslyConnected) return null;
+
+  try {
+    const available = await isFreighterAvailable();
+    if (!available) {
+      sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+      return null;
+    }
+    const address = await getGrantedAddress();
+    if (address) {
+      sessionStorage.setItem(WALLET_ADDRESS_SESSION_KEY, address);
+      return address;
+    }
+  } catch {
+    // Fail silently
+  }
+  return null;
 }
 
 /**

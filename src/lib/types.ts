@@ -234,6 +234,8 @@ export interface Expense {
   receiptUrl: string | null;
   createdAt: string;
   shares: ExpenseShare[];
+  isOptimistic?: boolean;
+  pending?: boolean;
 }
 
 export interface ExpensesResponse {
