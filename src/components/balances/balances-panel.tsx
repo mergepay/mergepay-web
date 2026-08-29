@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { NetAmount, Money } from "@/components/amount";
+import { FiatEquivalent } from "@/components/FiatEquivalent";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import {
@@ -99,7 +100,10 @@ export function BalancesPanel({
                     )}
                   </span>
                 </span>
-                <NetAmount value={b.net} assetCode={b.assetCode} />
+                <div className="flex items-center gap-2">
+                  <NetAmount value={b.net} assetCode={b.assetCode} />
+                  <FiatEquivalent amount={b.net} assetCode={b.assetCode} />
+                </div>
               </Card>
             ))}
           </div>
@@ -134,6 +138,7 @@ export function BalancesPanel({
                     </div>
                     <div className="flex items-center gap-3">
                       <Money value={s.amount} assetCode={s.assetCode} />
+                      <FiatEquivalent amount={s.amount} assetCode={s.assetCode} />
                       {youPay && (
                         <Button
                           size="sm"

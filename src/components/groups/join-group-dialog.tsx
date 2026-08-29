@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Users, Clock, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Label, FormError } from "@/components/ui/input";
-import { useJoinGroup } from "@/lib/queries";
+import { useJoinGroup, useInviteByCode } from "@/lib/queries";
 import { describeInviteFailure, parseInviteCode } from "@/lib/inviteLink";
 
 export function JoinGroupDialog({
@@ -22,6 +23,13 @@ export function JoinGroupDialog({
   const join = useJoinGroup();
   const [code, setCode] = useState(initialCode);
   const [error, setError] = useState<string | null>(null);
+
+  // When a code is provided, fetch invite details to show group identity.
+  const parsed = parseInviteCode(code);
+  const validCode = parsed.ok ? parsed.code : null;
+  const inviteQuery = useInviteByCode(validCode);
+  const invite = inviteQuery.data?.invite;
+  const inviteError = inviteQuery.isError;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -77,6 +85,43 @@ export function JoinGroupDialog({
             </div>
           )}
         </div>
+
+        {invite && (
+          <div className="space-y-2 rounded-xl border-2 border-ink bg-cream p-4">
+            <p className="text-xs font-bold uppercase tracking-widest text-ink/60">
+              Invite details
+            </p>
+            {invite.groupId && (
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-grape" aria-hidden="true" />
+                <span className="text-sm">Group: {invite.groupId}</span>
+              </div>
+            )}
+            {invite.expiresAt && (
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-tangerine" aria-hidden="true" />
+                <span className="text-sm">
+                  Expires {new Date(invite.expiresAt).toLocaleDateString()}
+                </span>
+              </div>
+            )}
+            {invite.maxUses && (
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4 text-aqua" aria-hidden="true" />
+                <span className="text-sm">
+                  {invite.maxUses - invite.uses} of {invite.maxUses} uses remaining
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {inviteError && validCode && (
+          <div className="rounded-xl border-2 border-ink bg-flamingo-pale p-3 text-sm" role="alert">
+            Could not load invite details. You can still try to join.
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel

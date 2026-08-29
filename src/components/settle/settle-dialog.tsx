@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Loader2, Lock, PenLine, Plug, RefreshCcw, Send, ShieldAlert, ShieldX, Wallet } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
@@ -21,7 +21,11 @@ import { recoveryActionFor, retryLabelFor } from "@/lib/settlementRetry";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 import type { SettlementStep, SettleTarget } from "@/lib/useSettlementFlow";
 import type { SettlementSuggestion, User } from "@/lib/types";
-import { FeeSimulationBadge, simulateStellarTransaction } from "@/components/FeeSimulationBadge";
+import { FeeEstimatorWidget } from "@/components/FeeEstimatorWidget";
+import { MemoPreview } from "@/components/settle/MemoPreview";
+import { generateShortCode, buildSettlementMemo } from "@/lib/memoValidation";
+import { TrustlineDetectionBanner } from "@/components/settle/TrustlineDetectionBanner";
+import { TrustlinePromptModal, type TrustlineAssetInfo } from "@/components/settle/TrustlinePromptModal";
 
 
 // The settlement types moved to `@/lib/useSettlementFlow` when the flow was
@@ -187,9 +191,39 @@ export function SettleDialog({
   const { refresh: refreshWallet, ...wallet } = useWalletStatus();
   // Signing requires the wallet — block new attempts while disconnected.
   const walletDisconnected = useWalletDisconnected();
+  // Prevent on-chain submissions when the browser is offline.
+  const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
 
   const isBulk = !!bulkTarget;
   const active = isBulk ? bulkTarget : target;
+  const [editedMemo, setEditedMemo] = useState<string | null>(null);
+  const [trustlineModalOpen, setTrustlineModalOpen] = useState(false);
+  const [trustlinesReady, setTrustlinesReady] = useState(false);
+
+  // Derive the trustline asset info from the active target
+  const trustlineAsset: TrustlineAssetInfo | null = useMemo(() => {
+    if (!active || !active.assetIssuer) return null;
+    return {
+      code: active.assetCode,
+      issuer: active.assetIssuer,
+      name: active.assetCode,
+    };
+  }, [active]);
+
+  // Generate a preview memo from the target label and amount
+  const previewMemo = useMemo(() => {
+    if (!active) return null;
+    const targetLabel = isBulk ? bulkTarget?.label ?? "settle-up" : target?.label ?? "settle-up";
+    const shortCode = generateShortCode(targetLabel, active.amount);
+    return buildSettlementMemo(shortCode);
+  }, [active, isBulk, target, bulkTarget]);
+
+  // Track memo deviations when the user edits
+  const originalShortCode = useMemo(() => {
+    if (!active) return null;
+    const targetLabel = isBulk ? bulkTarget?.label ?? "settle-up" : target?.label ?? "settle-up";
+    return generateShortCode(targetLabel, active.amount);
+  }, [active, isBulk, target, bulkTarget]);
 
   /** Prevent accidental dismissal while a transaction is in-flight. */
   const dismissible = step !== "submitting" && step !== "submitted";
@@ -301,84 +335,64 @@ export function SettleDialog({
   return <>
     <Dialog
       open={open}
-      onClose={close}
-      title={active.label}
-      description={`Send ${formatMoney(active.amount, active.assetCode)} to ${active.to.displayName}. You sign the payment in your wallet; Mergepay never holds your keys.`}
-      dismissible={dismissible}
-    >
-      <div className="space-y-5">
-        <div className="rounded-2xl border-3 border-ink bg-paper p-5"><div className="flex items-center justify-between"><span className="font-display text-xs uppercase tracking-widest text-ink/50">Paying</span><AssetBadge code={active.assetCode} /></div><div className="mt-3 flex items-center gap-3"><Avatar user={active.to} size="lg" /><div><p className="font-display text-lg uppercase tracking-tight">{active.to.displayName}</p><Money value={active.amount} assetCode={active.assetCode} className="text-2xl" /></div></div></div>
-        {step === "review" && <><ol className="space-y-2 text-sm text-ink/70"><StepLine icon={<Wallet className="h-4 w-4" />}>Mergepay builds the payment — your keys never leave your wallet.</StepLine><StepLine icon={<PenLine className="h-4 w-4" />}>You sign it in Freighter.</StepLine><StepLine icon={<Send className="h-4 w-4" />}>It settles on Stellar and the ledger updates with the tx hash.</StepLine></ol>
-        {active.assetCode !== "XLM" && active.assetIssuer && !trustlineVerified && (
-          <div className="flex flex-col gap-2 rounded-xl border-3 border-ink bg-tangerine-pale p-3.5 shadow-brutal-sm" role="alert">
-            <div className="flex items-start gap-2.5">
-              <ShieldAlert className="h-5 w-5 text-tangerine-dark shrink-0 mt-0.5" />
-              <div className="text-xs">
-                <p className="font-display font-bold uppercase tracking-wider text-ink">Trustline Required</p>
-                <p className="text-ink/80 mt-0.5">Your wallet needs an active trustline for {active.assetCode} before settling this payment.</p>
-              </div>
-            </div>
+    onClose={close}
+    title={active.label}
+    description={`Send ${formatMoney(active.amount, active.assetCode)} to ${active.to.displayName}. You sign the payment in your wallet; Mergepay never holds your keys.`}
+    dismissible={dismissible}
+  >
+    <div className="space-y-5">
+      <div className="rounded-2xl border-3 border-ink bg-paper p-5"><div className="flex items-center justify-between"><span className="font-display text-xs uppercase tracking-widest text-ink/50">Paying</span><AssetBadge code={active.assetCode} /></div><div className="mt-3 flex items-center gap-3"><Avatar user={active.to} size="lg" /><div><p className="font-display text-lg uppercase tracking-tight">{active.to.displayName}</p><Money value={active.amount} assetCode={active.assetCode} className="text-2xl" /></div></div></div>
+      {step === "review" && <><MemoPreview memo={previewMemo} expectedCode={originalShortCode} editable editedMemo={editedMemo ?? previewMemo ?? ""} onEdit={(v) => setEditedMemo(v)} />{trustlineAsset && wallet.address && (<TrustlineDetectionBanner publicKey={wallet.address} assetCode={trustlineAsset.code} assetIssuer={trustlineAsset.issuer} onSetupTrustline={() => setTrustlineModalOpen(true)} />)}<ol className="space-y-2 text-sm text-ink/70"><StepLine icon={<Wallet className="h-4 w-4" />}>Mergepay builds the payment — your keys never leave your wallet.</StepLine><StepLine icon={<PenLine className="h-4 w-4" />}>You sign it in Freighter.</StepLine><StepLine icon={<Send className="h-4 w-4" />}>It settles on Stellar and the ledger updates with the tx hash.</StepLine></ol><FeeEstimatorWidget operationCount={isBulk && bulkTarget ? bulkTarget.expenseIds.length + 1 : 1} amount={active.amount} assetCode={active.assetCode} /><WalletPrerequisiteNotice status={wallet} onRefresh={refreshWallet} /><div className="flex justify-end gap-2"><Button variant="ghost" onClick={close}>Cancel</Button><Button onClick={() => run()} disabled={!wallet.canSign || walletDisconnected} title={walletDisconnected ? "Reconnect your wallet to settle" : wallet.canSign ? undefined : wallet.message}><Wallet className="h-4 w-4" /> Settle now</Button></div></>}
+
+      {step === "submitting" && <div className="flex flex-col items-center gap-3 py-4" aria-busy aria-live="polite"><Button loading variant="outline" className="pointer-events-none">Submitting to Stellar…</Button><p className="text-center text-sm text-ink/60">Approve the transaction in your Freighter wallet, and we'll record it on the ledger.</p></div>}
+      {step === "submitted" && !statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-butter-pale px-4 py-5" role="status" aria-live="polite"><Loader2 className="h-7 w-7 animate-spin text-grape" /><p className="font-display text-sm uppercase tracking-tight">Waiting for confirmation</p><p className="text-center text-xs text-ink/60">Polling the network for the terminal transaction state. Keep this dialog open until the result is known.</p></div>}
+      {step === "submitted" && statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-flamingo-pale px-4 py-5" role="alert" aria-live="polite"><AlertTriangle className="h-7 w-7" /><p className="font-display text-sm uppercase tracking-tight">Couldn't check status</p><p className="text-center text-xs text-ink/60">We lost the connection while waiting for confirmation. Your transaction may still be processing — this hasn't submitted anything new.</p><Button variant="outline" onClick={() => statusQuery.refetch()}><RefreshCcw className="h-4 w-4" /> Check status</Button></div>}
+      {step === "confirmed" && <div className="space-y-4 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border-3 border-ink bg-lime shadow-brutal"><CheckCircle2 className="h-8 w-8" /></div><div><p className="font-display text-lg uppercase tracking-tight">Settled!</p><p className="text-sm text-ink/60">Recorded on the Stellar ledger.</p></div>{txHash && <div className="flex flex-col items-center gap-1"><span className="font-display text-[10px] uppercase tracking-widest text-ink/50">Transaction</span><TxLink hash={txHash} /></div>}<Button className="w-full" onClick={close}>Done</Button></div>}
+      {step === "failed" && <div className="space-y-4">
+        <WalletErrorBanner code={errorCode} message={error} />
+        <p className="text-xs text-ink/60">
+          {recovery === "install"
+            ? "Nothing was submitted. Install Freighter, then reopen this dialog."
+            : `Your payment details are still here${attempts > 1 ? ` (attempt ${attempts})` : ""}. ${
+                recovery === "reconnect"
+                  ? "Reconnect your wallet to try again."
+                  : "Retrying builds a fresh transaction and asks Freighter to sign it again."
+              }`}
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={close}>Close</Button>
+          {recovery === "reconnect" && (
+            <Button onClick={reconnectAndRun} loading={reconnecting}>
+              <Plug className="h-4 w-4" /> {retryLabelFor(errorCode)}
+            </Button>
+          )}
+          {recovery === "retry" && (
             <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setTrustlineModalOpen(true)}
-              className="bg-cream font-bold text-xs border-2 border-ink self-end shadow-brutal-sm"
+              onClick={() => run()}
+              disabled={walletDisconnected || isOffline}
+              title={
+                isOffline
+                  ? "You're offline — settlement requires an active connection"
+                  : walletDisconnected
+                    ? "Reconnect your wallet to settle"
+                    : undefined
+              }
             >
               Add {active.assetCode} Trustline
             </Button>
-          </div>
-        )}
-        <FeeSimulationBadge simulation={simulateStellarTransaction(active.amount)} /><WalletPrerequisiteNotice status={wallet} onRefresh={refreshWallet} /><div className="flex justify-end gap-2"><Button variant="ghost" onClick={close}>Cancel</Button><Button onClick={() => run()} disabled={!wallet.canSign || walletDisconnected || (!trustlineVerified && Boolean(active.assetIssuer))} title={walletDisconnected ? "Reconnect your wallet to settle" : !trustlineVerified ? "Establish asset trustline before settling" : wallet.canSign ? undefined : wallet.message}><Wallet className="h-4 w-4" /> Settle now</Button></div></>}
-
-        {step === "submitting" && <div className="flex flex-col items-center gap-3 py-4" aria-busy aria-live="polite"><Button loading variant="outline" className="pointer-events-none">Submitting to Stellar…</Button><p className="text-center text-sm text-ink/60">Approve the transaction in your Freighter wallet, and we'll record it on the ledger.</p></div>}
-        {step === "submitted" && !statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-butter-pale px-4 py-5" role="status" aria-live="polite"><Loader2 className="h-7 w-7 animate-spin text-grape" /><p className="font-display text-sm uppercase tracking-tight">Waiting for confirmation</p><p className="text-center text-xs text-ink/60">Polling the network for the terminal transaction state. Keep this dialog open until the result is known.</p></div>}
-        {step === "submitted" && statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-flamingo-pale px-4 py-5" role="alert" aria-live="polite"><AlertTriangle className="h-7 w-7" /><p className="font-display text-sm uppercase tracking-tight">Couldn't check status</p><p className="text-center text-xs text-ink/60">We lost the connection while waiting for confirmation. Your transaction may still be processing — this hasn't submitted anything new.</p><Button variant="outline" onClick={() => statusQuery.refetch()}><RefreshCcw className="h-4 w-4" /> Check status</Button></div>}
-        {step === "confirmed" && <div className="space-y-4 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border-3 border-ink bg-lime shadow-brutal"><CheckCircle2 className="h-8 w-8" /></div><div><p className="font-display text-lg uppercase tracking-tight">Settled!</p><p className="text-sm text-ink/60">Recorded on the Stellar ledger.</p></div>{txHash && <div className="flex flex-col items-center gap-1"><span className="font-display text-[10px] uppercase tracking-widest text-ink/50">Transaction</span><TxLink hash={txHash} /></div>}<Button className="w-full" onClick={close}>Done</Button></div>}
-        {step === "failed" && <div className="space-y-4">
-          <WalletErrorBanner code={errorCode} message={error} />
-          <p className="text-xs text-ink/60">
-            {recovery === "install"
-              ? "Nothing was submitted. Install Freighter, then reopen this dialog."
-              : `Your payment details are still here${attempts > 1 ? ` (attempt ${attempts})` : ""}. ${
-                  recovery === "reconnect"
-                    ? "Reconnect your wallet to try again."
-                    : "Retrying builds a fresh transaction and asks Freighter to sign it again."
-                }`}
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={close}>Close</Button>
-            {recovery === "reconnect" && (
-              <Button onClick={reconnectAndRun} loading={reconnecting}>
-                <Plug className="h-4 w-4" /> {retryLabelFor(errorCode)}
-              </Button>
-            )}
-            {recovery === "retry" && (
-              <Button
-                onClick={() => run()}
-                disabled={walletDisconnected}
-                title={
-                  walletDisconnected ? "Reconnect your wallet to settle" : undefined
-                }
-              >
-                <RefreshCcw className="h-4 w-4" /> {retryLabelFor(errorCode)}
-              </Button>
-            )}
-          </div>
-        </div>}
-      </div>
-    </Dialog>
-
-    {active.assetIssuer && (
-      <TrustlineModal
-        open={trustlineModalOpen}
-        onClose={() => setTrustlineModalOpen(false)}
-        assetCode={active.assetCode}
-        assetIssuer={active.assetIssuer}
-        accountPublicKey={wallet.address ?? ""}
-        onSuccess={() => {
-          setTrustlineVerified(true);
-        }}
-      />
-    )}
-  </>;
+          )}
+        </div>
+      </div>}
+    </div>
+  </Dialog>
+  {trustlineAsset && wallet.address && (
+    <TrustlinePromptModal
+      open={trustlineModalOpen}
+      onClose={() => setTrustlineModalOpen(false)}
+      publicKey={wallet.address}
+      assets={[trustlineAsset]}
+      onReady={() => setTrustlinesReady(true)}
+    />
+  )}
+</>;
 }

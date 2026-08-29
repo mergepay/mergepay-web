@@ -28,6 +28,7 @@ import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { useGroups, useMe } from "@/lib/queries";
 import { useGroupStore } from "@/lib/group-store";
+import { WalletWidget, type WalletGroupFlag } from "@/components/WalletWidget";
 import {
   amountToStroops,
   formatAssetAmount,
@@ -107,6 +108,17 @@ export default function DashboardPage() {
             </Button>
           </div>
         }
+      />
+
+      <WalletWidget
+        className="mb-8"
+        groups={groups.map(
+          (g): WalletGroupFlag => ({
+            id: g.id,
+            name: g.name,
+            netAssetCode: g.netAssetCode,
+          })
+        )}
       />
 
       <SectionBoundary subject="your balance totals">

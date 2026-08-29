@@ -52,6 +52,7 @@ import type {
   EnableTreasuryRequest,
   ExpenseResponse,
   ExpensesResponse,
+  GroupActivityResponse,
   GroupDetail,
   GroupResponse,
   GroupsResponse,
@@ -281,6 +282,18 @@ export const api = {
       schema: OkResponseSchema as unknown as z.ZodType<{ ok: boolean }>,
     }),
 
+  getGroupActivity: async (groupId: string): Promise<GroupActivityResponse> => {
+    try {
+      return await request<GroupActivityResponse>(`/groups/${groupId}/activity`);
+    } catch {
+      const [detail, expensesRes] = await Promise.all([
+        api.getGroup(groupId).catch(() => null),
+        api.listExpenses(groupId).catch(() => ({ expenses: [] })),
+      ]);
+      const { synthesizeActivityEvents } = await import("./activity");
+      return { activities: synthesizeActivityEvents(detail, expensesRes.expenses) };
+    }
+  },
 
   // -- expenses ---------------------------------------------------------------
   /**
@@ -561,3 +574,14 @@ export const api = {
     });
   },
 };
+
+/**
+ * Fetch invite details by code without redeeming the invite.
+ * Kept outside the `api` object to avoid TypeScript inference-depth
+ * issues with the very large object literal.
+ */
+export function getInviteByCode(code: string) {
+  return request<InviteResponse>(`/invites/${encodeURIComponent(code)}`, {
+    schema: InviteResponseSchema as unknown as z.ZodType<InviteResponse>,
+  });
+}

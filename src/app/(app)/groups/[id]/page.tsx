@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useGroupStore } from "@/lib/group-store";
 import {
+  Activity,
   ChevronDown,
   Landmark,
   ListChecks,
@@ -14,6 +15,7 @@ import {
   ScrollText,
   Users,
 } from "lucide-react";
+import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
 import { PageHeader } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,10 +25,12 @@ import { ListSkeleton } from "@/components/ui/skeleton";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
 import { ExpenseCard } from "@/components/expenses/expense-card";
 import { ExportHistoryButton } from "@/components/expenses/ExportHistoryButton";
+import { ExportGroupStatementButton } from "@/components/ExportGroupStatementButton";
 import { RecurringExpenseScheduler } from "@/components/RecurringExpenseScheduler";
 import { ShareQrModal } from "@/components/ShareQrModal";
 
 import { GroupAnalytics } from "@/components/expenses/GroupAnalytics";
+import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { SettleDialog, type BulkSettleTarget } from "@/components/settle/settle-dialog";
 import { BulkSettleBar } from "@/components/settle/bulk-settle-bar";
 import { buildBulkTarget, type UnsettledShare } from "@/lib/bulkSettle";
@@ -39,14 +43,14 @@ import {
   SectionError,
   SectionLoading,
 } from "@/components/ui/section";
-import { useGroup, useInfiniteExpenses, useMe } from "@/lib/queries";
+import { useGroup, useInfiniteExpenses, useLedger, useMe } from "@/lib/queries";
 import type { GroupMember } from "@/lib/types";
 import { mergeExpensePages, sortExpensesByDateDesc } from "@/lib/expenses";
 import { apiErrorMessage } from "@/lib/errorHandler";
 import { resolveSectionStatus } from "@/lib/sectionState";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 
-type Tab = "expenses" | "recurring" | "balances" | "ledger" | "treasury" | "members";
+type Tab = "expenses" | "activity" | "recurring" | "balances" | "ledger" | "treasury" | "members";
 
 /**
  * Records per request. Large enough that most groups never need a second
@@ -133,8 +137,6 @@ export default function GroupDetailPage() {
         action={headerAction}
       />
 
-
-
       {group.archived && (
         <div className="mb-6">
           <Badge tone="paper">This group is archived</Badge>
@@ -150,6 +152,11 @@ export default function GroupDetailPage() {
             id: "expenses",
             label: "Expenses",
             icon: <Receipt className="h-4 w-4" />,
+          },
+          {
+            id: "activity",
+            label: "Activity",
+            icon: <Activity className="h-4 w-4" />,
           },
           {
             id: "recurring",
@@ -188,8 +195,14 @@ export default function GroupDetailPage() {
             groupId={id}
             currentUserId={currentUserId}
             members={detail.members}
+            yourRole={detail.yourRole}
             onAdd={() => setAddOpen(true)}
           />
+        </SectionBoundary>
+      )}
+      {tab === "activity" && (
+        <SectionBoundary subject="the activity feed">
+          <GroupActivityFeed groupId={id} />
         </SectionBoundary>
       )}
       {tab === "recurring" && (
@@ -246,11 +259,13 @@ function ExpensesTab({
   groupId,
   currentUserId,
   members,
+  yourRole,
   onAdd,
 }: {
   groupId: string;
   currentUserId: string;
   members: GroupMember[];
+  yourRole: "admin" | "member" | "viewer";
   onAdd: () => void;
 }) {
   // Bulk-settle selection state. Kept local to this tab so leaving the
@@ -303,6 +318,17 @@ function ExpensesTab({
     });
     setBulkOpen(true);
   }
+
+  // Fetch the full ledger for the comprehensive statement export.
+  // Must be called before any early returns to satisfy rules-of-hooks.
+  const { data: ledgerPages } = useLedger(groupId);
+  const ledgerEntries = ledgerPages?.entries ?? [];
+  const ledgerExpenses = ledgerEntries
+    .filter((e) => e.type === "expense")
+    .map((e) => e.expense);
+  const ledgerSettlements = ledgerEntries
+    .filter((e) => e.type === "settlement")
+    .map((e) => e.settlement);
 
   const status = resolveSectionStatus({
     isLoading,
@@ -369,6 +395,11 @@ function ExpensesTab({
   ) : (
     <div className="flex items-center justify-end gap-2">
       <ExportHistoryButton groupId={groupId} currentUserId={currentUserId} />
+      <ExportGroupStatementButton
+        groupId={groupId}
+        expenses={expenses.length > 0 ? expenses : ledgerExpenses}
+        settlements={ledgerSettlements}
+      />
       <Button variant="outline" size="sm" onClick={() => setSelectMode(true)}>
         <ListChecks className="h-4 w-4" /> Settle in bulk
       </Button>
@@ -377,6 +408,13 @@ function ExpensesTab({
 
   return (
     <>
+      <GroupBudgetTracker
+        className="mb-4"
+        groupId={groupId}
+        expenses={expenses}
+        assetCode={expenses[0]?.assetCode ?? null}
+        isAdmin={yourRole === "admin"}
+      />
       <GroupAnalytics expenses={expenses} />
       <div className="mb-4 flex items-center justify-between">{actionArea}</div>
       <div className="space-y-3">
