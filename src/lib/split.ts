@@ -252,3 +252,51 @@ export function splitByCustom(
     amount: fromStroops(toStroops(s.amount)),
   }));
 }
+
+/**
+ * Split a total by weighted share counts, e.g. Alice = 2 shares, Bob = 1 share.
+ * The result is equivalent to a percentage split based on share weight, but the
+ * UI can render the per-person share count and an automatically computed percent.
+ */
+export function splitByShares(
+  amount: string,
+  allocations: Array<{ userId: string; shares: number }>
+): Array<{ userId: string; amount: string }> {
+  const totalShares = allocations.reduce(
+    (sum, allocation) => sum + Math.max(0, allocation.shares),
+    0
+  );
+
+  if (totalShares === 0) {
+    return allocations.map(({ userId }) => ({ userId, amount: "0.0000000" }));
+  }
+
+  return splitByPercentage(
+    amount,
+    allocations.map((allocation) => ({
+      userId: allocation.userId,
+      percent: (allocation.shares / totalShares) * 100,
+    }))
+  );
+}
+
+/**
+ * Aggregate itemized allocations into a per-user custom allocation. This keeps
+ * the expense modal's line-item mode precise while still mapping back to the
+ * existing custom balance payload the backend understands.
+ */
+export function itemizedToCustom(
+  allocations: Array<{ userId: string; amount: string }>
+): Array<{ userId: string; amount: string }> {
+  const totals = new Map<string, bigint>();
+
+  for (const allocation of allocations) {
+    const current = totals.get(allocation.userId) ?? 0n;
+    totals.set(allocation.userId, current + toStroops(allocation.amount));
+  }
+
+  return Array.from(totals.entries()).map(([userId, amount]) => ({
+    userId,
+    amount: fromStroops(amount),
+  }));
+}

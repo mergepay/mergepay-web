@@ -142,6 +142,53 @@ describe("GroupActivityFeed", () => {
     expect(screen.getByText("Payment Settled")).toBeDefined();
   });
 
+  it("renders update and removal events with a visible comparison summary", async () => {
+    const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
+    vi.mocked(useGroupActivityPolling).mockReturnValue({
+      activities: [
+        {
+          id: "act-3",
+          groupId: "g1",
+          type: "expense_updated" as const,
+          actor: { id: "u1", displayName: "Alice", avatarUrl: null },
+          description: 'Updated expense "Dinner"',
+          amount: "55.00",
+          assetCode: "USDC",
+          timestamp: new Date().toISOString(),
+          metadata: {
+            changes: [
+              { field: "amount", before: "42.50", after: "55.00" },
+              { field: "payer", before: "Alice", after: "Bob" },
+            ],
+          },
+        },
+        {
+          id: "act-4",
+          groupId: "g1",
+          type: "member_removed" as const,
+          actor: { id: "u2", displayName: "Bob", avatarUrl: null },
+          description: "Removed member Eve from the group",
+          timestamp: new Date().toISOString(),
+          metadata: { removedUser: "Eve" },
+        },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isPolling: false,
+      pollingStalled: false,
+    });
+
+    renderWithProviders(<GroupActivityFeed groupId="g1" />);
+
+    expect(screen.getByText("Expense Updated")).toBeDefined();
+    expect(screen.getByText("Member Removed")).toBeDefined();
+    expect(screen.getByText("Comparison")).toBeDefined();
+    expect(screen.getAllByText("Before").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("After").length).toBeGreaterThan(0);
+  });
+
   it("shows activity count in header", async () => {
     const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
     vi.mocked(useGroupActivityPolling).mockReturnValue({

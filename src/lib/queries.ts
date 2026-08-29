@@ -538,6 +538,49 @@ export function calculateOptimisticBalances(
   };
 }
 
+function replaceOptimisticExpenseInQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  groupId: string,
+  optimisticId: string,
+  expense: Expense
+) {
+  const expenseQueries = queryClient.getQueriesData({
+    queryKey: qk.expenses(groupId),
+  });
+
+  for (const [key, oldData] of expenseQueries) {
+    if (!oldData) continue;
+
+    queryClient.setQueryData(key, (old: any) => {
+      if (!old) return old;
+
+      if (old && typeof old === "object" && "pages" in old && Array.isArray(old.pages)) {
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => {
+            if (!page || !Array.isArray(page.expenses)) return page;
+            const nextExpenses = page.expenses.map((item: Expense) =>
+              item.id === optimisticId ? expense : item
+            );
+            return { ...page, expenses: nextExpenses };
+          }),
+        };
+      }
+
+      if (old && typeof old === "object" && "expenses" in old && Array.isArray(old.expenses)) {
+        return {
+          ...old,
+          expenses: (old.expenses as Expense[]).map((item) =>
+            item.id === optimisticId ? expense : item
+          ),
+        };
+      }
+
+      return old;
+    });
+  }
+}
+
 export function useCreateExpense(groupId: string) {
   const invalidate = useInvalidator();
   const qc = useQueryClient();
@@ -654,7 +697,21 @@ export function useCreateExpense(groupId: string) {
         }
       }
 
-      return { previousBalances, previousActivity, previousExpenses };
+      return {
+        previousBalances,
+        previousActivity,
+        previousExpenses,
+        optimisticExpenseId: optId,
+      };
+    },
+    onSuccess: (response, _variables, context) => {
+      if (!context?.optimisticExpenseId) return;
+      replaceOptimisticExpenseInQueries(
+        qc,
+        groupId,
+        context.optimisticExpenseId,
+        response.expense
+      );
     },
     // On failure, revert back to saved snapshot and display error toast
     onError: (err, _variables, context) => {
