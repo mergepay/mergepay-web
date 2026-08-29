@@ -74,6 +74,7 @@ import type {
   UpdateExpenseRequest,
   UpdateMeRequest,
   UploadResponse,
+  User,
   VerifyResponse,
   Role,
 } from "./types";
@@ -216,6 +217,10 @@ export const api = {
       method: "POST",
       json: { transaction },
       schema: VerifyResponseSchema as unknown as z.ZodType<VerifyResponse>,
+    }),
+  authRefresh: () =>
+    request<{ token: string; user: User }>("/auth/refresh", {
+      method: "POST",
     }),
   authLogout: () =>
     request<{ ok: boolean }>("/auth/logout", {
