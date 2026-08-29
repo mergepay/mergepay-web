@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
 import { QueryClient } from "@tanstack/react-query";
-import type { CreateExpenseRequest, Expense } from "@/lib/types";
+import type { CreateExpenseRequest, Expense } from "../types";
 
-describe("useCreateExpense Optimistic Updates & Cache Rollback", () => {
+describe("useCreateExpense Optimistic Updates & Cache Rollback (#292)", () => {
   it("optimistically prepends new expense to infinite query pages", () => {
     const qc = new QueryClient();
     const groupId = "g-123";
@@ -73,10 +74,10 @@ describe("useCreateExpense Optimistic Updates & Cache Rollback", () => {
     }));
 
     const cached = qc.getQueryData<any>(queryKey);
-    expect(cached.pages[0].expenses.length).toBe(2);
-    expect(cached.pages[0].expenses[0].title).toBe("Coffee");
-    expect(cached.pages[0].expenses[0].isOptimistic).toBe(true);
-    expect(cached.pages[0].expenses[0].pending).toBe(true);
+    assert.equal(cached.pages[0].expenses.length, 2);
+    assert.equal(cached.pages[0].expenses[0].title, "Coffee");
+    assert.equal(cached.pages[0].expenses[0].isOptimistic, true);
+    assert.equal(cached.pages[0].expenses[0].pending, true);
   });
 
   it("rolls back optimistic expense list on mutation failure", () => {
@@ -95,10 +96,8 @@ describe("useCreateExpense Optimistic Updates & Cache Rollback", () => {
     };
     qc.setQueryData(queryKey, originalData);
 
-    // Save snapshot
     const snapshot = qc.getQueriesData({ queryKey: ["groups", groupId, "expenses"] });
 
-    // Mutate cache optimistically
     qc.setQueryData(queryKey, {
       pages: [
         {
@@ -110,15 +109,14 @@ describe("useCreateExpense Optimistic Updates & Cache Rollback", () => {
       ],
     });
 
-    expect(qc.getQueryData<any>(queryKey).pages[0].expenses.length).toBe(2);
+    assert.equal(qc.getQueryData<any>(queryKey).pages[0].expenses.length, 2);
 
-    // Rollback
     for (const [key, oldData] of snapshot) {
       qc.setQueryData(key, oldData);
     }
 
     const restored = qc.getQueryData<any>(queryKey);
-    expect(restored.pages[0].expenses.length).toBe(1);
-    expect(restored.pages[0].expenses[0].title).toBe("Original Expense");
+    assert.equal(restored.pages[0].expenses.length, 1);
+    assert.equal(restored.pages[0].expenses[0].title, "Original Expense");
   });
 });
