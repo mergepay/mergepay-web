@@ -29,7 +29,8 @@ import {
   hasActiveFilters,
   type HistoryFilters,
 } from "@/lib/historyFilter";
-import { exportHistoryCsv, printReceipt } from "@/lib/export";
+import { printReceipt } from "@/lib/export";
+import { exportTransactionHistoryCsv } from "@/lib/utils/transactionHistoryCsv";
 import { Timestamp } from "@/components/timestamp";
 
 import { Pagination } from "@/components/ui/pagination";
@@ -126,7 +127,7 @@ export default function HistoryPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => exportHistoryCsv(expenses, settlements)}
+                onClick={() => exportTransactionHistoryCsv(expenses, settlements)}
               >
                 <Download className="h-4 w-4" /> Export CSV
               </Button>
