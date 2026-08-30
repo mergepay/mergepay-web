@@ -31,7 +31,9 @@ export type AnchorSessionKind = "deposit" | "withdrawal";
 export type AnchorSessionStatus =
   | "incomplete"
   | "pending_user_transfer_start"
+  | "pending_external"
   | "pending_anchor"
+  | "no_market_active"
   | "completed"
   | "error"
   | "refunded";

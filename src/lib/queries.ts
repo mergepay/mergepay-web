@@ -28,6 +28,11 @@ import type {
 } from "./types";
 import type { ExpensesPage } from "./expenses";
 import { shouldResetQueryCache } from "./queryState";
+import {
+  aggregateTreasury,
+  type TreasuryAggregate,
+  type TreasurySource,
+} from "./treasury";
 import { mergeHistoryPages, type AccumulatedHistory } from "./expenses";
 import type { Expense, LedgerEntry, Settlement, User } from "./types";
 import type { HistoryResponse, LedgerResponse } from "./types";
@@ -259,6 +264,52 @@ export function useTreasuryHistory(groupId: string, enabled: boolean) {
     queryFn: () => api.treasuryHistory(groupId),
     enabled,
   });
+}
+
+/**
+ * Aggregate treasury balances across every group the user belongs to that has
+ * a treasury enabled, summed per asset code (#392).
+ *
+ * Each enabled treasury is fetched in parallel with {@link useQueries} so the
+ * widget gets a single, collective picture. Loading state reflects at least
+ * one request still in flight; a failure in one treasury does not blank the
+ * whole aggregate (the healthy results still render).
+ */
+export function useTreasuryAggregate(
+  groups: { id: string; name: string; treasuryEnabled: boolean }[] = []
+): {
+  data: TreasuryAggregate | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  refetch: () => void;
+} {
+  const sessionEnabled = useSessionEnabled();
+  const enabled = groups.filter((g) => g.treasuryEnabled);
+  const ids = enabled.map((g) => g.id).sort();
+
+  const query = useQuery({
+    queryKey: ["treasury", "aggregate", ids],
+    queryFn: async (): Promise<TreasuryAggregate> => {
+      const results = await Promise.allSettled(
+        enabled.map((g) => api.treasuryInfo(g.id))
+      );
+      const sources: TreasurySource[] = enabled.map((g, i) => ({
+        groupId: g.id,
+        groupName: g.name,
+        balances:
+          results[i].status === "fulfilled" ? (results[i].value.balances ?? []) : [],
+      }));
+      return aggregateTreasury(sources);
+    },
+    enabled: sessionEnabled && enabled.length > 0,
+  });
+
+  return {
+    data: query.data,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: () => void query.refetch(),
+  };
 }
 
 export function useAnchors() {

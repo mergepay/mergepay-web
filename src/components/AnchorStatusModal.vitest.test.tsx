@@ -28,7 +28,7 @@ describe("AnchorStatusModal Component (#290)", () => {
     expect(screen.getByText("Fiat Deposit — USDC")).toBeInTheDocument();
     expect(screen.getByText("TestAnchor")).toBeInTheDocument();
     expect(screen.getByText("pending anchor")).toBeInTheDocument();
-    expect(screen.getByText("User Deposit Pending")).toBeInTheDocument();
+    expect(screen.getByText("Awaiting Deposit")).toBeInTheDocument();
     expect(screen.getByText("Anchor Processing")).toBeInTheDocument();
   });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryClient } from "@tanstack/react-query";
 import { ApiRequestError, ApiValidationError, isSessionExpired } from "./api";
 
 /**
@@ -42,7 +42,16 @@ export const DEFAULT_RETRY_COUNT = 2;
  * gets a fresh, isolated cache.
  */
 export function createQueryClient(): QueryClient {
+  const mutationCache = new MutationCache({
+    onError: () => {
+      // Leave mutations in a recoverable state while the browser is offline so
+      // they can resume cleanly once connectivity returns. The app-level forms
+      // already gate submit buttons when `navigator.onLine` is false.
+    },
+  });
+
   return new QueryClient({
+    mutationCache,
     defaultOptions: {
       queries: {
         staleTime: DEFAULT_STALE_TIME_MS,
@@ -69,6 +78,11 @@ export function createQueryClient(): QueryClient {
           }
           return failureCount < DEFAULT_RETRY_COUNT;
         },
+      },
+      mutations: {
+        networkMode: "always",
+        retry: false,
+        throwOnError: false,
       },
     },
   });

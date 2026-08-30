@@ -29,6 +29,7 @@ import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { useGroups, useMe } from "@/lib/queries";
 import { useGroupStore } from "@/lib/group-store";
 import { WalletWidget, type WalletGroupFlag } from "@/components/WalletWidget";
+import { TreasuryWidget } from "@/components/treasury/treasury-widget";
 import {
   amountToStroops,
   formatAssetAmount,
@@ -120,6 +121,17 @@ export default function DashboardPage() {
           })
         )}
       />
+
+      {data && data.groups.some((g) => g.treasuryEnabled) && (
+        <TreasuryWidget
+          className="mb-8"
+          groups={groups.map((g) => ({
+            id: g.id,
+            name: g.name,
+            treasuryEnabled: g.treasuryEnabled,
+          }))}
+        />
+      )}
 
       <SectionBoundary subject="your balance totals">
         <div className="mb-8 grid gap-4 sm:grid-cols-3">

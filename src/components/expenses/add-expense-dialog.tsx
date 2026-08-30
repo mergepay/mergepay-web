@@ -23,8 +23,8 @@ import {
   parseDecimalUnits,
   splitEqualUnits,
   validateExpenseForm,
-  expenseSplitSchema,
 } from "@/lib/expenseValidation";
+import { expenseFormSchema } from "@/lib/validations/expense";
 import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 import { convertCurrency, currencyRate, rateDeviationPercent, SUPPORTED_FIAT_CURRENCIES, type SupportedFiatCurrency } from "@/lib/currency";
@@ -345,11 +345,25 @@ export function AddExpenseDialog({
       receiptUrl,
     };
 
+    // Final gate before anything is sent (#391): the full payload is parsed
+    // against the expense-creation Zod schema — stroop-exact split sums
+    // included — so a malformed submission can never reach the Stellar
+    // network or the backend API, even if a keyboard submit slips past the
+    // button's disabled state.
+    const parsed = expenseFormSchema.safeParse(request);
+    if (!parsed.success) {
+      toast.error(
+        parsed.error.issues[0]?.message ?? "Check the expense details"
+      );
+      setShowErrors(true);
+      return;
+    }
+
     // Offline (no connection): queue the draft locally instead of failing
     // the request. The offline store persists it and the sync runner posts
     // it (with an idempotency key) once connectivity returns. (#197)
     if (!navigator.onLine) {
-      useOfflineStore.getState().enqueue(groupId, request);
+      useOfflineStore.getState().enqueue(groupId, parsed.data);
       toast.success("Saved offline — it will sync automatically when you're back online");
       clearDraft();
       reset();
@@ -359,7 +373,7 @@ export function AddExpenseDialog({
 
     setSubmitting(true);
     try {
-      await create.mutateAsync(request);
+      await create.mutateAsync(parsed.data);
       toast.success("Expense added");
       clearDraft();
       reset();
