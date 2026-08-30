@@ -13,13 +13,6 @@ export interface ExpenseDraft {
   participants: string[];
   custom: Record<string, string>;
   percent: Record<string, string>;
-  shareCounts: Record<string, string>;
-  itemized: Array<{
-    id: string;
-    label: string;
-    amount: string;
-    memberIds: string[];
-  }>;
   memo: string;
   receiptUrl?: string | null;
   updatedAt?: number;

@@ -18,7 +18,7 @@ import { z } from "zod";
 /** API-bound schema: decimal strings are retained as strings to avoid float drift. */
 export const expenseSplitSchema = z.object({
   amount: z.string().regex(/^\d+(?:\.\d{1,7})?$/),
-  splitType: z.enum(["equal", "custom", "percentage", "shares", "itemized"]),
+  splitType: z.enum(["equal", "custom", "percentage"]),
   shares: z.array(z.object({
     userId: z.string().min(1),
     amount: z.string().regex(/^\d+(?:\.\d{1,7})?$/).optional(),
@@ -134,15 +134,6 @@ export interface ExpenseFormInput {
   custom: Record<string, string>;
   /** Per-participant percentages keyed by user id (splitType "percentage"). */
   percent: Record<string, string>;
-  /** Per-participant share counts keyed by user id (splitType "shares"). */
-  shareCounts?: Record<string, string>;
-  /** Per-item line-item totals (splitType "itemized"). */
-  itemized?: Array<{
-    id?: string;
-    label?: string;
-    amount: string;
-    memberIds: string[];
-  }>;
 }
 
 export interface ExpenseFormContext {
@@ -279,92 +270,6 @@ function validatePercentageSplit(
   }
 }
 
-function validateShareSplit(
-  input: ExpenseFormInput,
-  participants: string[],
-  errors: FormErrors
-): void {
-  let totalShares = 0;
-
-  for (const id of participants) {
-    const raw = input.shareCounts?.[id] ?? "";
-    if (!raw.trim()) {
-      errors.shareCounts = "Enter a share count for every participant";
-      return;
-    }
-    if (!/^\d+$/.test(raw.trim())) {
-      errors.shareCounts = "Share counts must be whole numbers greater than zero";
-      return;
-    }
-
-    const count = Number(raw);
-    if (!Number.isInteger(count) || count <= 0) {
-      errors.shareCounts = "Share counts must be whole numbers greater than zero";
-      return;
-    }
-
-    totalShares += count;
-  }
-
-  if (totalShares <= 0) {
-    errors.shareCounts = "At least one share must be assigned";
-  }
-}
-
-function validateItemizedSplit(
-  input: ExpenseFormInput,
-  participants: string[],
-  amountUnits: bigint | null,
-  errors: FormErrors
-): void {
-  const rows = input.itemized ?? [];
-  if (rows.length === 0) {
-    errors.itemized = "Add at least one item";
-    return;
-  }
-
-  const memberSet = new Set(participants);
-  const allocated = new Map<string, bigint>();
-
-  for (const row of rows) {
-    const raw = row.amount ?? "";
-    if (!raw.trim()) {
-      errors.itemized = "Every item needs an amount";
-      return;
-    }
-
-    const itemUnits = parseDecimalUnits(raw, AMOUNT_DECIMAL_PLACES);
-    if (itemUnits === "too_precise") {
-      errors.itemized = `Each item can have at most ${AMOUNT_DECIMAL_PLACES} decimal places`;
-      return;
-    }
-    if (itemUnits === null || itemUnits <= 0n) {
-      errors.itemized = "Each item must be greater than zero";
-      return;
-    }
-
-    const selectedMembers = (row.memberIds ?? []).filter((id) => memberSet.has(id));
-    if (selectedMembers.length === 0) {
-      errors.itemized = "Each item must include at least one participant";
-      return;
-    }
-
-    const base = itemUnits / BigInt(selectedMembers.length);
-    const remainder = itemUnits % BigInt(selectedMembers.length);
-    selectedMembers.forEach((memberId, idx) => {
-      const extra = idx < Number(remainder) ? 1n : 0n;
-      allocated.set(memberId, (allocated.get(memberId) ?? 0n) + base + extra);
-    });
-  }
-
-  if (amountUnits === null) return;
-
-  const totalAllocated = [...allocated.values()].reduce((sum, value) => sum + value, 0n);
-  if (totalAllocated !== amountUnits) {
-    errors.itemized = `Item totals add up to ${formatAmountUnits(totalAllocated)} — they must equal ${formatAmountUnits(amountUnits)}`;
-  }
-}
-
 /**
  * Validate the whole form. Returns `null` when everything passes, or a
  * map of field name to message. The keys match the field ids the form
@@ -405,14 +310,6 @@ export function validateExpenseForm(
   } else if (input.splitType === "percentage") {
     if (!errors.participants) {
       validatePercentageSplit(input, participants, errors);
-    }
-  } else if (input.splitType === "shares") {
-    if (!errors.participants) {
-      validateShareSplit(input, participants, errors);
-    }
-  } else if (input.splitType === "itemized") {
-    if (!errors.participants) {
-      validateItemizedSplit(input, participants, amountUnits, errors);
     }
   } else if (input.splitType === "equal") {
     // An equal split is derived, so it always sums to the amount — but

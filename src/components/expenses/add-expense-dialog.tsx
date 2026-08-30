@@ -31,7 +31,6 @@ import { convertCurrency, currencyRate, rateDeviationPercent, SUPPORTED_FIAT_CUR
 import { useLocalStorageDraft } from "@/lib/useLocalStorageDraft";
 import { parseExpenseDeepLink } from "@/lib/deepLink";
 import { useOfflineStore } from "@/lib/store/offlineStore";
-import { itemizedToCustom } from "@/lib/split";
 
 
 /** The asset codes the form offers, and the only ones validation accepts. */
@@ -63,10 +62,6 @@ export function AddExpenseDialog({
   const [participants, setParticipants] = useState<string[]>(members.map((m) => m.userId));
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [percent, setPercent] = useState<Record<string, string>>({});
-  const [shareCounts, setShareCounts] = useState<Record<string, string>>({});
-  const [itemized, setItemized] = useState<Array<{ id: string; label: string; amount: string; memberIds: string[] }>>([
-    { id: crypto.randomUUID(), label: "", amount: "", memberIds: members.map((m) => m.userId) },
-  ]);
   const [memo, setMemo] = useState("");
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -89,8 +84,6 @@ export function AddExpenseDialog({
       if (draft.participants?.length) setParticipants(draft.participants);
       if (draft.custom) setCustom(draft.custom);
       if (draft.percent) setPercent(draft.percent);
-      if (draft.shareCounts) setShareCounts(draft.shareCounts);
-      if (draft.itemized?.length) setItemized(draft.itemized);
       if (draft.memo) setMemo(draft.memo);
     }
   }, [draft, isRestored]);
@@ -111,12 +104,10 @@ export function AddExpenseDialog({
         participants,
         custom,
         percent,
-        shareCounts,
-        itemized,
         memo,
       });
     }
-  }, [title, description, amount, fiatCurrency, fiatAmount, rateOverride, assetKey, payerUserId, splitType, participants, custom, percent, shareCounts, itemized, memo, saveDraft]);
+  }, [title, description, amount, fiatCurrency, fiatAmount, rateOverride, assetKey, payerUserId, splitType, participants, custom, percent, memo, saveDraft]);
 
   // Error from the last failed attempt. Kept alongside the entered values
   // so the user can correct and retry without re-typing the form.
@@ -171,22 +162,6 @@ export function AddExpenseDialog({
       }, 0n),
     [participants, percent]
   );
-  const shareTotal = useMemo(
-    () =>
-      participants.reduce((sum, id) => {
-        const value = Number(shareCounts[id] ?? "0");
-        return Number.isFinite(value) ? sum + value : sum;
-      }, 0),
-    [participants, shareCounts]
-  );
-  const itemizedTotal = useMemo(
-    () =>
-      itemized.reduce((sum, row) => {
-        const parsed = parseDecimalUnits(row.amount ?? "", AMOUNT_DECIMAL_PLACES);
-        return typeof parsed === "bigint" ? sum + parsed : sum;
-      }, 0n),
-    [itemized]
-  );
 
   /**
    * Exact per-participant shares for an equal split. The remainder is
@@ -216,8 +191,6 @@ export function AddExpenseDialog({
           participants,
           custom,
           percent,
-          shareCounts,
-          itemized,
         },
         { memberIds, supportedAssetCodes: SUPPORTED_ASSET_CODES }
       ),
@@ -230,8 +203,6 @@ export function AddExpenseDialog({
       participants,
       custom,
       percent,
-      shareCounts,
-      itemized,
       memberIds,
     ]
   );
@@ -279,57 +250,22 @@ export function AddExpenseDialog({
     }
     if (amountUnits === null) return;
 
-    const requestSplitType: SplitType =
-      splitType === "shares" ? "percentage" :
-      splitType === "itemized" ? "custom" :
-      splitType;
-
-    const shares: ExpenseShareInput[] = participants.flatMap((userId) => {
+    const shares: ExpenseShareInput[] = participants.map((userId) => {
       if (splitType === "custom") {
-        const units = parseDecimalUnits(custom[userId] ?? "", AMOUNT_DECIMAL_PLACES);
-        if (typeof units !== "bigint") return [];
-        return [{ userId, amount: formatAmountUnits(units) }];
+        const units = parseDecimalUnits(
+          custom[userId] ?? "",
+          AMOUNT_DECIMAL_PLACES
+        );
+        // Validation already rejected anything unparseable.
+        return {
+          userId,
+          amount: formatAmountUnits(typeof units === "bigint" ? units : 0n),
+        };
       }
-      if (splitType === "percentage") {
-        const raw = percent[userId] ?? "0";
-        const percentValue = Number(raw);
-        if (!Number.isFinite(percentValue)) return [];
-        return [{ userId, percent: percentValue }];
-      }
-      if (splitType === "shares") {
-        const total = participants.reduce((sum, id) => sum + Number(shareCounts[id] ?? "0"), 0);
-        const count = Number(shareCounts[userId] ?? "0");
-        if (total <= 0 || count <= 0) return [];
-        return [{ userId, percent: (count / total) * 100 }];
-      }
-      if (splitType === "itemized") {
-        const entries = itemized
-          .filter((row) => row.memberIds.includes(userId))
-          .map((row) => {
-            const parsed = parseDecimalUnits(row.amount ?? "", AMOUNT_DECIMAL_PLACES);
-            if (typeof parsed !== "bigint") return 0n;
-            const selected = (row.memberIds ?? []).filter((memberId) => participants.includes(memberId));
-            if (selected.length === 0) return 0n;
-            const base = parsed / BigInt(selected.length);
-            const remainder = parsed % BigInt(selected.length);
-            return base + (selected.indexOf(userId) < Number(remainder) ? 1n : 0n);
-          });
-        const totalForUser = entries.reduce((sum, amount) => sum + amount, 0n);
-        return totalForUser > 0n ? [{ userId, amount: formatAmountUnits(totalForUser) }] : [];
-      }
-      return [{ userId }];
+      if (splitType === "percentage")
+        return { userId, percent: Number(percent[userId] ?? "0") };
+      return { userId };
     });
-
-    const splitCheck = expenseSplitSchema.safeParse({
-      amount: formatAmountUnits(amountUnits),
-      splitType: requestSplitType,
-      shares,
-    });
-    if (!splitCheck.success) {
-      toast.error(splitCheck.error.issues[0]?.message ?? "Check the split allocations");
-      setShowErrors(true);
-      return;
-    }
     const request = {
       title: title.trim(),
       description: description.trim() || undefined,
@@ -338,7 +274,7 @@ export function AddExpenseDialog({
       amount: formatAmountUnits(amountUnits),
       assetCode: asset.code,
       assetIssuer: asset.issuer,
-      splitType: requestSplitType,
+      splitType,
       shares,
       payerUserId,
       memo: memo.trim() || undefined,
@@ -403,8 +339,6 @@ export function AddExpenseDialog({
     setSplitType("equal");
     setCustom({});
     setPercent({});
-    setShareCounts({});
-    setItemized([{ id: crypto.randomUUID(), label: "", amount: "", memberIds: members.map((m) => m.userId) }]);
     setMemo("");
     setReceiptUrl(null);
     setParticipants(members.map((m) => m.userId));
@@ -553,8 +487,8 @@ export function AddExpenseDialog({
         </div>
         <div>
           <Label>Split</Label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Split type">
-            {(["equal", "custom", "percentage", "shares", "itemized"] as SplitType[]).map((t) => <button key={t} type="button" onClick={() => setSplitType(t)} aria-pressed={splitType === t} className={cn("flex-1 min-w-[100px] rounded-xl border-2 border-ink py-2 font-display text-xs uppercase tracking-wide shadow-brutal-sm transition-all", splitType === t ? "bg-grape text-white" : "bg-cream hover:bg-butter")}>{t}</button>)}
+          <div className="flex gap-2" role="group" aria-label="Split type">
+            {(["equal", "custom", "percentage"] as SplitType[]).map((t) => <button key={t} type="button" onClick={() => setSplitType(t)} aria-pressed={splitType === t} className={cn("flex-1 rounded-xl border-2 border-ink py-2 font-display text-xs uppercase tracking-wide shadow-brutal-sm transition-all", splitType === t ? "bg-grape text-white" : "bg-cream hover:bg-butter")}>{t}</button>)}
           </div>
         </div>
         <div>
@@ -641,33 +575,6 @@ export function AddExpenseDialog({
                       <span className="text-xs text-ink/50">%</span>
                     </div>
                   )}
-                  {on && splitType === "shares" && (
-                    <div className="flex items-center gap-1">
-                      <Input
-                        type="number"
-                        min="1"
-                        step="1"
-                        inputMode="numeric"
-                        value={shareCounts[m.userId] ?? ""}
-                        onChange={(e) =>
-                          setShareCounts((p) => ({ ...p, [m.userId]: e.target.value }))
-                        }
-                        onBlur={() => markTouched("shareCounts")}
-                        className="h-8 w-16 px-2 py-1 text-sm"
-                        placeholder="1"
-                        aria-label={`Share count for ${m.user.displayName}`}
-                        aria-invalid={errorFor("shareCounts") ? true : undefined}
-                        aria-describedby={
-                          errorFor("shareCounts") ? "e-share-counts-error" : undefined
-                        }
-                      />
-                      <span className="font-mono text-[10px] text-ink/60">
-                        {shareTotal > 0 && Number(shareCounts[m.userId] ?? "0") > 0
-                          ? `${((Number(shareCounts[m.userId] ?? "0") / shareTotal) * 100).toFixed(1)}%`
-                          : "0%"}
-                      </span>
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -709,112 +616,6 @@ export function AddExpenseDialog({
                 </p>
               )}
             </>
-          )}
-          {splitType === "shares" && (
-            <>
-              <FieldHint>
-                Total shares: {shareTotal || 0}
-              </FieldHint>
-              {errorFor("shareCounts") && (
-                <p id="e-share-counts-error" className="mt-1 text-xs text-flamingo" role="alert">
-                  {errorFor("shareCounts")}
-                </p>
-              )}
-            </>
-          )}
-          {splitType === "itemized" && (
-            <div className="space-y-2">
-              {itemized.map((row, index) => (
-                <div key={row.id} className="rounded-xl border-2 border-ink bg-white p-2">
-                  <div className="flex gap-2">
-                    <Input
-                      value={row.label}
-                      onChange={(e) =>
-                        setItemized((rows) => rows.map((item, i) => i === index ? { ...item, label: e.target.value } : item))
-                      }
-                      placeholder="Item name"
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.0000001"
-                      inputMode="decimal"
-                      value={row.amount}
-                      onChange={(e) =>
-                        setItemized((rows) => rows.map((item, i) => i === index ? { ...item, amount: e.target.value } : item))
-                      }
-                      placeholder="0.00"
-                      className="w-24"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="px-2"
-                      onClick={() => setItemized((rows) => rows.filter((_, i) => i !== index))}
-                      disabled={itemized.length === 1}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {members.map((m) => {
-                      const checked = row.memberIds.includes(m.userId);
-                      return (
-                        <label key={m.userId} className="flex items-center gap-1 rounded-full border-2 border-ink bg-cream px-2 py-1 text-xs">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() =>
-                              setItemized((rows) =>
-                                rows.map((item, i) =>
-                                  i === index
-                                    ? {
-                                        ...item,
-                                        memberIds: checked
-                                          ? item.memberIds.filter((memberId) => memberId !== m.userId)
-                                          : [...item.memberIds, m.userId],
-                                      }
-                                    : item
-                                )
-                              )
-                            }
-                          />
-                          {m.user.displayName}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setItemized((rows) => [
-                    ...rows,
-                    {
-                      id: crypto.randomUUID(),
-                      label: "",
-                      amount: "",
-                      memberIds: participants.length > 0 ? participants : members.map((m) => m.userId),
-                    },
-                  ])
-                }
-              >
-                Add item
-              </Button>
-              <FieldHint>
-                Line total: {formatAmountUnits(itemizedTotal)} / {amountUnits === null ? "—" : formatAmountUnits(amountUnits)}
-              </FieldHint>
-              {errorFor("itemized") && (
-                <p id="e-itemized-error" className="mt-1 text-xs text-flamingo" role="alert">
-                  {errorFor("itemized")}
-                </p>
-              )}
-            </div>
           )}
         </div>
         <div>

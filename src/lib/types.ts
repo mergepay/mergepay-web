@@ -17,7 +17,7 @@
 export type StellarNetwork = "testnet" | "public";
 
 export type Role = "admin" | "member" | "viewer";
-export type SplitType = "equal" | "custom" | "percentage" | "shares" | "itemized";
+export type SplitType = "equal" | "custom" | "percentage";
 export type ShareStatus = "pending" | "settling" | "settled";
 export type SettlementStatus = "pending" | "submitted" | "confirmed" | "failed";
 export type TreasuryDirection = "deposit" | "withdrawal";
@@ -536,25 +536,14 @@ export interface TrustlineAsset {
 
 export type GroupActivityType =
   | "expense_created"
-  | "expense_updated"
-  | "expense_deleted"
   | "payment_settled"
-  | "settlement_initiated"
-  | "settlement_confirmed"
   | "member_joined"
-  | "member_removed";
+  | "expense_deleted";
 
 export interface GroupActivityActor {
   id: string;
   displayName: string;
   avatarUrl: string | null;
-}
-
-export interface GroupActivityChange {
-  field: string;
-  label?: string;
-  before: string | number | null;
-  after: string | number | null;
 }
 
 export interface GroupActivityEvent {
@@ -567,11 +556,7 @@ export interface GroupActivityEvent {
   assetCode?: string;
   timestamp: string;
   isOptimistic?: boolean;
-  metadata?: Record<string, unknown> & {
-    changes?: GroupActivityChange[];
-    removedUser?: string;
-    settlementStatus?: string;
-  };
+  metadata?: Record<string, unknown>;
 }
 
 export interface GroupActivityResponse {

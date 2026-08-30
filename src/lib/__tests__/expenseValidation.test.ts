@@ -408,33 +408,6 @@ describe("percentage split", () => {
     );
   });
 
-  it("accepts share-count splits that resolve to a valid percentage allocation", () => {
-    const result = validateExpenseForm(
-      {
-        ...validEqual,
-        splitType: "shares",
-        shareCounts: { "user-a": "2", "user-b": "1", "user-c": "1" },
-      },
-      context
-    );
-    assert.equal(result, null);
-  });
-
-  it("accepts itemized splits that total the full amount", () => {
-    const result = validateExpenseForm(
-      {
-        ...validEqual,
-        splitType: "itemized",
-        itemized: [
-          { amount: "100", memberIds: ["user-a", "user-b"] },
-          { amount: "50", memberIds: ["user-c"] },
-        ],
-      },
-      context
-    );
-    assert.equal(result, null);
-  });
-
   it("rejects percentages that do not total 100 and shows the running total", () => {
     assert.match(
       percent({ "user-a": "30", "user-b": "30", "user-c": "30" })?.percent ?? "",

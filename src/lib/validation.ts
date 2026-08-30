@@ -179,7 +179,7 @@ export const createExpenseSchema = z
       .refine((val) => !isNaN(Number(val)) && Number(val) > 0, "Amount must be a positive number"),
     assetCode: z.string().trim().min(1, "Asset code is required"),
     payerUserId: z.string().trim().min(1, "Payer member is required"),
-    splitType: z.enum(["equal", "custom", "percentage", "shares", "itemized", "shares", "itemized"]),
+    splitType: z.enum(["equal", "custom", "percentage"]),
     shares: z.array(expenseShareInputSchema).min(1, "At least one participating member is required"),
     memo: z.string().trim().optional(),
     receiptUrl: z.string().trim().optional(),

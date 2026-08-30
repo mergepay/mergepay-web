@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Clock3, FileText, Loader2, Receipt, Trash2 } from "lucide-react";
+import { Check, FileText, Loader2, Receipt, Trash2 } from "lucide-react";
 import { ReceiptPreview } from "@/components/ui/receipt-preview";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -120,8 +120,8 @@ export function ExpenseCard({
               </p>
               {isPending && (
                 <span className="inline-flex items-center gap-1">
-                  <Clock3 className="h-3.5 w-3.5 text-ink/60" />
-                  <Badge tone="paper" className="text-[10px] uppercase">Pending</Badge>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ink/60" />
+                  <Badge tone="paper" className="text-[10px] uppercase">Posting…</Badge>
                 </span>
               )}
               {expense.receiptUrl && <FileText className="h-3.5 w-3.5 text-ink/40" />}
@@ -218,7 +218,7 @@ export function ExpenseCard({
                 </Button>
               )}
             </div>
-            {myShare && myShare.status === "pending" && !isPayer && !isPending && (
+            {myShare && myShare.status === "pending" && !isPayer && (
               <Button
                 size="sm"
                 onClick={settleMyShare}

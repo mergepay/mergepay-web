@@ -10,19 +10,15 @@ import { ListSkeleton } from "@/components/ui/skeleton";
 import { SectionBoundary, SectionError, SectionLoading } from "@/components/ui/section";
 import {
   Activity,
-  ArrowRightLeft,
   CheckCircle2,
   Clock,
   Loader2,
-  PencilLine,
   PlusCircle,
   Radio,
   Trash2,
-  UserMinus,
   UserPlus,
-  Wallet,
 } from "lucide-react";
-import type { GroupActivityChange, GroupActivityEvent, GroupActivityType } from "@/lib/types";
+import type { GroupActivityEvent, GroupActivityType } from "@/lib/types";
 
 export interface GroupActivityFeedProps {
   groupId: string;
@@ -68,41 +64,17 @@ function getActivityConfig(type: GroupActivityType) {
         badgeTone: "lime" as const,
         label: "Expense Added",
       };
-    case "expense_updated":
-      return {
-        icon: <PencilLine className="h-4 w-4 text-butter-dark" />,
-        badgeTone: "butter" as const,
-        label: "Expense Updated",
-      };
     case "payment_settled":
       return {
         icon: <CheckCircle2 className="h-4 w-4 text-mint-dark" />,
         badgeTone: "aqua" as const,
         label: "Payment Settled",
       };
-    case "settlement_initiated":
-      return {
-        icon: <Wallet className="h-4 w-4 text-grape" />,
-        badgeTone: "grape" as const,
-        label: "Settlement Initiated",
-      };
-    case "settlement_confirmed":
-      return {
-        icon: <CheckCircle2 className="h-4 w-4 text-mint-dark" />,
-        badgeTone: "aqua" as const,
-        label: "Settlement Confirmed",
-      };
     case "member_joined":
       return {
         icon: <UserPlus className="h-4 w-4 text-butter-dark" />,
         badgeTone: "butter" as const,
         label: "Member Joined",
-      };
-    case "member_removed":
-      return {
-        icon: <UserMinus className="h-4 w-4 text-tangerine-dark" />,
-        badgeTone: "tangerine" as const,
-        label: "Member Removed",
       };
     case "expense_deleted":
       return {
@@ -229,50 +201,9 @@ export function GroupActivityFeed({
   );
 }
 
-function renderComparisonRows(changes: GroupActivityChange[]) {
-  if (!changes.length) return null;
-
-  return (
-    <div className="mt-3 rounded-xl border-2 border-ink bg-paper p-2">
-      <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-ink/60">
-        <ArrowRightLeft className="h-3 w-3" />
-        Comparison
-      </div>
-      <div className="space-y-2">
-        {changes.map((change, index) => (
-          <div
-            key={`${change.field}-${index}`}
-            className="grid gap-2 rounded-lg border border-ink/20 bg-white p-2 sm:grid-cols-2"
-          >
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ink/50">
-                Before
-              </p>
-              <p className="mt-1 break-words font-mono text-xs text-flamingo">
-                {change.before ?? "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ink/50">
-                After
-              </p>
-              <p className="mt-1 break-words font-mono text-xs text-mint-dark">
-                {change.after ?? "—"}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function ActivityItem({ event }: { event: GroupActivityEvent }) {
   const config = getActivityConfig(event.type);
   const isOptimistic = Boolean(event.isOptimistic);
-  const changeRows = Array.isArray(event.metadata?.changes)
-    ? (event.metadata.changes as GroupActivityChange[])
-    : [];
 
   return (
     <li
@@ -329,14 +260,6 @@ function ActivityItem({ event }: { event: GroupActivityEvent }) {
               assetCode={event.assetCode ?? "XLM"}
               className="text-base font-bold text-ink"
             />
-          </div>
-        )}
-
-        {changeRows.length > 0 && renderComparisonRows(changeRows)}
-
-        {event.type === "member_removed" && typeof event.metadata?.removedUser === "string" && (
-          <div className="mt-2 text-xs text-ink/70">
-            Removed member: <span className="font-bold">{event.metadata.removedUser}</span>
           </div>
         )}
       </div>
