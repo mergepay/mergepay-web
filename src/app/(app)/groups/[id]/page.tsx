@@ -37,6 +37,7 @@ import { buildBulkTarget, type UnsettledShare } from "@/lib/bulkSettle";
 import { BalancesPanel } from "@/components/balances/balances-panel";
 import { LedgerPanel } from "@/components/ledger/ledger-panel";
 import { TreasuryPanel } from "@/components/treasury/treasury-panel";
+import { TreasuryWidget } from "@/components/treasury/treasury-widget";
 import { MembersPanel } from "@/components/groups/members-panel";
 import {
   SectionBoundary,
@@ -226,6 +227,20 @@ export default function GroupDetailPage() {
       {tab === "ledger" && (
         <SectionBoundary subject="the ledger">
           <LedgerPanel groupId={id} />
+        </SectionBoundary>
+      )}
+      {tab === "treasury" && (
+        <SectionBoundary subject="the treasury widget">
+          <TreasuryWidget
+            className="mb-6"
+            groups={[
+              {
+                id: group.id,
+                name: group.name,
+                treasuryEnabled: group.treasuryEnabled,
+              },
+            ]}
+          />
         </SectionBoundary>
       )}
       {tab === "treasury" && (
