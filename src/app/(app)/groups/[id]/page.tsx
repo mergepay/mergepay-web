@@ -76,8 +76,12 @@ export default function GroupDetailPage() {
   const walletDisconnected = useWalletDisconnected();
 
   useEffect(() => {
-    setSelectedGroup(id);
+    if (id) {
+      setSelectedGroup(id);
+      useGroupStore.getState().addRecentGroup(id);
+    }
   }, [id, setSelectedGroup]);
+
 
   const currentUserId = me?.user.id ?? "";
 
