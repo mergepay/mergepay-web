@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useGroupActivityPolling } from "@/hooks/useGroupActivityPolling";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +10,7 @@ import { Money } from "@/components/amount";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { SectionBoundary, SectionError, SectionLoading } from "@/components/ui/section";
+import { ExpenseFilterBar, type ActivityFilters } from "@/components/expenses/ExpenseFilterBar";
 import {
   Activity,
   CheckCircle2,
@@ -100,8 +103,8 @@ function ActivityList({
     return (
       <EmptyState
         icon={<Activity className="h-7 w-7" />}
-        title="No activity recorded yet"
-        description="Expenses, settlements, and member joins will appear here in real time."
+        title="No matching activity found"
+        description="Try adjusting your search query or filter criteria."
       />
     );
   }
@@ -151,6 +154,32 @@ export function GroupActivityFeed({
   polling = false,
   pollingIntervalMs,
 }: GroupActivityFeedProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const [filters, setFilters] = useState<ActivityFilters>(() => ({
+    keyword: searchParams.get("q") || undefined,
+    participant: searchParams.get("participant") || undefined,
+    fromDate: searchParams.get("from") || undefined,
+    toDate: searchParams.get("to") || undefined,
+    assetCode: searchParams.get("asset") || undefined,
+  }));
+
+  // Synchronize state changes to URL query parameters for shareable views
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (filters.keyword) params.set("q", filters.keyword);
+    if (filters.participant) params.set("participant", filters.participant);
+    if (filters.fromDate) params.set("from", filters.fromDate);
+    if (filters.toDate) params.set("to", filters.toDate);
+    if (filters.assetCode) params.set("asset", filters.assetCode);
+
+    const queryStr = params.toString();
+    const newUrl = queryStr ? `${pathname}?${queryStr}` : pathname;
+    router.replace(newUrl, { scroll: false });
+  }, [filters, pathname, router]);
+
   const options = polling
     ? { intervalMs: pollingIntervalMs ?? 15_000, enabled: true }
     : { intervalMs: false as const, enabled: true };
@@ -158,7 +187,7 @@ export function GroupActivityFeed({
   const pollingResult = useGroupActivityPolling(groupId, options);
 
   const {
-    activities,
+    activities: rawActivities,
     isLoading,
     isError,
     error,
@@ -166,6 +195,43 @@ export function GroupActivityFeed({
     isPolling: live,
     pollingStalled,
   } = pollingResult;
+
+  // Filter activities instantly client-side
+  const activities = useMemo(() => {
+    return rawActivities.filter((event) => {
+      if (filters.keyword) {
+        const q = filters.keyword.toLowerCase();
+        const matchesDesc = event.description.toLowerCase().includes(q);
+        const matchesActor = event.actor.displayName.toLowerCase().includes(q);
+        if (!matchesDesc && !matchesActor) return false;
+      }
+
+      if (filters.participant) {
+        const p = filters.participant.toLowerCase();
+        const matchesActor = event.actor.displayName.toLowerCase().includes(p);
+        if (!matchesActor) return false;
+      }
+
+      if (filters.assetCode) {
+        if (event.assetCode && event.assetCode !== filters.assetCode) return false;
+      }
+
+      if (filters.fromDate) {
+        const eventDate = new Date(event.timestamp).getTime();
+        const fromTime = new Date(filters.fromDate).getTime();
+        if (!isNaN(fromTime) && eventDate < fromTime) return false;
+      }
+
+      if (filters.toDate) {
+        const eventDate = new Date(event.timestamp).getTime();
+        // Set to end of day for inclusivity
+        const toTime = new Date(filters.toDate).getTime() + 86399999;
+        if (!isNaN(toTime) && eventDate > toTime) return false;
+      }
+
+      return true;
+    });
+  }, [rawActivities, filters]);
 
   return (
     <SectionBoundary subject="the activity feed">
@@ -186,12 +252,14 @@ export function GroupActivityFeed({
 
         {!isLoading && !isError && (
           <>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-4">
               <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
-                Activity Feed ({activities.length})
+                Activity Feed ({activities.length}{rawActivities.length !== activities.length ? ` of ${rawActivities.length}` : ""})
               </h3>
               {polling && <PollingIndicator isPolling={live} pollingStalled={pollingStalled} />}
             </div>
+
+            <ExpenseFilterBar value={filters} onChange={setFilters} />
 
             <ActivityList activities={activities} />
           </>
@@ -258,7 +326,7 @@ function ActivityItem({ event }: { event: GroupActivityEvent }) {
             <Money
               value={event.amount}
               assetCode={event.assetCode ?? "XLM"}
-              className="text-base font-bold text-ink"
+              className="font-mono font-bold text-sm"
             />
           </div>
         )}
