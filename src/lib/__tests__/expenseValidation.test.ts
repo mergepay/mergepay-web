@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  expenseSplitSchema,
   AMOUNT_DECIMAL_PLACES,
   formatAmountUnits,
   formatDecimalUnits,
@@ -10,6 +11,17 @@ import {
   type ExpenseFormContext,
   type ExpenseFormInput,
 } from "../expenseValidation";
+
+describe("expenseSplitSchema", () => {
+  it("requires exact custom totals and decimal-7 precision", () => {
+    assert.equal(expenseSplitSchema.safeParse({ amount: "10", splitType: "custom", shares: [{ userId: "a", amount: "5" }, { userId: "b", amount: "5" }] }).success, true);
+    assert.equal(expenseSplitSchema.safeParse({ amount: "10", splitType: "custom", shares: [{ userId: "a", amount: "5.00000001" }, { userId: "b", amount: "5" }] }).success, false);
+  });
+  it("requires percentages to total exactly 100", () => {
+    assert.equal(expenseSplitSchema.safeParse({ amount: "10", splitType: "percentage", shares: [{ userId: "a", percent: 50 }, { userId: "b", percent: 50 }] }).success, true);
+    assert.equal(expenseSplitSchema.safeParse({ amount: "10", splitType: "percentage", shares: [{ userId: "a", percent: 60 }, { userId: "b", percent: 30 }] }).success, false);
+  });
+});
 
 const MEMBERS = ["user-a", "user-b", "user-c"];
 

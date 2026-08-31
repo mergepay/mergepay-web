@@ -7,7 +7,21 @@ import {
   escapeHtml,
   isValidTxHash,
 } from "../export";
-import type { Expense, Settlement, User } from "../types";
+import {
+  buildExpenseExportCsv,
+  buildExportFilename,
+  exportSettlementStatus,
+  formatExportDate,
+  matchesExportDateRange,
+  matchesExportStatus,
+} from "../utils";
+import type {
+  Expense,
+  ExpenseShare,
+  Settlement,
+  ShareStatus,
+  User,
+} from "../types";
 
 const VALID_HASH = "a".repeat(64);
 
@@ -226,3 +240,321 @@ describe("buildReceiptHtml", () => {
     assert.ok(html.includes("<b>not-a-date</b>"));
   });
 });
+
+function share(userId: string, status: ShareStatus, amount: string): ExpenseShare {
+  return {
+    id: `share-${userId}-${status}`,
+    expenseId: "exp-1",
+    userId,
+    user: user({ id: userId, displayName: userId }),
+    shareAmount: amount,
+    status,
+  };
+}
+
+describe("formatExportDate", () => {
+  it("formats an ISO instant as YYYY-MM-DD", () => {
+    assert.equal(formatExportDate("2024-05-01T12:00:00.000Z"), "2024-05-01");
+  });
+
+  it("returns an empty string for unparseable input", () => {
+    assert.equal(formatExportDate("not-a-date"), "");
+    assert.equal(formatExportDate(null), "");
+    assert.equal(formatExportDate(undefined), "");
+  });
+});
+
+describe("exportSettlementStatus", () => {
+  it("maps settled to Settled and everything else to Unsettled", () => {
+    assert.equal(exportSettlementStatus("settled"), "Settled");
+    assert.equal(exportSettlementStatus("pending"), "Unsettled");
+    assert.equal(exportSettlementStatus("settling"), "Unsettled");
+    assert.equal(exportSettlementStatus(undefined), "Unsettled");
+  });
+});
+
+describe("matchesExportStatus", () => {
+  const e = (status: ShareStatus) =>
+    expense({ shares: [share("me", status, "10.0000000")] });
+
+  it("matches everything for the all filter", () => {
+    assert.equal(matchesExportStatus(e("settled"), "me", "all"), true);
+    assert.equal(matchesExportStatus(e("pending"), "me", "all"), true);
+  });
+
+  it("matches settled shares for the settled filter", () => {
+    assert.equal(matchesExportStatus(e("settled"), "me", "settled"), true);
+    assert.equal(matchesExportStatus(e("pending"), "me", "settled"), false);
+  });
+
+  it("matches non-settled shares for the unsettled filter", () => {
+    assert.equal(matchesExportStatus(e("pending"), "me", "unsettled"), true);
+    assert.equal(matchesExportStatus(e("settling"), "me", "unsettled"), true);
+    assert.equal(matchesExportStatus(e("settled"), "me", "unsettled"), false);
+  });
+
+  it("treats an absent share as unsettled", () => {
+    assert.equal(matchesExportStatus(e("pending"), "other", "settled"), false);
+    assert.equal(matchesExportStatus(e("pending"), "other", "unsettled"), true);
+  });
+});
+
+describe("matchesExportDateRange", () => {
+  const e = () => expense({ createdAt: "2024-05-15T00:00:00.000Z" });
+
+  it("includes everything when no range is set", () => {
+    assert.equal(matchesExportDateRange(e(), {}), true);
+  });
+
+  it("respects an inclusive start date", () => {
+    assert.equal(matchesExportDateRange(e(), { startDate: "2024-05-15" }), true);
+    assert.equal(matchesExportDateRange(e(), { startDate: "2024-05-16" }), false);
+  });
+
+  it("respects an inclusive end date", () => {
+    assert.equal(matchesExportDateRange(e(), { endDate: "2024-05-15" }), true);
+    assert.equal(matchesExportDateRange(e(), { endDate: "2024-05-14" }), false);
+  });
+
+  it("respects a bounded range", () => {
+    assert.equal(
+      matchesExportDateRange(e(), { startDate: "2024-05-01", endDate: "2024-05-31" }),
+      true
+    );
+    assert.equal(
+      matchesExportDateRange(e(), { startDate: "2024-06-01", endDate: "2024-06-30" }),
+      false
+    );
+  });
+});
+
+describe("buildExportFilename", () => {
+  it("follows the mergepay-export-{group-id}-{timestamp}.csv pattern", () => {
+    const name = buildExportFilename(
+      "grp-1",
+      new Date("2024-05-01T12:00:00.000Z")
+    );
+    assert.equal(
+      name,
+      "mergepay-export-grp-1-2024-05-01T12-00-00-000Z.csv"
+    );
+  });
+});
+
+describe("buildExpenseExportCsv", () => {
+  const many = () =>
+    expense({
+      id: "exp-many",
+      title: 'He said "hi", pay up',
+      payer: user({ stellarPublicKey: "GBDONALDPAYER" }),
+      shares: [share("me", "settled", "33.5000000")],
+    });
+  const withNewline = () =>
+    expense({
+      id: "exp-nl",
+      title: "line1\nline2",
+      payer: user({ displayName: "Ada" }),
+      shares: [share("me", "pending", "10.0000000")],
+    });
+  const formula = () =>
+    expense({
+      id: "exp-formula",
+      title: "=cmd|' /c calc'!A1",
+      shares: [share("me", "pending", "5.0000000")],
+    });
+
+  it("emits the required header row", () => {
+    const header = buildExpenseExportCsv([], "me", { status: "all" }).split(
+      "\n"
+    )[0];
+    assert.equal(
+      header,
+      "Date,Description,Base Amount,Asset Code,Payer Address,Split Mode,Your Share,Settlement Status"
+    );
+  });
+
+  it("writes each required column for a normal expense", () => {
+    const csv = buildExpenseExportCsv(
+      [
+        expense({
+          createdAt: "2024-05-01T12:00:00.000Z",
+          title: "Dinner",
+          amount: "100.0000000",
+          assetCode: "XLM",
+          payer: user({ stellarPublicKey: "GPAYER123" }),
+          splitType: "equal",
+          shares: [share("me", "settled", "50.0000000")],
+        }),
+      ],
+      "me",
+      { status: "all" }
+    );
+    const [, row] = csv.split("\n");
+    assert.equal(
+      row,
+      "2024-05-01,Dinner,100.0000000,XLM,GPAYER123,equal,50.0000000,Settled"
+    );
+  });
+
+  it("quotes fields containing commas, quotes and newlines", () => {
+    const csv = buildExpenseExportCsv([many(), withNewline()], "me", {
+      status: "all",
+    });
+    // Comma + quote in the title, all cells escaped per RFC 4180.
+    assert.ok(csv.includes('"He said ""hi"", pay up"'));
+    // Newline in the title is preserved inside quotes.
+    assert.ok(csv.includes('"line1\nline2"'));
+  });
+
+  it("neutralizes formula prefixes in user-controlled fields", () => {
+    const csv = buildExpenseExportCsv([formula()], "me", { status: "all" });
+    assert.ok(csv.includes(",'=cmd|' /c calc'!A1,"));
+    assert.ok(!csv.includes(",=cmd|' /c calc'"));
+  });
+
+  it("filters rows by settlement status based on the current user's share", () => {
+    const csv = buildExpenseExportCsv(
+      [
+        expense({ id: "a", shares: [share("me", "settled", "1.0000000")] }),
+        expense({ id: "b", shares: [share("me", "pending", "2.0000000")] }),
+      ],
+      "me",
+      { status: "settled" }
+    );
+    const dataRows = csv.split("\n").slice(1);
+    assert.equal(dataRows.length, 1);
+    assert.ok(dataRows[0].includes("Settled"));
+    assert.ok(!dataRows[0].includes("Unsettled"));
+  });
+
+  it("filters rows by status for unsettled", () => {
+    const csv = buildExpenseExportCsv(
+      [
+        expense({ id: "a", shares: [share("me", "settled", "1.0000000")] }),
+        expense({ id: "b", shares: [share("me", "pending", "2.0000000")] }),
+      ],
+      "me",
+      { status: "unsettled" }
+    );
+    const dataRows = csv.split("\n").slice(1);
+    assert.equal(dataRows.length, 1);
+    assert.ok(dataRows[0].includes("Unsettled"));
+  });
+
+  it("filters rows by the selected date range", () => {
+    const csv = buildExpenseExportCsv(
+      [
+        expense({
+          id: "early",
+          createdAt: "2024-01-01T00:00:00.000Z",
+          shares: [share("me", "settled", "1.0000000")],
+        }),
+        expense({
+          id: "late",
+          createdAt: "2024-12-01T00:00:00.000Z",
+          shares: [share("me", "settled", "2.0000000")],
+        }),
+      ],
+      "me",
+      { status: "all", startDate: "2024-06-01", endDate: "2024-12-31" }
+    );
+    const dataRows = csv.split("\n").slice(1);
+    assert.equal(dataRows.length, 1);
+    assert.ok(dataRows[0].includes("2024-12-01"));
+  });
+
+  it("sorts rows oldest-first", () => {
+    const csv = buildExpenseExportCsv(
+      [
+        expense({
+          id: "b",
+          createdAt: "2024-05-01T00:00:00.000Z",
+          shares: [share("me", "settled", "1.0000000")],
+        }),
+        expense({
+          id: "a",
+          createdAt: "2024-01-01T00:00:00.000Z",
+          shares: [share("me", "settled", "2.0000000")],
+        }),
+      ],
+      "me",
+      { status: "all" }
+    );
+    const rows = csv.split("\n").slice(1);
+    assert.equal(rows[0].startsWith("2024-01-01"), true);
+    assert.equal(rows[1].startsWith("2024-05-01"), true);
+  });
+
+  it("produces RFC 4180 well-formed output with a trailing balanced quote set", () => {
+    const csv = buildExpenseExportCsv([many(), formula(), withNewline()], "me", {
+      status: "all",
+    });
+    // Split into records honoring newlines that are embedded inside quoted
+    // fields — a naive `.split("\n")` would break a multi-line cell in two.
+    const records = splitCsvRecords(csv);
+    // Header + one record per expense.
+    assert.equal(records.length, 4);
+    const dataRows = records.slice(1);
+    // Every record has the same number of columns.
+    const rowCounts = dataRows.map(countCsvColumns);
+    assert.ok(rowCounts.every((n) => n === 8));
+    // Each record is individually declosable (no dangling opening quote).
+    for (const row of dataRows) assert.equal(hasBalancedQuotes(row), true);
+  });
+});
+
+/** Split a full CSV into records, honoring newlines inside quoted fields. */
+function splitCsvRecords(csv: string): string[] {
+  const records: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i];
+    if (ch === '"' && csv[i + 1] === '"') {
+      current += ch;
+      current += csv[i + 1];
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      current += ch;
+    } else if (ch === "\n" && !inQuotes) {
+      records.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current.length > 0) records.push(current);
+  return records;
+}
+
+/** True when no field is left inside an unclosed quote. */
+function hasBalancedQuotes(row: string): boolean {
+  let inQuotes = false;
+  for (let i = 0; i < row.length; i++) {
+    if (row[i] === '"' && row[i + 1] === '"') {
+      i++;
+      continue;
+    }
+    if (row[i] === '"') inQuotes = !inQuotes;
+  }
+  return !inQuotes;
+}
+
+/** Count top-level columns of an RFC 4180 row honoring quoted fields. */
+function countCsvColumns(row: string): number {
+  let count = 0;
+  let inQuotes = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (ch === '"' && row[i + 1] === '"') {
+      i++;
+      continue;
+    }
+    if (ch === '"') inQuotes = !inQuotes;
+    else if (ch === "," && !inQuotes) count++;
+  }
+  return count + 1;
+}

@@ -7,7 +7,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { api } from "./api";
+import { api, getInviteByCode } from "./api";
 import { handleApiError } from "./errorHandler";
 import { useAuth } from "./auth-store";
 import type {
@@ -18,17 +18,28 @@ import type {
   CreateGroupRequest,
   CreateSettlementRequest,
   EnableTreasuryRequest,
+  GroupActivityResponse,
   InviteRequest,
   SettleExpenseRequest,
   TreasuryDepositRequest,
   TreasuryWithdrawRequest,
   UpdateMeRequest,
+  Role,
 } from "./types";
 import type { ExpensesPage } from "./expenses";
 import { shouldResetQueryCache } from "./queryState";
+import {
+  aggregateTreasury,
+  type TreasuryAggregate,
+  type TreasurySource,
+} from "./treasury";
 import { mergeHistoryPages, type AccumulatedHistory } from "./expenses";
-import type { Expense, LedgerEntry, Settlement } from "./types";
+import type { Expense, LedgerEntry, Settlement, User } from "./types";
 import type { HistoryResponse, LedgerResponse } from "./types";
+import {
+  createOptimisticExpenseEvent,
+  calculateOptimisticActivityList,
+} from "./activity";
 
 export const qk = {
   me: ["me"] as const,
@@ -37,10 +48,12 @@ export const qk = {
   expenses: (groupId: string) => ["groups", groupId, "expenses"] as const,
   balances: (groupId: string) => ["groups", groupId, "balances"] as const,
   ledger: (groupId: string) => ["groups", groupId, "ledger"] as const,
+  activity: (groupId: string) => ["groups", groupId, "activity"] as const,
   settlement: (id: string) => ["settlement", id] as const,
   treasury: (groupId: string) => ["groups", groupId, "treasury"] as const,
   treasuryHistory: (groupId: string) =>
     ["groups", groupId, "treasury", "history"] as const,
+  invite: (code: string) => ["invite", code] as const,
   anchors: ["anchors"] as const,
   anchorSessions: ["anchors", "sessions"] as const,
   history: ["history"] as const,
@@ -132,14 +145,24 @@ export function useGroup(id: string) {
   });
 }
 
-export function useExpenses(groupId: string) {
+export function useInviteByCode(code: string | null) {
+  return useQuery({
+    queryKey: qk.invite(code ?? ""),
+    queryFn: () => getInviteByCode(code!),
+    enabled: Boolean(code),
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+export function useExpenses(groupId?: string) {
   // Uses the global default staleTime (30s, see src/lib/queryClient.ts):
   // list data is shown from cache instantly and revalidated in the
   // background (stale-while-revalidate), while expense mutations still
   // force a refetch through `invalidateQueries`.
   return useQuery({
-    queryKey: qk.expenses(groupId),
-    queryFn: () => api.listExpenses(groupId),
+    queryKey: qk.expenses(groupId ?? "_"),
+    queryFn: () => api.listExpenses(groupId as string),
     staleTime: 30_000,
     enabled: useSessionEnabled() && Boolean(groupId),
   });
@@ -203,6 +226,25 @@ export function useLedger(groupId: string) {
 }
 
 /**
+ * Group-scoped settlement entries, derived from the group ledger.
+ *
+ * Keeps only the settlement entries of a group's ledger so callers can
+ * render or export just the settlements without re-shaping the feed.
+ */
+export function useSettlements(groupId?: string) {
+  return useQuery({
+    queryKey: qk.ledger(groupId ?? "_"),
+    queryFn: () => api.getLedger(groupId as string),
+    enabled: Boolean(groupId),
+    select: (data: LedgerResponse) => ({
+      settlements: data.entries
+        .filter((entry) => entry.type === "settlement")
+        .map((entry) => entry.settlement),
+    }),
+  });
+}
+
+/**
  * Cursor-paginated ledger backed by GET /groups/:id/ledger.
  *
  * Use this for groups with many entries — loading the full dataset
@@ -241,6 +283,52 @@ export function useTreasuryHistory(groupId: string, enabled: boolean) {
     queryFn: () => api.treasuryHistory(groupId),
     enabled,
   });
+}
+
+/**
+ * Aggregate treasury balances across every group the user belongs to that has
+ * a treasury enabled, summed per asset code (#392).
+ *
+ * Each enabled treasury is fetched in parallel with {@link useQueries} so the
+ * widget gets a single, collective picture. Loading state reflects at least
+ * one request still in flight; a failure in one treasury does not blank the
+ * whole aggregate (the healthy results still render).
+ */
+export function useTreasuryAggregate(
+  groups: { id: string; name: string; treasuryEnabled: boolean }[] = []
+): {
+  data: TreasuryAggregate | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  refetch: () => void;
+} {
+  const sessionEnabled = useSessionEnabled();
+  const enabled = groups.filter((g) => g.treasuryEnabled);
+  const ids = enabled.map((g) => g.id).sort();
+
+  const query = useQuery({
+    queryKey: ["treasury", "aggregate", ids],
+    queryFn: async (): Promise<TreasuryAggregate> => {
+      const results = await Promise.allSettled(
+        enabled.map((g) => api.treasuryInfo(g.id))
+      );
+      const sources: TreasurySource[] = enabled.map((g, i) => ({
+        groupId: g.id,
+        groupName: g.name,
+        balances:
+          results[i].status === "fulfilled" ? (results[i].value.balances ?? []) : [],
+      }));
+      return aggregateTreasury(sources);
+    },
+    enabled: sessionEnabled && enabled.length > 0,
+  });
+
+  return {
+    data: query.data,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: () => void query.refetch(),
+  };
 }
 
 export function useAnchors() {
@@ -394,7 +482,7 @@ export function invalidationFilters(target: InvalidationTarget): {
   return "queryKey" in target ? target : { queryKey: target };
 }
 
-function useInvalidator() {
+export function useInvalidator() {
   const qc = useQueryClient();
   return (targets: readonly InvalidationTarget[]) =>
     Promise.all(targets.map((t) => qc.invalidateQueries(invalidationFilters(t))));
@@ -449,6 +537,24 @@ export function useArchiveGroup(groupId: string) {
     onSuccess: () => invalidate([qk.groups, qk.group(groupId)]),
   });
 }
+
+export function useUpdateMemberRole(groupId: string) {
+  const invalidate = useInvalidator();
+  return useMutation({
+    mutationFn: ({ memberId, role }: { memberId: string; role: Role }) =>
+      api.updateMemberRole(groupId, memberId, role),
+    onSuccess: () => invalidate([qk.group(groupId)]),
+  });
+}
+
+export function useRemoveMember(groupId: string) {
+  const invalidate = useInvalidator();
+  return useMutation({
+    mutationFn: (memberId: string) => api.removeMember(groupId, memberId),
+    onSuccess: () => invalidate([qk.group(groupId), qk.groups]),
+  });
+}
+
 
 export function useCreateInvite(groupId: string) {
   return useMutation({
@@ -509,15 +615,23 @@ export function useCreateExpense(groupId: string) {
 
   return useMutation({
     mutationFn: (data: CreateExpenseRequest) => api.createExpense(groupId, data),
-    // Optimistically update group member balances before the API responds
+    // Optimistically update expense list, balances, and activity feed before the API responds
     onMutate: async (data: CreateExpenseRequest) => {
       const balanceKey = qk.balances(groupId);
+      const activityKey = qk.activity(groupId);
+      const expensesKeyPrefix = qk.expenses(groupId);
 
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
-      await qc.cancelQueries({ queryKey: balanceKey });
+      await Promise.all([
+        qc.cancelQueries({ queryKey: balanceKey }),
+        qc.cancelQueries({ queryKey: activityKey }),
+        qc.cancelQueries({ queryKey: expensesKeyPrefix }),
+      ]);
 
       // Save a snapshot of current query data for rollback on error
       const previousBalances = qc.getQueryData<BalancesResponse>(balanceKey);
+      const previousActivity = qc.getQueryData<GroupActivityResponse>(activityKey);
+      const previousExpenses = qc.getQueriesData({ queryKey: expensesKeyPrefix });
 
       // Apply optimistic update only if previous balance cache exists
       if (previousBalances) {
@@ -533,21 +647,114 @@ export function useCreateExpense(groupId: string) {
         });
       }
 
-      return { previousBalances };
+      // Optimistically insert new activity event into activity feed
+      const user = me.data?.user ?? useAuth.getState().user;
+      const optEvent = createOptimisticExpenseEvent(
+        groupId,
+        data,
+        user ? { id: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl } : undefined
+      );
+
+      qc.setQueryData<GroupActivityResponse>(activityKey, (old: GroupActivityResponse | undefined) => {
+        return calculateOptimisticActivityList(old, optEvent);
+      });
+
+      // Optimistically prepend new expense to cached expense list queries
+      const optId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const payerUser: User = user ?? {
+        id: data.payerUserId || "",
+        displayName: "You",
+        avatarUrl: null,
+        stellarPublicKey: "",
+        createdAt: new Date().toISOString(),
+      };
+
+      const optExpense: Expense = {
+        id: optId,
+        groupId,
+        payerUserId: data.payerUserId || payerUser.id,
+        payer: payerUser,
+        title: data.title,
+        description: data.description ?? null,
+        amount: data.amount,
+        assetCode: data.assetCode,
+        assetIssuer: data.assetIssuer ?? null,
+        splitType: data.splitType,
+        memo: data.memo ?? null,
+        receiptUrl: data.receiptUrl ?? null,
+        createdAt: new Date().toISOString(),
+        shares: (data.shares ?? []).map((s, idx) => ({
+          id: `share-opt-${idx}`,
+          expenseId: optId,
+          userId: s.userId,
+          user: {
+            id: s.userId,
+            displayName: "Member",
+            avatarUrl: null,
+            stellarPublicKey: "",
+            createdAt: new Date().toISOString(),
+          },
+          shareAmount: s.amount ?? "0",
+          status: "pending",
+        })),
+        isOptimistic: true,
+        pending: true,
+      };
+
+      for (const [key, oldData] of previousExpenses) {
+        if (!oldData) continue;
+        if (typeof oldData === "object" && "pages" in oldData && Array.isArray((oldData as any).pages)) {
+          qc.setQueryData(key, (old: any) => {
+            if (!old || !old.pages || old.pages.length === 0) return old;
+            const firstPage = old.pages[0];
+            const updatedFirstPage = {
+              ...firstPage,
+              expenses: [optExpense, ...(firstPage.expenses || [])],
+            };
+            return {
+              ...old,
+              pages: [updatedFirstPage, ...old.pages.slice(1)],
+            };
+          });
+        } else if (typeof oldData === "object" && "expenses" in oldData && Array.isArray((oldData as any).expenses)) {
+          qc.setQueryData(key, (old: any) => ({
+            ...old,
+            expenses: [optExpense, ...(old.expenses || [])],
+          }));
+        }
+      }
+
+      return { previousBalances, previousActivity, previousExpenses };
     },
     // On failure, revert back to saved snapshot and display error toast
     onError: (err, _variables, context) => {
       if (context?.previousBalances) {
         qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
-      handleApiError(err, "Failed to create expense. Balances reverted.");
+      if (context?.previousActivity) {
+        qc.setQueryData(qk.activity(groupId), context.previousActivity);
+      }
+      if (context?.previousExpenses) {
+        for (const [key, oldData] of context.previousExpenses) {
+          qc.setQueryData(key, oldData);
+        }
+      }
+      handleApiError(err, "Failed to create expense. Cache reverted.");
     },
     // Refetch canonical data on settlement (success or error) so the list,
-    // balances and ledger reflect the server's view — an optimistic entry
-    // is never left alongside the persisted one.
+    // balances, ledger, and activity feed reflect the server's view.
     onSettled: () => {
       invalidate(expenseCacheKeys(groupId));
+      qc.invalidateQueries({ queryKey: qk.activity(groupId) });
     },
+  });
+}
+
+export function useGroupActivity(groupId: string) {
+  return useQuery({
+    queryKey: qk.activity(groupId),
+    queryFn: () => api.getGroupActivity(groupId),
+    staleTime: 10_000,
   });
 }
 

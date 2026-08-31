@@ -33,12 +33,11 @@ export function useAuth() {
   const [isLoading, setIsLoading] = useState(false);
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
-  const hydrated = useAuthStore((s) => s.hydrated);
   const restoreStatus = useAuthStore((s) => s.restoreStatus);
 
   const isAuthenticated = !!token;
   /** True until the persisted session has been resolved one way or another. */
-  const restoring = !hydrated || restoreStatus !== "settled";
+  const restoring = restoreStatus !== "settled";
 
   const logout = useCallback(async () => {
     try {
@@ -112,7 +111,6 @@ export function useAuth() {
   return {
     user,
     token,
-    hydrated,
     restoring,
     isAuthenticated,
     login,

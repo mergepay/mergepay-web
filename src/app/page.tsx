@@ -95,9 +95,10 @@ function Hero() {
             <Sparkles className="h-4 w-4" /> Stellar-native settlement
           </span>
           <h1 className="mt-5 font-display text-5xl leading-[0.95] tracking-tight md:text-7xl">
-            Split bills.
+            Mergepay.
             <br />
-            <span className="text-grape">Settle</span> on{" "}
+            Split bills,{" "}
+            <span className="text-grape">settle</span> on{" "}
             <span className="relative inline-block">
               Stellar.
               <svg

@@ -52,6 +52,7 @@ import type {
   EnableTreasuryRequest,
   ExpenseResponse,
   ExpensesResponse,
+  GroupActivityResponse,
   GroupDetail,
   GroupResponse,
   GroupsResponse,
@@ -73,7 +74,9 @@ import type {
   UpdateExpenseRequest,
   UpdateMeRequest,
   UploadResponse,
+  User,
   VerifyResponse,
+  Role,
 } from "./types";
 import type { ExpensesPage } from "./expenses";
 
@@ -163,7 +166,9 @@ async function request<T>(
 
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { ...options, headers, body });
+    // Browser calls go through the same-origin Next.js API proxy
+    // (src/app/api/*), which forwards to the backend via API_URL.
+    res = await fetch(`/api${path}`, { ...options, headers, body });
   } catch (err) {
     // fetch only rejects on network-level failures (offline, DNS, CORS)
     // or intentional aborts. Normalize and report centrally — every call
@@ -214,6 +219,10 @@ export const api = {
       method: "POST",
       json: { transaction },
       schema: VerifyResponseSchema as unknown as z.ZodType<VerifyResponse>,
+    }),
+  authRefresh: () =>
+    request<{ token: string; user: User }>("/auth/refresh", {
+      method: "POST",
     }),
   authLogout: () =>
     request<{ ok: boolean }>("/auth/logout", {
@@ -268,6 +277,30 @@ export const api = {
       method: "POST",
       schema: GroupResponseSchema as unknown as z.ZodType<GroupResponse>,
     }),
+  updateMemberRole: (groupId: string, memberId: string, role: Role) =>
+    request<{ ok: boolean }>(`/groups/${groupId}/members/${memberId}/role`, {
+      method: "PATCH",
+      json: { role },
+      schema: OkResponseSchema as unknown as z.ZodType<{ ok: boolean }>,
+    }),
+  removeMember: (groupId: string, memberId: string) =>
+    request<{ ok: boolean }>(`/groups/${groupId}/members/${memberId}`, {
+      method: "DELETE",
+      schema: OkResponseSchema as unknown as z.ZodType<{ ok: boolean }>,
+    }),
+
+  getGroupActivity: async (groupId: string): Promise<GroupActivityResponse> => {
+    try {
+      return await request<GroupActivityResponse>(`/groups/${groupId}/activity`);
+    } catch {
+      const [detail, expensesRes] = await Promise.all([
+        api.getGroup(groupId).catch(() => null),
+        api.listExpenses(groupId).catch(() => ({ expenses: [] })),
+      ]);
+      const { synthesizeActivityEvents } = await import("./activity");
+      return { activities: synthesizeActivityEvents(detail, expensesRes.expenses) };
+    }
+  },
 
   // -- expenses ---------------------------------------------------------------
   /**
@@ -297,7 +330,7 @@ export const api = {
 
     try {
       const res = await fetch(
-        `${API_URL}/groups/${groupId}/expenses`,
+        `/api/groups/${groupId}/expenses`,
         {
           method: "POST",
           headers,
@@ -518,6 +551,10 @@ export const api = {
     request<AnchorSessionsResponse>("/anchors/sessions", {
       schema: AnchorSessionsResponseSchema as unknown as z.ZodType<AnchorSessionsResponse>,
     }),
+  getAnchorSession: (sessionId: string) =>
+    request<AnchorSessionResponse>(`/anchors/sessions/${sessionId}`, {
+      schema: AnchorSessionResponseSchema as unknown as z.ZodType<AnchorSessionResponse>,
+    }),
 
   // -- history & uploads ------------------------------------------------------------
   /**
@@ -548,3 +585,14 @@ export const api = {
     });
   },
 };
+
+/**
+ * Fetch invite details by code without redeeming the invite.
+ * Kept outside the `api` object to avoid TypeScript inference-depth
+ * issues with the very large object literal.
+ */
+export function getInviteByCode(code: string) {
+  return request<InviteResponse>(`/invites/${encodeURIComponent(code)}`, {
+    schema: InviteResponseSchema as unknown as z.ZodType<InviteResponse>,
+  });
+}

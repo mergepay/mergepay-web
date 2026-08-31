@@ -307,3 +307,28 @@ export function formatAssetAmountText(
 ): string {
   return formatAssetAmount(value, assetCode, options).text;
 }
+
+export const SUPPORTED_FIAT_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "ARS", "PHP"] as const;
+export type SupportedFiatCurrency = (typeof SUPPORTED_FIAT_CURRENCIES)[number];
+
+// Indicative offline values keep the form usable when the rate service is
+// unavailable. They are deliberately overridable and must never be treated as
+// a settlement quote.
+const FALLBACK_USD_RATES: Record<SupportedFiatCurrency, number> = {
+  USD: 1, EUR: 1.09, GBP: 1.27, CAD: 0.73, ARS: 0.001, PHP: 0.018,
+};
+
+export function currencyRate(currency: SupportedFiatCurrency): number {
+  return FALLBACK_USD_RATES[currency];
+}
+
+export function convertCurrency(amount: string | number, currency: SupportedFiatCurrency, rate = currencyRate(currency)): string | null {
+  const value = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(value) || value < 0 || !Number.isFinite(rate) || rate <= 0) return null;
+  return (value * rate).toFixed(7).replace(/0+$/, "").replace(/\.$/, "") || "0";
+}
+
+export function rateDeviationPercent(override: number, market: number): number {
+  if (!Number.isFinite(override) || !Number.isFinite(market) || market <= 0) return Infinity;
+  return Math.abs(override - market) / market * 100;
+}

@@ -12,7 +12,7 @@ import { z } from "zod";
 // Primitives & enums — keep in sync with src/lib/types.ts
 // ---------------------------------------------------------------------------
 
-const RoleSchema = z.enum(["admin", "member"]);
+const RoleSchema = z.enum(["admin", "member", "viewer"]);
 const SplitTypeSchema = z.enum(["equal", "custom", "percentage"]);
 const ShareStatusSchema = z.enum(["pending", "settling", "settled"]);
 const SettlementStatusSchema = z.enum([
@@ -33,7 +33,9 @@ const AnchorSessionKindSchema = z.enum(["deposit", "withdrawal"]);
 const AnchorSessionStatusSchema = z.enum([
   "incomplete",
   "pending_user_transfer_start",
+  "pending_external",
   "pending_anchor",
+  "no_market_active",
   "completed",
   "error",
   "refunded",

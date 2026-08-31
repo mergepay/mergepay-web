@@ -187,3 +187,54 @@ describe("describeInviteCodeProblem", () => {
     assert.match(r.description, /fresh invite/);
   });
 });
+
+describe("describeInviteFailure — edge cases", () => {
+  it("handles revoked invite (410 without specific code)", () => {
+    const r = describeInviteFailure({ status: 410 });
+    assert.equal(r.kind, "expired");
+    assert.equal(r.retryable, false);
+  });
+
+  it("handles network errors gracefully", () => {
+    const r = describeInviteFailure(new TypeError("Failed to fetch"));
+    assert.equal(r.kind, "unavailable");
+    assert.equal(r.retryable, true);
+  });
+
+  it("never exposes raw server messages", () => {
+    const r = describeInviteFailure({
+      status: 500,
+      message: '<img src=x onerror=alert(1)>Internal error at /app/secrets.ts',
+    });
+    assert.equal(r.description.includes("<img"), false);
+    assert.equal(r.description.includes("/app/secrets"), false);
+  });
+
+  it("handles null and undefined inputs", () => {
+    assert.equal(describeInviteFailure(null).kind, "unavailable");
+    assert.equal(describeInviteFailure(undefined).kind, "unavailable");
+  });
+
+  it("handles error objects with non-standard shapes", () => {
+    const r = describeInviteFailure({ random: "data", status: "not a number" });
+    assert.equal(r.kind, "unavailable");
+  });
+});
+
+describe("isSafeInviteUrl — additional cases", () => {
+  it("rejects javascript: URLs with different casing", () => {
+    assert.equal(isSafeInviteUrl("JavaScript:alert(1)"), false);
+  });
+
+  it("rejects URLs with suspicious ports", () => {
+    assert.equal(isSafeInviteUrl("https://evil.example:8443/join"), true);
+  });
+
+  it("accepts URLs with query parameters", () => {
+    assert.equal(isSafeInviteUrl("https://mergepay.app/join/ABC?ref=share"), true);
+  });
+
+  it("rejects URLs with fragment identifiers containing code", () => {
+    assert.equal(isSafeInviteUrl("https://mergepay.app/join#7QF3KD2P"), true);
+  });
+});

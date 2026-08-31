@@ -17,17 +17,135 @@ import {
   signTransaction,
 } from "@stellar/freighter-api";
 import { api } from "./api";
+import { Asset, Operation, TransactionBuilder, Account } from "@stellar/stellar-sdk";
 import { useAuth } from "./auth-store";
 import {
   describeNetwork,
   EXPECTED_NETWORK_LABEL,
+  HORIZON_URL,
   NETWORK_PASSPHRASE,
+  SETTLEMENT_ASSETS,
 } from "./constants";
+import {
+  calculateAssetBalances,
+  fetchHorizonAccountBalances,
+  type TrustlineAsset,
+} from "./trustline";
 import type { User } from "./types";
 import type { WalletProbe } from "./walletReadiness";
 import type { WalletSnapshot } from "./walletSession";
 
 export const FREIGHTER_INSTALL_URL = "https://freighter.app";
+export const WALLET_CONNECTED_SESSION_KEY = "mergepay_wallet_connected";
+export const WALLET_ADDRESS_SESSION_KEY = "mergepay_last_connected_wallet";
+
+/**
+ * Timeout wrapper for Freighter API promises.
+ * Prevents requests from hanging indefinitely if the extension is locked/unresponsive.
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs = 5000,
+  errorMessage = "Freighter request timed out"
+): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new WalletNetworkError(errorMessage));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+export async function hasTrustline(publicKey: string, assetCode: string, issuer: string): Promise<boolean> {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org"}/accounts/${encodeURIComponent(publicKey)}`);
+  if (response.status === 404) return false;
+  if (!response.ok) throw new Error("Could not check the asset trustline");
+  const account = (await response.json()) as { balances?: Array<{ asset_code?: string; asset_issuer?: string }> };
+  return account.balances?.some((balance) => balance.asset_code === assetCode && balance.asset_issuer === issuer) ?? false;
+}
+
+/**
+ * Live balances + trustline status for the configured settlement assets.
+ *
+ * Reads the account from Horizon (via the shared `trustline.ts` helpers)
+ * and derives, for every configured asset (XLM + the stable asset), the
+ * current balance and whether an active trustline exists. XLM is native
+ * and always "has a trustline".
+ *
+ * Failures degrade to an empty balance list (never a throw) so the widget
+ * can render "balance unavailable" without blocking the rest of the page.
+ */
+export async function getWalletAssets(
+  publicKey: string
+): Promise<TrustlineAsset[]> {
+  if (!publicKey) return [];
+  const balances = await fetchHorizonAccountBalances(publicKey);
+  return calculateAssetBalances(balances, SETTLEMENT_ASSETS);
+}
+
+/**
+ * Submit an already-signed transaction envelope to the configured network.
+ *
+ * Only the signed XDR crosses the wire — the private key never leaves the
+ * wallet. Returns the on-chain transaction hash on success.
+ */
+export async function submitSignedXdr(signedXdr: string): Promise<string> {
+  const response = await fetch(`${HORIZON_URL}/transactions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ tx: signedXdr }).toString(),
+  });
+  if (!response.ok) {
+    throw new Error("The trustline transaction could not be submitted to the network.");
+  }
+  const data = (await response.json()) as { hash?: string };
+  if (!data.hash) {
+    throw new Error("The network did not return a transaction hash.");
+  }
+  return data.hash;
+}
+
+/**
+ * Full "add trustline" flow, driven by Freighter signatures:
+ *
+ *  1. build a `changeTrust` transaction for the configured network,
+ *  2. sign it in Freighter (the only place the private key is used),
+ *  3. submit the signed envelope to the configured Horizon endpoint.
+ *
+ * Throws a `WalletError` (with a stable code) when the user rejects the
+ * signature or the wallet is locked/unavailable — callers should surface
+ * `e.code` and `e.message` rather than the raw provider string.
+ */
+export async function addTrustline(
+  publicKey: string,
+  assetCode: string,
+  issuer: string
+): Promise<{ txHash: string }> {
+  const xdr = await prepareTrustlineXdr(publicKey, assetCode, issuer);
+  const signedXdr = await signXdr(xdr, NETWORK_PASSPHRASE);
+  const txHash = await submitSignedXdr(signedXdr);
+  return { txHash };
+}
+
+export function buildTrustlineXdr(publicKey: string, sequence: string, assetCode: string, issuer: string): string {
+  const account = new Account(publicKey, sequence);
+  return new TransactionBuilder(account, { fee: "100", networkPassphrase: NETWORK_PASSPHRASE })
+    .addOperation(Operation.changeTrust({ asset: new Asset(assetCode, issuer) }))
+    .setTimeout(300)
+    .build().toXDR();
+}
+
+export async function prepareTrustlineXdr(publicKey: string, assetCode: string, issuer: string): Promise<string> {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org"}/accounts/${encodeURIComponent(publicKey)}`);
+  if (!response.ok) throw new Error("Could not load the wallet sequence");
+  const account = (await response.json()) as { sequence: string };
+  return buildTrustlineXdr(publicKey, account.sequence, assetCode, issuer);
+}
 
 /**
  * Code representing a wallet-side failure mode. Codes are stable strings —
@@ -209,7 +327,10 @@ export async function isFreighterAvailable(): Promise<boolean> {
   try {
     const res = await isConnected();
     if (typeof res === "boolean") return res;
-    if (isObject(res) && typeof res.isConnected === "boolean") return res.isConnected;
+    // freighter-api v4: when window.freighter is present (extension or test
+    // mock) isConnected resolves to { isConnected: <object> } — truthy means
+    // the wallet is reachable; the postMessage path reports a real boolean.
+    if (isObject(res) && res.isConnected) return true;
     return false;
   } catch {
     return false;
@@ -304,34 +425,75 @@ export async function readWalletSnapshot(): Promise<WalletSnapshot> {
 export async function connectWallet(): Promise<string> {
   const available = await isFreighterAvailable();
   if (!available) {
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+    }
     throw new WalletNotInstalledError();
   }
   try {
-    const res = await requestAccess();
+    const res = await withTimeout(requestAccess(), 8000, "Freighter connection request timed out.");
     throwOnError(res);
-    if (typeof res === "string") return res;
+    let pk: string | undefined;
+    if (typeof res === "string") pk = res;
     if (isObject(res)) {
       const r = res as Record<string, unknown>;
-      const pk =
+      pk =
         (typeof r.address === "string" ? r.address : undefined) ??
         (typeof r.publicKey === "string" ? r.publicKey : undefined);
-      if (pk) return pk;
+    }
+    if (!pk) {
+      const fallbackRes = await withTimeout(getAddress(), 5000, "Freighter address read timed out.");
+      throwOnError(fallbackRes);
+      if (isObject(fallbackRes)) {
+        const r = fallbackRes as Record<string, unknown>;
+        pk =
+          (typeof r.address === "string" ? r.address : undefined) ??
+          (typeof r.publicKey === "string" ? r.publicKey : undefined);
+      }
+    }
+    if (pk) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(WALLET_CONNECTED_SESSION_KEY, "true");
+        sessionStorage.setItem(WALLET_ADDRESS_SESSION_KEY, pk);
+      }
+      return pk;
     }
     throw new WalletError("Wallet returned an empty response.");
   } catch (e) {
-    if (e instanceof WalletError) throw e;
-    // Older Freighter versions expose getAddress / getPublicKey instead.
-    const res = await getAddress();
-    throwOnError(res);
-    if (isObject(res)) {
-      const r = res as Record<string, unknown>;
-      const pk =
-        (typeof r.address === "string" ? r.address : undefined) ??
-        (typeof r.publicKey === "string" ? r.publicKey : undefined);
-      if (pk) return pk;
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
     }
-    throw new WalletError("Wallet returned an empty response.");
+    if (e instanceof WalletError) throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    const code = classifyWalletMessage(msg);
+    throw errorForCode(code, msg);
   }
+}
+
+/**
+ * Silent auto-reconnect fallback on reload if connection state
+ * was previously persisted in session storage.
+ */
+export async function autoReconnectWallet(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const isPreviouslyConnected = sessionStorage.getItem(WALLET_CONNECTED_SESSION_KEY) === "true";
+  if (!isPreviouslyConnected) return null;
+
+  try {
+    const available = await isFreighterAvailable();
+    if (!available) {
+      sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+      return null;
+    }
+    const address = await getGrantedAddress();
+    if (address) {
+      sessionStorage.setItem(WALLET_ADDRESS_SESSION_KEY, address);
+      return address;
+    }
+  } catch {
+    // Fail silently
+  }
+  return null;
 }
 
 /**
