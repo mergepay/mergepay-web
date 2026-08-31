@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { useGroup, useExpenses, useBalances, useSettlements } from "@/lib/queries";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Plus, Users, Receipt, ArrowLeft } from "lucide-react";
+import { Plus, Users, Receipt, ArrowLeft, Search } from "lucide-react";
 import Link from "next/link";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
 import { InviteModal } from "@/components/groups/InviteModal";
@@ -14,6 +15,7 @@ import { ExpenseCard } from "@/components/expenses/expense-card";
 import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { ExportGroupStatementButton } from "@/components/ExportGroupStatementButton";
+import { ExpenseFilterToolbar, type ExpenseFilters } from "@/components/expenses/ExpenseFilterToolbar";
 import type { Expense, GroupMember } from "@/lib/types";
 
 export default function GroupDetailPage() {
@@ -27,6 +29,7 @@ export default function GroupDetailPage() {
 
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [filters, setFilters] = useState<ExpenseFilters>({});
 
   const group = groupQuery.data?.group;
   const expenses: Expense[] = expensesQuery.data?.expenses ?? [];
@@ -35,6 +38,25 @@ export default function GroupDetailPage() {
   const members: GroupMember[] = groupQuery.data?.members ?? [];
   const currentUserId = "user-1"; // Fallback or session user ID
   const isAdmin = true;
+
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((expense) => {
+      if (filters.keyword) {
+        const q = filters.keyword.toLowerCase();
+        const matchesTitle = expense.title.toLowerCase().includes(q);
+        const matchesMemo = expense.memo?.toLowerCase().includes(q);
+        if (!matchesTitle && !matchesMemo) return false;
+      }
+
+      if (filters.status && filters.status !== "all") {
+        const isPending = expense.pending === true;
+        if (filters.status === "settled" && isPending) return false;
+        if (filters.status === "pending" && !isPending) return false;
+      }
+
+      return true;
+    });
+  }, [expenses, filters]);
 
   return (
     <ErrorBoundary onReset={() => {
@@ -85,8 +107,11 @@ export default function GroupDetailPage() {
             <ErrorBoundary>
               <div className="space-y-4">
                 <h2 className="font-display text-sm uppercase tracking-widest text-ink/60">
-                  Expenses ({expenses.length})
+                  Expenses ({filteredExpenses.length}{filteredExpenses.length !== expenses.length ? ` of ${expenses.length}` : ""})
                 </h2>
+
+                <ExpenseFilterToolbar value={filters} onChange={setFilters} />
+
                 {expensesQuery.isLoading && <p>Loading expenses...</p>}
                 {expensesQuery.isError && (
                   <div className="rounded-xl border-2 border-ink bg-flamingo-pale p-4">
@@ -96,7 +121,14 @@ export default function GroupDetailPage() {
                     </Button>
                   </div>
                 )}
-                {expenses.map((expense: Expense) => (
+                {!expensesQuery.isLoading && !expensesQuery.isError && filteredExpenses.length === 0 && (
+                  <EmptyState
+                    icon={<Search className="h-7 w-7" />}
+                    title="No expenses found"
+                    description={expenses.length > 0 ? "Try adjusting your search or filter criteria." : "No expenses recorded yet."}
+                  />
+                )}
+                {filteredExpenses.map((expense: Expense) => (
                   <ErrorBoundary key={expense.id}>
                     <ExpenseCard
                       expense={expense}
