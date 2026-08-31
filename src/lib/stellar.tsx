@@ -438,6 +438,14 @@ export async function signAndConfirmSettlement(
   xdr: string,
   networkPassphrase: string
 ) {
+  // Validate the network passphrase matches our configuration before
+  // attempting to sign. A mismatch means the API built the envelope
+  // for a different network — signing would fail on submission.
+  if (networkPassphrase !== NETWORK_PASSPHRASE) {
+    throw new NetworkMismatchError(
+      "The transaction was built for a different Stellar network."
+    );
+  }
   const signedXdr = await signXdr(xdr, networkPassphrase);
   return api.confirmSettlement(settlementId, { signedXdr });
 }
