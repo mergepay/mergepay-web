@@ -1,16 +1,17 @@
-"use client";
+"client";
 
 import { useState, useEffect } from "react";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn } from "lib/utils";
 
 /**
  * Copy-to-clipboard control.
  *
  * Feedback is never colour-only: the icon swaps to a check, any visible
  * label changes to "Copied", and a visually hidden live region announces
- * the result to assistive technology.
+ * the result to assistive technology. Also triggers a sonner toast notification
+ * ("Transaction hash copied" or matching the 'what' parameter).
  */
 export default function CopyButton({
   text,
@@ -21,7 +22,7 @@ export default function CopyButton({
   text: string;
   className?: string;
   label?: string;
-  /** What is being copied, e.g. "transaction hash" — used in the a11y label. */
+  /** What is being copied, e.g. "transaction hash" — used in the a11y label and toast. */
   what?: string;
 }) {
   const [copied, setCopied] = useState(false);
@@ -36,6 +37,8 @@ export default function CopyButton({
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
+      const capitalizedWhat = what.charAt(0).toUpperCase() + what.slice(1);
+      toast.success(`${capitalizedWhat} copied`);
     } catch {
       // Clipboard access can be denied (insecure origin, permission
       // policy). Surface that through the app's existing notification

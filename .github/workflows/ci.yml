@@ -16,9 +16,11 @@ jobs:
           node-version: 20.x
           cache: npm
       - run: npm ci
+      - run: npx playwright install --with-deps
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:e2e
       - run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:4000

@@ -44,6 +44,18 @@ export function formatMoney(
 }
 
 /**
+ * Formats currency values specifically for XLM and USDC with proper decimal truncation
+ * and symbol placement respecting Stellar's 7 decimal precision standards.
+ */
+export function formatCurrencyAmount(
+  amount: string | number | null | undefined,
+  assetCode: string | null | undefined,
+  options?: FormatAmountOptions
+): string {
+  return formatAssetAmountText(amount, assetCode, options);
+}
+
+/**
  * Date helpers are thin wrappers over the shared formatters in
  * `src/lib/datetime.ts`, which own timestamp parsing (offsets, date-only
  * values, invalid input). Prefer the `Timestamp` component where the

@@ -5,6 +5,7 @@ import { useCreateExpenseMutation, useSettleBalanceMutation } from "./useExpense
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import React from "react";
+import { qk } from "@/lib/queries";
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -76,5 +77,45 @@ describe("useExpenseMutations Hooks (#285)", () => {
 
     expect(api.createSettlement).toHaveBeenCalledWith("g1", expect.objectContaining({ toUserId: "u2" }));
     expect(toast.success).toHaveBeenCalledWith("Settlement executed successfully");
+  });
+
+  it("useSettleBalanceMutation performs optimistic update and rolls back on error with sonner toast", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    qc.setQueryData(qk.balances("g1"), {
+      netBalances: [{ userId: "u2", netAmount: "-10.00" }],
+      assetCode: "USDC",
+    });
+
+    vi.mocked(api.createSettlement).mockRejectedValueOnce(new Error("Network error"));
+
+    const Wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useSettleBalanceMutation("g1"), {
+      wrapper: Wrapper,
+    });
+
+    let errorThrown: any;
+    await act(async () => {
+      try {
+        await result.current.mutateAsync({
+          toUserId: "u2",
+          amount: "10.00",
+          assetCode: "USDC",
+        });
+      } catch (err) {
+        errorThrown = err;
+      }
+    });
+
+    expect(errorThrown).toBeDefined();
+    expect(toast.error).toHaveBeenCalledWith("Settlement failed. Balances rolled back.");
+
+    // Verify balances rolled back to previous state
+    const balances: any = qc.getQueryData(qk.balances("g1"));
+    expect(balances.netBalances[0].netAmount).toBe("-10.00");
   });
 });

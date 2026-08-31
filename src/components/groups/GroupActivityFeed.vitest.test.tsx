@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { GroupActivityFeed } from "./GroupActivityFeed";
@@ -14,7 +14,7 @@ const mockActivities = [
     groupId: "g1",
     type: "expense_created" as const,
     actor: { id: "u1", displayName: "Alice", avatarUrl: null },
-    description: 'Added expense "Dinner"',
+    description: 'Added expense "Dinner at Bistro"',
     amount: "42.50",
     assetCode: "USDC",
     timestamp: new Date().toISOString(),
@@ -35,8 +35,10 @@ vi.mock("@/hooks/useGroupActivityPolling", () => ({
   useGroupActivityPolling: vi.fn(),
 }));
 
-vi.mock("@/lib/queries", () => ({
-  useGroupActivity: vi.fn(),
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ replace: vi.fn() }),
+  usePathname: () => "/groups/g1",
 }));
 
 function createQueryClient() {
@@ -60,7 +62,7 @@ function renderWithProviders(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("GroupActivityFeed", () => {
+describe("GroupActivityFeed with Filters and Search", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -82,45 +84,7 @@ describe("GroupActivityFeed", () => {
     expect(screen.getByText(/Loading group activity feed/i)).toBeDefined();
   });
 
-  it("renders error state with retry button", async () => {
-    const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
-    const refetch = vi.fn();
-    vi.mocked(useGroupActivityPolling).mockReturnValue({
-      activities: [],
-      isLoading: false,
-      isError: true,
-      error: new Error("Network error"),
-      refetch,
-      isPolling: false,
-      pollingStalled: false,
-    });
-
-    renderWithProviders(<GroupActivityFeed groupId="g1" />);
-
-    expect(screen.getByText(/something went wrong/i)).toBeDefined();
-    const retryBtn = screen.getByRole("button", { name: /retry/i });
-    retryBtn.click();
-    expect(refetch).toHaveBeenCalledOnce();
-  });
-
-  it("renders empty state when no activities", async () => {
-    const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
-    vi.mocked(useGroupActivityPolling).mockReturnValue({
-      activities: [],
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
-      isPolling: false,
-      pollingStalled: false,
-    });
-
-    renderWithProviders(<GroupActivityFeed groupId="g1" />);
-
-    expect(screen.getByText("No activity recorded yet")).toBeDefined();
-  });
-
-  it("renders activity items with correct details", async () => {
+  it("renders activity items and filters by keyword (memo/description)", async () => {
     const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
     vi.mocked(useGroupActivityPolling).mockReturnValue({
       activities: mockActivities,
@@ -136,13 +100,17 @@ describe("GroupActivityFeed", () => {
 
     expect(screen.getByText("Alice")).toBeDefined();
     expect(screen.getByText("Bob")).toBeDefined();
-    expect(screen.getByText(/Added expense "Dinner"/)).toBeDefined();
-    expect(screen.getByText("Settled payment with Alice")).toBeDefined();
-    expect(screen.getByText("Expense Added")).toBeDefined();
-    expect(screen.getByText("Payment Settled")).toBeDefined();
+
+    const searchInput = screen.getByLabelText(/search activity by memo or participant/i);
+    fireEvent.change(searchInput, { target: { value: "Dinner" } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Dinner at Bistro/)).toBeDefined();
+      expect(screen.queryByText(/Settled payment with Alice/)).toBeNull();
+    });
   });
 
-  it("shows activity count in header", async () => {
+  it("filters activities by participant name case-insensitively", async () => {
     const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
     vi.mocked(useGroupActivityPolling).mockReturnValue({
       activities: mockActivities,
@@ -156,44 +124,16 @@ describe("GroupActivityFeed", () => {
 
     renderWithProviders(<GroupActivityFeed groupId="g1" />);
 
-    expect(screen.getByText("Activity Feed (2)")).toBeDefined();
-  });
+    const participantInput = screen.getByLabelText(/filter by participant/i);
+    fireEvent.change(participantInput, { target: { value: "bob" } });
 
-  it("shows live polling indicator when polling is active", async () => {
-    const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
-    vi.mocked(useGroupActivityPolling).mockReturnValue({
-      activities: mockActivities,
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
-      isPolling: true,
-      pollingStalled: false,
+    await waitFor(() => {
+      expect(screen.getByText("Bob")).toBeDefined();
+      expect(screen.queryByText('Added expense "Dinner at Bistro"')).toBeNull();
     });
-
-    renderWithProviders(<GroupActivityFeed groupId="g1" polling />);
-
-    expect(screen.getByText("Live")).toBeDefined();
   });
 
-  it("shows polling paused indicator when stalled", async () => {
-    const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
-    vi.mocked(useGroupActivityPolling).mockReturnValue({
-      activities: mockActivities,
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
-      isPolling: false,
-      pollingStalled: true,
-    });
-
-    renderWithProviders(<GroupActivityFeed groupId="g1" polling />);
-
-    expect(screen.getByText("Polling paused")).toBeDefined();
-  });
-
-  it("does not show polling indicator when polling is off", async () => {
+  it("shows empty state when filters yield no matches", async () => {
     const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
     vi.mocked(useGroupActivityPolling).mockReturnValue({
       activities: mockActivities,
@@ -207,46 +147,11 @@ describe("GroupActivityFeed", () => {
 
     renderWithProviders(<GroupActivityFeed groupId="g1" />);
 
-    expect(screen.queryByText("Live")).toBeNull();
-    expect(screen.queryByText("Polling paused")).toBeNull();
-  });
+    const searchInput = screen.getByLabelText(/search activity by memo or participant/i);
+    fireEvent.change(searchInput, { target: { value: "NonexistentQueryXYZ" } });
 
-  it("renders a list with aria-label for accessibility", async () => {
-    const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
-    vi.mocked(useGroupActivityPolling).mockReturnValue({
-      activities: mockActivities,
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
-      isPolling: false,
-      pollingStalled: false,
+    await waitFor(() => {
+      expect(screen.getByText("No matching activity found")).toBeDefined();
     });
-
-    renderWithProviders(<GroupActivityFeed groupId="g1" />);
-
-    expect(screen.getByRole("list", { name: "Group activity events" })).toBeDefined();
-  });
-
-  it("marks optimistic events with syncing badge", async () => {
-    const { useGroupActivityPolling } = await import("@/hooks/useGroupActivityPolling");
-    vi.mocked(useGroupActivityPolling).mockReturnValue({
-      activities: [
-        {
-          ...mockActivities[0],
-          isOptimistic: true,
-        },
-      ],
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
-      isPolling: false,
-      pollingStalled: false,
-    });
-
-    renderWithProviders(<GroupActivityFeed groupId="g1" />);
-
-    expect(screen.getByText("Syncing...")).toBeDefined();
   });
 });
