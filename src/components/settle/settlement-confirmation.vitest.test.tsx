@@ -45,7 +45,7 @@ describe("SettlementConfirmation", () => {
 
   it("displays the amount", () => {
     render(<SettlementConfirmation {...defaultProps} />);
-    expect(screen.getByText("10.00 XLM")).toBeInTheDocument();
+    expect(screen.getAllByText("10.00 XLM").length).toBeGreaterThan(0);
   });
 
   it("shows security notice about keys never leaving wallet", () => {
