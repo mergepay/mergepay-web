@@ -45,7 +45,7 @@ describe("SettlementConfirmation", () => {
 
   it("displays the amount", () => {
     render(<SettlementConfirmation {...defaultProps} />);
-    expect(screen.getByText("10")).toBeInTheDocument();
+    expect(screen.getByText("10.00 XLM")).toBeInTheDocument();
   });
 
   it("shows security notice about keys never leaving wallet", () => {
@@ -56,12 +56,13 @@ describe("SettlementConfirmation", () => {
   });
 
   it("shows network mismatch warning when passphrase does not match", () => {
-    // The app is configured for testnet by default in the test environment.
-    // Pass mainnet passphrase to simulate a mismatch.
+    // CONFIGURED_NETWORK defaults to "public" in the test environment
+    // (NEXT_PUBLIC_STELLAR_NETWORK is unset). Pass a testnet passphrase
+    // to simulate a mismatch.
     render(
       <SettlementConfirmation
         {...defaultProps}
-        intentNetworkPassphrase={MAINNET_PASSPHRASE}
+        intentNetworkPassphrase={TESTNET_PASSPHRASE}
       />
     );
     expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -69,10 +70,12 @@ describe("SettlementConfirmation", () => {
   });
 
   it("does not show network mismatch when passphrase matches", () => {
+    // CONFIGURED_NETWORK defaults to "public", so the mainnet passphrase
+    // is the matching one.
     render(
       <SettlementConfirmation
         {...defaultProps}
-        intentNetworkPassphrase={TESTNET_PASSPHRASE}
+        intentNetworkPassphrase={MAINNET_PASSPHRASE}
       />
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -98,7 +101,7 @@ describe("SettlementConfirmation", () => {
   it("has proper accessibility attributes for network context", () => {
     render(<SettlementConfirmation {...defaultProps} />);
     const networkStatus = screen.getByRole("status", {
-      name: /Stellar network/i,
+      name: /Stellar Mainnet/i,
     });
     expect(networkStatus).toBeInTheDocument();
   });
