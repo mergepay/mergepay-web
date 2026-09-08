@@ -48,6 +48,7 @@ describe("findAnchorForAsset", () => {
   it("prefers a named anchor when it supports the asset", () => {
     const named = findAnchorForAsset(anchors, "USDC", "FiatOnRamp");
     // FiatOnRamp does not support USDC, so the fallback wins.
+    assert.ok(named);
     assert.strictEqual(named.name, "TestAnchor");
   });
 

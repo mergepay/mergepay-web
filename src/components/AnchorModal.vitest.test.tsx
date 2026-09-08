@@ -34,7 +34,7 @@ vi.mock("@/lib/api", async () => {
   };
 });
 
-const { api } = vi.mocked(await import("@/lib/api"));
+const { api } = vi.mocked(await import("@/lib/api"), { deep: true });
 
 function createWrapper() {
   const queryClient = new QueryClient({
