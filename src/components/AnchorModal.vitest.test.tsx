@@ -36,6 +36,9 @@ vi.mock("@/lib/api", async () => {
 
 const { api } = vi.mocked(await import("@/lib/api"), { deep: true });
 
+const mockedListAnchors = vi.mocked(api.listAnchors);
+const mockedAnchorDeposit = vi.mocked(api.anchorDeposit);
+
 function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -53,7 +56,7 @@ beforeEach(() => {
 
 describe("AnchorModal", () => {
   it("shows the loading state while the anchor catalogue is fetched", () => {
-    api.listAnchors.mockImplementation(
+    mockedListAnchors.mockImplementation(
       () => new Promise(() => undefined)
     );
     render(
@@ -64,7 +67,7 @@ describe("AnchorModal", () => {
   });
 
   it("shows an error state with retry when the anchor request fails", async () => {
-    api.listAnchors.mockRejectedValue(new Error("network down"));
+    mockedListAnchors.mockRejectedValue(new Error("network down"));
     render(
       <AnchorModal open assetCode="USDC" kind="deposit" onClose={() => {}} />,
       { wrapper: createWrapper() }
@@ -76,7 +79,7 @@ describe("AnchorModal", () => {
   });
 
   it("shows an empty state when no anchor supports the asset", async () => {
-    api.listAnchors.mockResolvedValue({ anchors });
+    mockedListAnchors.mockResolvedValue({ anchors });
     render(
       <AnchorModal open assetCode="ARST" kind="deposit" onClose={() => {}} />,
       { wrapper: createWrapper() }
@@ -87,7 +90,7 @@ describe("AnchorModal", () => {
   });
 
   it("lists only anchors supporting the requested asset", async () => {
-    api.listAnchors.mockResolvedValue({ anchors });
+    mockedListAnchors.mockResolvedValue({ anchors });
     render(
       <AnchorModal open assetCode="USDC" kind="withdrawal" onClose={() => {}} />,
       { wrapper: createWrapper() }
@@ -98,7 +101,7 @@ describe("AnchorModal", () => {
   });
 
   it("starts a deposit session and notifies the caller", async () => {
-    api.listAnchors.mockResolvedValue({ anchors });
+    mockedListAnchors.mockResolvedValue({ anchors });
     const session: AnchorSession = {
       id: "session-1",
       userId: "user-1",
@@ -110,7 +113,7 @@ describe("AnchorModal", () => {
       status: "incomplete",
       createdAt: "2026-08-29T10:00:00Z",
     };
-    api.anchorDeposit.mockResolvedValue({
+    mockedAnchorDeposit.mockResolvedValue({
       session,
       challenge: { transaction: "AAAA...", networkPassphrase: "Test SDF Network" },
     });
@@ -142,7 +145,7 @@ describe("AnchorModal", () => {
   });
 
   it("disables the start button until an anchor is chosen", async () => {
-    api.listAnchors.mockResolvedValue({ anchors });
+    mockedListAnchors.mockResolvedValue({ anchors });
     render(
       <AnchorModal open assetCode="ARST" kind="deposit" onClose={() => {}} />,
       { wrapper: createWrapper() }

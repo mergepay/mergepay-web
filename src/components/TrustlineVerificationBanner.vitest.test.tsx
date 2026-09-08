@@ -67,8 +67,7 @@ describe("TrustlineVerificationBanner", () => {
     await waitFor(() => {
       expect(fetchHorizonAccountBalances).toHaveBeenCalled();
     });
-    // The banner starts in its "missing" state while balances load; wait for
-    // the query to resolve and the component to drop the alert entirely.
+    // Wait for the balances query to resolve and the banner to unmount.
     await waitFor(() => {
       expect(container.querySelector('[role="alert"]')).toBeNull();
     });
