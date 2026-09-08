@@ -60,7 +60,7 @@ export const qk = {
   anchors: ["anchors"] as const,
   anchorSessions: ["anchors", "sessions"] as const,
   history: ["history"] as const,
-  invite: (code: string) => ["invite", code] as const,
+  invite: (code: string) => ["invites", code] as const,
 };
 
 /** Polling parameters for settlement status while pending/submitted. */
@@ -150,9 +150,10 @@ export function useGroup(id: string) {
 }
 
 export function useInviteByCode(code: string | null) {
+  const code_ = code ?? "";
   return useQuery({
-    queryKey: qk.invite(code ?? ""),
-    queryFn: () => getInviteByCode(code!),
+    queryKey: qk.invite(code_),
+    queryFn: () => getInviteByCode(code_),
     enabled: Boolean(code),
     retry: false,
     staleTime: 60_000,

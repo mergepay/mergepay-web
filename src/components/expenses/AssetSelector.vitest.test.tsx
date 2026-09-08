@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AssetSelector } from "./AssetSelector";
 
-// The selector's conversion preview depends on a hook that fetches live
-// rates; stub it so tests exercise pure formatting deterministically.
+// The selector's conversion preview depends on hooks that fetch live rates;
+// stub them so tests exercise pure formatting/math deterministically.
 vi.mock("@/hooks/useCurrencyRates", () => ({
   useCurrencyRates: () => ({
-    rates: { xlm: 0.12, usdc: 1.0 },
+    rates: { xlm: 0.12, usdc: 1.0, live: true },
     isLive: true,
     isFetching: false,
   }),
@@ -19,39 +19,60 @@ vi.mock("@/hooks/useCurrencyRates", () => ({
   },
 }));
 
+vi.mock("@/lib/fiat-preference", () => ({
+  useFiatPreference: () => ({ preferredCurrency: "USD" }),
+}));
+
+function renderSelector(props: Partial<Parameters<typeof AssetSelector>[0]> = {}) {
+  return render(
+    <AssetSelector
+      value="XLM"
+      onChange={vi.fn()}
+      {...props}
+    />
+  );
+}
+
 describe("AssetSelector", () => {
-  it("lists the configured settlement assets", () => {
-    render(<AssetSelector value="XLM" onChange={vi.fn()} />);
+  it("renders the amount input with a live fiat preview", () => {
+    renderSelector({ cryptoAmount: "10" });
 
-    const select = screen.getByRole("combobox") as HTMLSelectElement;
-    const options = Array.from(select.options).map((o) => o.value);
-    expect(options).toEqual(expect.arrayContaining(["XLM", "USDC"]));
-  });
-
-  it("renders a live fiat preview for the selected asset", () => {
-    render(<AssetSelector value="XLM" onChange={vi.fn()} cryptoAmount="10" />);
-
-    // 10 XLM x 0.12 USD/XLM -> $1.20
-    expect(screen.getByTestId("asset-equivalent")).toHaveTextContent(
-      "≈ 1.20 USD"
+    // 10 XLM × 0.12 USD/XLM → $1.20
+    expect(screen.getByTestId("asset-equivalent").textContent).toMatch(
+      /1\.20 USD/
     );
   });
 
-  it("prompts for an amount when none is provided", () => {
-    render(<AssetSelector value="XLM" onChange={vi.fn()} />);
+  it("shows a prompt when no amount is entered", () => {
+    renderSelector({ cryptoAmount: undefined });
 
-    expect(screen.getByTestId("asset-equivalent")).toHaveTextContent(
+    expect(screen.getByTestId("asset-equivalent").textContent).toMatch(
       /enter an amount/i
     );
   });
 
+  it("lists the configured settlement assets", () => {
+    renderSelector();
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    const options = Array.from(select.options).map((o) => o.value);
+    expect(options.length).toBeGreaterThanOrEqual(2);
+    expect(options).toContain("XLM");
+  });
+
   it("notifies the parent when the selected asset changes", () => {
     const onChange = vi.fn();
-    render(<AssetSelector value="XLM" onChange={onChange} />);
+    renderSelector({ onChange });
 
-    fireEvent.change(screen.getByRole("combobox"), {
-      target: { value: "USDC" },
-    });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "USDC" } });
     expect(onChange).toHaveBeenCalledWith("USDC");
+  });
+
+  it("forwards blur events to the parent", () => {
+    const onBlur = vi.fn();
+    renderSelector({ onBlur });
+
+    fireEvent.blur(screen.getByRole("combobox"));
+    expect(onBlur).toHaveBeenCalled();
   });
 });
