@@ -7,7 +7,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { api } from "./api";
+import { api, getInviteByCode } from "./api";
 import { handleApiError } from "./errorHandler";
 import { useAuth } from "./auth-store";
 import type {
@@ -60,6 +60,7 @@ export const qk = {
   anchors: ["anchors"] as const,
   anchorSessions: ["anchors", "sessions"] as const,
   history: ["history"] as const,
+  invite: (code: string) => ["invites", code] as const,
 };
 
 /** Polling parameters for settlement status while pending/submitted. */
@@ -149,9 +150,10 @@ export function useGroup(id: string) {
 }
 
 export function useInviteByCode(code: string | null) {
+  const code_ = code ?? "";
   return useQuery({
-    queryKey: qk.invite(code ?? ""),
-    queryFn: () => getInviteByCode(code!),
+    queryKey: qk.invite(code_),
+    queryFn: () => getInviteByCode(code_),
     enabled: Boolean(code),
     retry: false,
     staleTime: 60_000,
@@ -520,7 +522,7 @@ export function invalidationFilters(target: InvalidationTarget): {
   return "queryKey" in target ? target : { queryKey: target };
 }
 
-function useInvalidator() {
+export function useInvalidator() {
   const qc = useQueryClient();
   return (targets: readonly InvalidationTarget[]) =>
     Promise.all(targets.map((t) => qc.invalidateQueries(invalidationFilters(t))));
