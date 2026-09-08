@@ -67,7 +67,11 @@ describe("TrustlineVerificationBanner", () => {
     await waitFor(() => {
       expect(fetchHorizonAccountBalances).toHaveBeenCalled();
     });
-    expect(container.querySelector('[role="alert"]')).toBeNull();
+    // The banner starts in its "missing" state while balances load; wait for
+    // the query to resolve and the component to drop the alert entirely.
+    await waitFor(() => {
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+    });
   });
 
   it("renders an alert banner listing missing trustline assets", async () => {
