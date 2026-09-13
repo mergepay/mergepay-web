@@ -11,6 +11,7 @@ import {
   PREFIX_BYTES,
   MAX_SHORT_CODE_BYTES,
 } from "../memoValidation";
+import { verifyTransactionMemo, isValidMergepayMemo } from "../memo";
 
 describe("Stellar Memo Generation & Validation Suite (#287, #332)", () => {
   it("enforces Stellar memo constants (max 28 bytes)", () => {
@@ -281,6 +282,69 @@ describe("Stellar Memo Generation & Validation Suite (#287, #332)", () => {
     it("includes validation error when edited memo is invalid or too long", () => {
       const warnings = detectMemoDeviations("MP:" + "a".repeat(30), "dinner-8f3a");
       assert.ok(warnings.some((w) => w.includes("exceeds the Stellar limit of 28 bytes")));
+    });
+  });
+
+  describe("verifyTransactionMemo & isValidMergepayMemo (#222)", () => {
+    it("validates isValidMergepayMemo correctly", () => {
+      assert.equal(isValidMergepayMemo("MP:dinner-8f3a"), true);
+      assert.equal(isValidMergepayMemo("MP:123-abc"), true);
+      assert.equal(isValidMergepayMemo(null), false);
+      assert.equal(isValidMergepayMemo(""), false);
+      assert.equal(isValidMergepayMemo("dinner-8f3a"), false);
+      assert.equal(isValidMergepayMemo("MP:invalid spaces"), false);
+      assert.equal(isValidMergepayMemo("MP:" + "a".repeat(26)), false); // exceeds 28 bytes total
+    });
+
+    it("verifies valid transaction memo matching expected code", () => {
+      const res = verifyTransactionMemo("MP:dinner-8f3a", "dinner-8f3a");
+      assert.equal(res.isValid, true);
+      assert.equal(res.severity, "none");
+      assert.equal(res.byteLength, 14);
+      assert.equal(res.title, "Valid Settlement Memo");
+    });
+
+    it("identifies missing memo and marks severity as missing", () => {
+      const res = verifyTransactionMemo("", "dinner-8f3a");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "missing");
+      assert.equal(res.suggestedMemo, "MP:dinner-8f3a");
+      assert.match(res.title, /Missing/i);
+    });
+
+    it("flags byte length overflow", () => {
+      const longMemo = "MP:" + "x".repeat(30);
+      const res = verifyTransactionMemo(longMemo);
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "invalid_length");
+      assert.ok(res.byteLength > 28);
+    });
+
+    it("flags malformed memo missing MP: prefix", () => {
+      const res = verifyTransactionMemo("invoice-123", "dinner-8f3a");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "malformed");
+      assert.equal(res.suggestedMemo, "MP:dinner-8f3a");
+    });
+
+    it("flags malformed memo with empty code after prefix", () => {
+      const res = verifyTransactionMemo("MP:");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "malformed");
+    });
+
+    it("flags malformed memo with invalid characters", () => {
+      const res = verifyTransactionMemo("MP:dinner@#$");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "malformed");
+    });
+
+    it("flags deviation when code differs from expected short code", () => {
+      const res = verifyTransactionMemo("MP:lunch-456", "dinner-8f3a");
+      assert.equal(res.isValid, true); // structurally valid
+      assert.equal(res.severity, "deviation");
+      assert.equal(res.suggestedMemo, "MP:dinner-8f3a");
+      assert.match(res.message, /differs from the expected/i);
     });
   });
 });

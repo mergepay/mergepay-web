@@ -23,6 +23,8 @@ import type { SettlementStep, SettleTarget } from "@/lib/useSettlementFlow";
 import type { SettlementSuggestion, User } from "@/lib/types";
 import { FeeEstimatorWidget } from "@/components/FeeEstimatorWidget";
 import { MemoPreview } from "@/components/settle/MemoPreview";
+import { MemoWarningBanner } from "@/components/MemoWarningBanner";
+import { verifyTransactionMemo } from "@/lib/memo";
 import { generateShortCode, buildSettlementMemo } from "@/lib/memoValidation";
 import { TrustlineDetectionBanner } from "@/components/settle/TrustlineDetectionBanner";
 import { TrustlinePromptModal, type TrustlineAssetInfo } from "@/components/settle/TrustlinePromptModal";
@@ -243,6 +245,14 @@ export function SettleDialog({
     // established the connection themselves — the polled status is still a
     // tick behind at that point and would block a valid attempt.
     if (!options?.skipWalletGate && !wallet.canSign) return;
+    const activeMemo = editedMemo ?? previewMemo;
+    const memoCheck = verifyTransactionMemo(activeMemo, originalShortCode ?? undefined);
+    if (!memoCheck.isValid) {
+      setError(memoCheck.message);
+      setErrorCode(null);
+      setStep("failed");
+      return;
+    }
     const validation = validateSettlementInput({ amount: target.amount, assetCode: target.assetCode, assetIssuer: target.assetIssuer });
     if (!validation.valid) { setError(validation.error ?? "Invalid payment input"); setErrorCode(null); setStep("failed"); return; }
     // Clear the previous attempt's residue so a retry never shows a stale tx
@@ -323,7 +333,28 @@ export function SettleDialog({
   >
     <div className="space-y-5">
       <div className="rounded-2xl border-3 border-ink bg-paper p-5"><div className="flex items-center justify-between"><span className="font-display text-xs uppercase tracking-widest text-ink/50">Paying</span><AssetBadge code={active.assetCode} /></div><div className="mt-3 flex items-center gap-3"><Avatar user={active.to} size="lg" /><div><p className="font-display text-lg uppercase tracking-tight">{active.to.displayName}</p><Money value={active.amount} assetCode={active.assetCode} className="text-2xl" /></div></div></div>
-      {step === "review" && <><MemoPreview memo={previewMemo} expectedCode={originalShortCode} editable editedMemo={editedMemo ?? previewMemo ?? ""} onEdit={(v) => setEditedMemo(v)} />{trustlineAsset && wallet.address && (<TrustlineDetectionBanner publicKey={wallet.address} assetCode={trustlineAsset.code} assetIssuer={trustlineAsset.issuer} onSetupTrustline={() => setTrustlineModalOpen(true)} />)}<ol className="space-y-2 text-sm text-ink/70"><StepLine icon={<Wallet className="h-4 w-4" />}>Mergepay builds the payment — your keys never leave your wallet.</StepLine><StepLine icon={<PenLine className="h-4 w-4" />}>You sign it in Freighter.</StepLine><StepLine icon={<Send className="h-4 w-4" />}>It settles on Stellar and the ledger updates with the tx hash.</StepLine></ol><FeeEstimatorWidget operationCount={isBulk && bulkTarget ? bulkTarget.expenseIds.length + 1 : 1} amount={active.amount} assetCode={active.assetCode} /><WalletPrerequisiteNotice status={wallet} onRefresh={refreshWallet} /><div className="flex justify-end gap-2"><Button variant="ghost" onClick={close}>Cancel</Button><Button onClick={() => run()} disabled={!wallet.canSign || walletDisconnected} title={walletDisconnected ? "Reconnect your wallet to settle" : wallet.canSign ? undefined : wallet.message}><Wallet className="h-4 w-4" /> Settle now</Button></div></>}
+      {step === "review" && (
+        <>
+          <MemoPreview
+            memo={previewMemo}
+            expectedCode={originalShortCode}
+            editable
+            editedMemo={editedMemo ?? previewMemo ?? ""}
+            onEdit={(v) => setEditedMemo(v)}
+          />
+          <MemoWarningBanner
+            memo={editedMemo ?? previewMemo}
+            expectedShortCode={originalShortCode}
+            onFixMemo={(v) => setEditedMemo(v)}
+          />
+          {trustlineAsset && wallet.address && (
+            <TrustlineDetectionBanner
+              publicKey={wallet.address}
+              assetCode={trustlineAsset.code}
+              assetIssuer={trustlineAsset.issuer}
+              onSetupTrustline={() => setTrustlineModalOpen(true)}
+            />
+          )}<ol className="space-y-2 text-sm text-ink/70"><StepLine icon={<Wallet className="h-4 w-4" />}>Mergepay builds the payment — your keys never leave your wallet.</StepLine><StepLine icon={<PenLine className="h-4 w-4" />}>You sign it in Freighter.</StepLine><StepLine icon={<Send className="h-4 w-4" />}>It settles on Stellar and the ledger updates with the tx hash.</StepLine></ol><FeeEstimatorWidget operationCount={isBulk && bulkTarget ? bulkTarget.expenseIds.length + 1 : 1} amount={active.amount} assetCode={active.assetCode} /><WalletPrerequisiteNotice status={wallet} onRefresh={refreshWallet} /><div className="flex justify-end gap-2"><Button variant="ghost" onClick={close}>Cancel</Button><Button onClick={() => run()} disabled={!wallet.canSign || walletDisconnected} title={walletDisconnected ? "Reconnect your wallet to settle" : wallet.canSign ? undefined : wallet.message}><Wallet className="h-4 w-4" /> Settle now</Button></div></>)}
 
       {step === "submitting" && <div className="flex flex-col items-center gap-3 py-4" aria-busy aria-live="polite"><Button loading variant="outline" className="pointer-events-none">Submitting to Stellar…</Button><p className="text-center text-sm text-ink/60">Approve the transaction in your Freighter wallet, and we'll record it on the ledger.</p></div>}
       {step === "submitted" && !statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-butter-pale px-4 py-5" role="status" aria-live="polite"><Loader2 className="h-7 w-7 animate-spin text-grape" /><p className="font-display text-sm uppercase tracking-tight">Waiting for confirmation</p><p className="text-center text-xs text-ink/60">Polling the network for the terminal transaction state. Keep this dialog open until the result is known.</p></div>}
