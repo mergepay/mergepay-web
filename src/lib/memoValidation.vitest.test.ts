@@ -9,6 +9,12 @@ import {
   breakdownMemo,
   detectMemoDeviations,
   generateShortCode,
+  sanitizeMemoInput,
+  stellarTextMemoSchema,
+  mergepaySettlementMemoSchema,
+  parseSettlementMemo,
+  extractExpenseReferenceFromMemo,
+  extractSettlementFromTransactionPayload,
 } from "./memoValidation";
 
 // ---------------------------------------------------------------------------
@@ -297,3 +303,147 @@ describe("constants", () => {
     expect(PREFIX_BYTES + MAX_SHORT_CODE_BYTES).toBe(STELLAR_MEMO_MAX_BYTES);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sanitization & Zod Schemas & Extraction Tests (Closes #389)
+// ---------------------------------------------------------------------------
+
+describe("sanitizeMemoInput", () => {
+  it("handles null and undefined", () => {
+    expect(sanitizeMemoInput(null)).toBe("");
+    expect(sanitizeMemoInput(undefined)).toBe("");
+  });
+
+  it("trims whitespace and strips control characters", () => {
+    const dirty = "  MP:lunch-1a2b\x00\x07  ";
+    expect(sanitizeMemoInput(dirty)).toBe("MP:lunch-1a2b");
+  });
+
+  it("normalizes internal whitespace", () => {
+    expect(sanitizeMemoInput("MP:  lunch   1a2b  ")).toBe("MP: lunch 1a2b");
+  });
+});
+
+describe("Zod schemas", () => {
+  it("stellarTextMemoSchema validates standard memo", () => {
+    const parsed = stellarTextMemoSchema.safeParse("Hello Stellar");
+    expect(parsed.success).toBe(true);
+  });
+
+  it("stellarTextMemoSchema rejects empty string", () => {
+    const parsed = stellarTextMemoSchema.safeParse("");
+    expect(parsed.success).toBe(false);
+  });
+
+  it("stellarTextMemoSchema rejects over 28 bytes", () => {
+    const parsed = stellarTextMemoSchema.safeParse("a".repeat(29));
+    expect(parsed.success).toBe(false);
+  });
+
+  it("stellarTextMemoSchema rejects control characters", () => {
+    const parsed = stellarTextMemoSchema.safeParse("invalid\x00memo");
+    expect(parsed.success).toBe(false);
+  });
+
+  it("mergepaySettlementMemoSchema validates standard Mergepay memo", () => {
+    const parsed = mergepaySettlementMemoSchema.safeParse("MP:dinner-8f3a");
+    expect(parsed.success).toBe(true);
+  });
+
+  it("mergepaySettlementMemoSchema rejects memo missing MP: prefix", () => {
+    const parsed = mergepaySettlementMemoSchema.safeParse("dinner-8f3a");
+    expect(parsed.success).toBe(false);
+  });
+
+  it("mergepaySettlementMemoSchema rejects duplicate MP: prefix in code", () => {
+    const parsed = mergepaySettlementMemoSchema.safeParse("MP:MP:dinner");
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe("parseSettlementMemo", () => {
+  it("rejects invalid or empty memo", () => {
+    expect(parseSettlementMemo(null).valid).toBe(false);
+    expect(parseSettlementMemo("").valid).toBe(false);
+  });
+
+  it("rejects memo without MP: prefix", () => {
+    const res = parseSettlementMemo("dinner-8f3a");
+    expect(res.valid).toBe(false);
+    expect(res.error).toMatch(/prefix/i);
+  });
+
+  it("successfully parses valid MP: settlement memo", () => {
+    const res = parseSettlementMemo("MP:dinner-8f3a");
+    expect(res.valid).toBe(true);
+    expect(res.prefix).toBe("MP:");
+    expect(res.shortCode).toBe("dinner-8f3a");
+  });
+});
+
+describe("extractExpenseReferenceFromMemo", () => {
+  it("extracts slug and hash suffix correctly", () => {
+    const res = extractExpenseReferenceFromMemo("MP:dinner-8f3a");
+    expect(res.valid).toBe(true);
+    expect(res.shortCode).toBe("dinner-8f3a");
+    expect(res.expenseSlug).toBe("dinner");
+    expect(res.hashSuffix).toBe("8f3a");
+  });
+
+  it("handles multi-word hyphenated slugs", () => {
+    const res = extractExpenseReferenceFromMemo("MP:team-lunch-trip-9b2c");
+    expect(res.valid).toBe(true);
+    expect(res.expenseSlug).toBe("team-lunch-trip");
+    expect(res.hashSuffix).toBe("9b2c");
+  });
+
+  it("returns invalid result for non-conforming memo", () => {
+    const res = extractExpenseReferenceFromMemo("random-string");
+    expect(res.valid).toBe(false);
+  });
+});
+
+describe("extractSettlementFromTransactionPayload", () => {
+  it("returns error for empty or invalid payload", () => {
+    expect(extractSettlementFromTransactionPayload(null).matched).toBe(false);
+    expect(extractSettlementFromTransactionPayload({}).matched).toBe(false);
+  });
+
+  it("extracts settlement from string memo Horizon payload", () => {
+    const payload = {
+      id: "tx-123",
+      memo: "MP:groceries-4e12",
+      memo_type: "text",
+    };
+    const res = extractSettlementFromTransactionPayload(payload);
+    expect(res.matched).toBe(true);
+    expect(res.memo).toBe("MP:groceries-4e12");
+    expect(res.shortCode).toBe("groceries-4e12");
+    expect(res.expenseSlug).toBe("groceries");
+    expect(res.hashSuffix).toBe("4e12");
+  });
+
+  it("extracts settlement from nested memo object payload", () => {
+    const payload = {
+      id: "tx-456",
+      memo: {
+        type: "text",
+        value: "MP:hotel-99aa",
+      },
+    };
+    const res = extractSettlementFromTransactionPayload(payload);
+    expect(res.matched).toBe(true);
+    expect(res.memo).toBe("MP:hotel-99aa");
+    expect(res.shortCode).toBe("hotel-99aa");
+  });
+
+  it("handles non-Mergepay memo gracefully without crash", () => {
+    const payload = {
+      memo: "Personal gift",
+    };
+    const res = extractSettlementFromTransactionPayload(payload);
+    expect(res.matched).toBe(false);
+    expect(res.memo).toBe("Personal gift");
+  });
+});
+
