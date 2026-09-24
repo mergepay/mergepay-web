@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   ArrowDownToLine,
+  ArrowLeftRight,
   ArrowUpFromLine,
   Banknote,
   ExternalLink,
@@ -22,12 +23,14 @@ import { signXdr, WalletError, NotInstalledMessage } from "@/lib/stellar";
 import { Timestamp } from "@/components/timestamp";
 import type { AnchorSessionKind } from "@/lib/types";
 import { AnchorInteractiveModal } from "@/components/AnchorInteractiveModal";
+import { Sep24Modal } from "@/components/anchors/Sep24Modal";
 
 export default function AnchorsPage() {
   const anchors = useAnchors();
   const sessions = useAnchorSessions();
   const [busy, setBusy] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [newTransferOpen, setNewTransferOpen] = useState(false);
 
   async function startFlow(
     kind: AnchorSessionKind,
@@ -78,6 +81,11 @@ export default function AnchorsPage() {
       <PageHeader
         title="Anchors"
         description="Move between fiat and Stellar assets through SEP-24 anchors — no crypto workflow required."
+        action={
+          <Button onClick={() => setNewTransferOpen(true)}>
+            <ArrowLeftRight className="h-4 w-4" /> New transfer
+          </Button>
+        }
       />
 
       {anchors.isError || sessions.isError ? (
@@ -215,6 +223,13 @@ export default function AnchorsPage() {
       <AnchorInteractiveModal
         sessionId={activeSessionId}
         onClose={() => setActiveSessionId(null)}
+      />
+      <Sep24Modal
+        open={newTransferOpen}
+        onClose={() => setNewTransferOpen(false)}
+        onSessionStarted={() => {
+          void sessions.refetch();
+        }}
       />
     </>
   );

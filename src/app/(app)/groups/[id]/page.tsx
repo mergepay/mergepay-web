@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Plus, Users, Receipt, ArrowLeft, Search } from "lucide-react";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
 import { InviteModal } from "@/components/groups/InviteModal";
 import { BalancesPanel } from "@/components/balances/balances-panel";
@@ -15,6 +16,7 @@ import { ExpenseCard } from "@/components/expenses/expense-card";
 import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { ExportGroupStatementButton } from "@/components/ExportGroupStatementButton";
+import { TreasuryOverview } from "@/components/treasury/TreasuryOverview";
 import { ExpenseListFilters, type ExpenseFilterState } from "@/components/expenses/expense-list-filters";
 import type { Expense, GroupMember } from "@/lib/types";
 
@@ -134,14 +136,22 @@ export default function GroupDetailPage() {
                   />
                 )}
                 {visibleExpenses.map((expense: Expense) => (
-                  <ErrorBoundary key={expense.id}>
-                    <ExpenseCard
-                      expense={expense}
-                      groupId={groupId}
-                      currentUserId={currentUserId}
-                      members={members}
-                    />
-                  </ErrorBoundary>
+                  <motion.div
+                    key={expense.id}
+                    layout
+                    initial={{ opacity: 0, y: -12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  >
+                    <ErrorBoundary>
+                      <ExpenseCard
+                        expense={expense}
+                        groupId={groupId}
+                        currentUserId={currentUserId}
+                        members={members}
+                      />
+                    </ErrorBoundary>
+                  </motion.div>
                 ))}
                 {pageCount > 1 && (
                   <div className="flex items-center justify-center gap-3">
@@ -161,6 +171,12 @@ export default function GroupDetailPage() {
                 currentUserId={currentUserId}
               />
             </ErrorBoundary>
+
+            {group?.treasuryEnabled && (
+              <ErrorBoundary>
+                <TreasuryOverview groupId={groupId} />
+              </ErrorBoundary>
+            )}
 
             <ErrorBoundary>
               <GroupActivityFeed groupId={groupId} polling={true} />

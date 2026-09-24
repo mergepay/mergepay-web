@@ -19,6 +19,7 @@ import type {
   CreateSettlementRequest,
   EnableTreasuryRequest,
   GroupActivityResponse,
+  GroupDetail,
   InviteRequest,
   SettleExpenseRequest,
   TreasuryDepositRequest,
@@ -44,6 +45,7 @@ import {
   createOptimisticExpenseEvent,
   calculateOptimisticActivityList,
 } from "./activity";
+import { buildOptimisticExpense, insertOptimisticExpense } from "./optimistic";
 
 export const qk = {
   me: ["me"] as const,
@@ -657,18 +659,45 @@ export function useCreateExpense(groupId: string) {
     mutationFn: (data: CreateExpenseRequest) => api.createExpense(groupId, data),
     // Optimistically update group member balances and activity feed before the API responds
     onMutate: async (data: CreateExpenseRequest) => {
+      const expensesKey = qk.expenses(groupId);
       const balanceKey = qk.balances(groupId);
       const activityKey = qk.activity(groupId);
 
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
       await Promise.all([
+        qc.cancelQueries({ queryKey: expensesKey }),
         qc.cancelQueries({ queryKey: balanceKey }),
         qc.cancelQueries({ queryKey: activityKey }),
       ]);
 
       // Save a snapshot of current query data for rollback on error
+      const previousExpenses = qc.getQueriesData({ queryKey: expensesKey });
       const previousBalances = qc.getQueryData<BalancesResponse>(balanceKey);
       const previousActivity = qc.getQueryData<GroupActivityResponse>(activityKey);
+
+      const payer = me.data?.user ?? useAuth.getState().user;
+
+      // Insert the new expense at the top of the list straight away (#375).
+      // It carries `isOptimistic`, which the expense card renders dimmed with
+      // a "Saving…" badge until the invalidation refetch replaces it with the
+      // server's copy (or the rollback below removes it).
+      if (payer) {
+        const detail = qc.getQueryData<GroupDetail>(qk.group(groupId));
+        const memberById = new Map(
+          (detail?.members ?? []).map((m) => [m.userId, m.user])
+        );
+        const optimisticExpense = buildOptimisticExpense({
+          groupId,
+          request: data,
+          payer,
+          resolveUser: (userId) =>
+            memberById.get(userId) ??
+            (payer.id === userId ? payer : undefined),
+        });
+        qc.setQueriesData({ queryKey: expensesKey }, (old: unknown) =>
+          insertOptimisticExpense(old, optimisticExpense)
+        );
+      }
 
       // Apply optimistic update only if previous balance cache exists
       if (previousBalances) {
@@ -696,10 +725,15 @@ export function useCreateExpense(groupId: string) {
         return calculateOptimisticActivityList(old, optEvent);
       });
 
-      return { previousBalances, previousActivity };
+      return { previousExpenses, previousBalances, previousActivity };
     },
     // On failure, revert back to saved snapshot and display error toast
     onError: (err, _variables, context) => {
+      if (context?.previousExpenses) {
+        for (const [queryKey, queryData] of context.previousExpenses) {
+          qc.setQueryData(queryKey, queryData);
+        }
+      }
       if (context?.previousBalances) {
         qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
