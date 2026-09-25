@@ -592,3 +592,295 @@ describe("Stellar Memo Generation & Validation Suite (#287, #332)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Extended edge-case coverage (#329): input sanitization, Zod schema
+// boundaries, verification branches, malformed-memo handling, and full
+// lifecycle round trips that guard the `MP:` formatting contract end to end.
+// ---------------------------------------------------------------------------
+
+describe("Memo formatting utilities — extended edge cases (#329)", () => {
+  describe("sanitizeMemoInput", () => {
+    it("returns an empty string for null, undefined, or empty input", () => {
+      assert.equal(sanitizeMemoInput(null), "");
+      assert.equal(sanitizeMemoInput(undefined), "");
+      assert.equal(sanitizeMemoInput(""), "");
+    });
+
+    it("strips every ASCII control-character class (C0, DEL, C1)", () => {
+      for (const ctrl of ["\x00", "\x07", "\x1f", "\x7f", "\x85", "\x9f"]) {
+        assert.equal(
+          sanitizeMemoInput(`MP:da${ctrl}ta`),
+          "MP:data",
+          `expected control character ${JSON.stringify(ctrl)} to be stripped`
+        );
+      }
+    });
+
+    it("removes embedded control characters and recovers a clean memo", () => {
+      const dirty = "  MP:dinner-\t\x00\x078f3a \n";
+      assert.equal(sanitizeMemoInput(dirty), "MP:dinner-8f3a");
+    });
+
+    it("collapses internal whitespace runs and trims the edges", () => {
+      assert.equal(sanitizeMemoInput("  MP:   dinner   8f3a  "), "MP: dinner 8f3a");
+    });
+
+    it("preserves multi-byte UTF-8 characters while cleaning", () => {
+      assert.equal(sanitizeMemoInput("  MP:café-10€  "), "MP:café-10€");
+    });
+  });
+
+  describe("stellarTextMemoSchema boundaries", () => {
+    it("rejects an empty string", () => {
+      assert.equal(stellarTextMemoSchema.safeParse("").success, false);
+    });
+
+    it("accepts a memo at the exact 28-byte boundary", () => {
+      assert.equal(stellarTextMemoSchema.safeParse("A".repeat(28)).success, true);
+    });
+
+    it("does not count surrounding whitespace toward the byte limit", () => {
+      // Mirrors validateMemo: leading/trailing spaces are trimmed before the
+      // ledger byte count, so padding never pushes a valid memo over 28.
+      const padded = `  ${"A".repeat(28)}  `;
+      assert.equal(padded.length, 32);
+      assert.equal(stellarTextMemoSchema.safeParse(padded).success, true);
+    });
+  });
+
+  describe("mergepaySettlementMemoSchema boundaries", () => {
+    it("rejects an MP: memo with an empty reconciliation code", () => {
+      assert.equal(mergepaySettlementMemoSchema.safeParse("MP:").success, false);
+    });
+
+    it("accepts a maximum-length 28-byte settlement memo", () => {
+      const maxMemo = `MP:${"a".repeat(MAX_SHORT_CODE_BYTES)}`;
+      assert.equal(new TextEncoder().encode(maxMemo).length, 28);
+      assert.equal(mergepaySettlementMemoSchema.safeParse(maxMemo).success, true);
+    });
+
+    it("rejects a settlement memo one byte over the limit", () => {
+      assert.equal(
+        mergepaySettlementMemoSchema.safeParse(`MP:${"a".repeat(MAX_SHORT_CODE_BYTES + 1)}`).success,
+        false
+      );
+    });
+
+    it("rejects settlement memos containing control characters", () => {
+      assert.equal(mergepaySettlementMemoSchema.safeParse("MP:dinner\x00-8f3a").success, false);
+    });
+  });
+
+  describe("isValidMergepayMemo extras", () => {
+    it("trims surrounding whitespace before validating", () => {
+      assert.equal(isValidMergepayMemo("  MP:dinner-8f3a  "), true);
+    });
+
+    it("accepts uppercase short codes (format check is case-insensitive)", () => {
+      assert.equal(isValidMergepayMemo("MP:DINNER-8F3A"), true);
+    });
+
+    it("rejects codes containing multi-byte or special characters", () => {
+      assert.equal(isValidMergepayMemo("MP:café-1"), false);
+      assert.equal(isValidMergepayMemo("MP:dinner@8f3a"), false);
+      assert.equal(isValidMergepayMemo("MP:dinner 8f3a"), false);
+    });
+
+    it("rejects a short code longer than the 25-byte budget", () => {
+      assert.equal(isValidMergepayMemo(`MP:${"a".repeat(MAX_SHORT_CODE_BYTES + 1)}`), false);
+    });
+  });
+
+  describe("verifyTransactionMemo extras", () => {
+    it("treats a whitespace-only memo as missing and suggests a replacement", () => {
+      const res = verifyTransactionMemo("   ", "dinner-8f3a");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "missing");
+      assert.equal(res.suggestedMemo, "MP:dinner-8f3a");
+    });
+
+    it("measures byte length on the trimmed memo", () => {
+      const res = verifyTransactionMemo("  MP:dinner-8f3a  ", "dinner-8f3a");
+      assert.equal(res.byteLength, 14);
+      assert.equal(res.severity, "none");
+    });
+
+    it("matches the expected code case-insensitively", () => {
+      const res = verifyTransactionMemo("MP:DINNER-8F3A", "dinner-8f3a");
+      assert.equal(res.isValid, true);
+      assert.equal(res.severity, "none");
+    });
+
+    it("flags multi-byte characters in the short code as malformed", () => {
+      const res = verifyTransactionMemo("MP:café-10");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "malformed");
+      assert.match(res.title, /Invalid Memo Characters/);
+    });
+
+    it("still suggests the expected memo when the raw memo is malformed", () => {
+      const res = verifyTransactionMemo("invoice-123", "dinner-8f3a");
+      assert.equal(res.severity, "malformed");
+      assert.equal(res.suggestedMemo, "MP:dinner-8f3a");
+      assert.ok(res.actionHint);
+    });
+  });
+
+  describe("parseSettlementMemo extras", () => {
+    it("accepts uppercase short codes without case folding", () => {
+      const parsed = parseSettlementMemo("MP:DINNER-8F3A");
+      assert.equal(parsed.valid, true);
+      assert.equal(parsed.shortCode, "DINNER-8F3A");
+    });
+
+    it("parses a memo padded with leading whitespace after trimming", () => {
+      const parsed = parseSettlementMemo("   MP:dinner-8f3a");
+      assert.equal(parsed.valid, true);
+      assert.equal(parsed.shortCode, "dinner-8f3a");
+    });
+  });
+
+  describe("breakdownMemo extras", () => {
+    it("reports both prefix and deviation warnings for a non-conforming memo", () => {
+      const bd = breakdownMemo("custom-code", "dinner-8f3a");
+      assert.equal(bd.conformsToConvention, false);
+      assert.equal(bd.warnings.length, 2);
+      assert.match(bd.warnings[0], /prefix/i);
+      assert.match(bd.warnings[1], /deviates/i);
+    });
+
+    it("returns an empty breakdown for an empty-string memo", () => {
+      const bd = breakdownMemo("");
+      assert.equal(bd.byteLength, 0);
+      assert.equal(bd.remainingBytes, STELLAR_MEMO_MAX_BYTES);
+      assert.equal(bd.conformsToConvention, false);
+    });
+  });
+
+  describe("detectMemoDeviations extras", () => {
+    it("surfaces a control-character rejection when the edited memo is dirty", () => {
+      const warnings = detectMemoDeviations("MP:dinner\x00-8f3a", "dinner-8f3a");
+      assert.ok(warnings.some((w) => /control characters/i.test(w)));
+    });
+
+    it("returns no warnings when a sanitized edit matches the original code", () => {
+      const cleaned = sanitizeMemoInput("  MP:dinner-8f3a\x07  ");
+      assert.deepEqual(detectMemoDeviations(cleaned, "dinner-8f3a"), []);
+    });
+  });
+
+  describe("extractSettlementFromTransactionPayload extras", () => {
+    it("reads the internal _value memo object variant", () => {
+      const res = extractSettlementFromTransactionPayload({
+        memo: { type: "text", _value: "MP:vault-77aa" },
+      });
+      assert.equal(res.matched, true);
+      assert.equal(res.shortCode, "vault-77aa");
+      assert.equal(res.expenseSlug, "vault");
+      assert.equal(res.hashSuffix, "77aa");
+    });
+
+    it("returns an error for non-string memo fields", () => {
+      const res = extractSettlementFromTransactionPayload({ memo: 42 });
+      assert.equal(res.matched, false);
+      assert.match(res.error ?? "", /does not contain a memo/i);
+    });
+
+    it("sanitizes a dirty Horizon memo before extracting the reference", () => {
+      const res = extractSettlementFromTransactionPayload({
+        memo: "  MP:dinner-\t\x008f3a  ",
+      });
+      assert.equal(res.matched, true);
+      assert.equal(res.memo, "MP:dinner-8f3a");
+      assert.equal(res.shortCode, "dinner-8f3a");
+    });
+  });
+
+  describe("cross-validator 28-byte boundary", () => {
+    it("enforces one consistent boundary across every validator and the SDK", () => {
+      const maxMemo = buildSettlementMemo("a".repeat(MAX_SHORT_CODE_BYTES));
+      assert.ok(maxMemo);
+      assert.equal(new TextEncoder().encode(maxMemo).length, 28);
+      assert.equal(validateMemo(maxMemo).valid, true);
+      assert.equal(stellarTextMemoSchema.safeParse(maxMemo).success, true);
+      assert.equal(Memo.text(maxMemo).value, maxMemo);
+      assert.equal(parseSettlementMemo(maxMemo).valid, true);
+
+      const overlong = `${maxMemo}a`; // 29 bytes
+      assert.equal(validateMemo(overlong).valid, false);
+      assert.equal(stellarTextMemoSchema.safeParse(overlong).success, false);
+      assert.throws(() => Memo.text(overlong), /max 28 bytes/);
+    });
+  });
+
+  describe("full lifecycle round trips (#329)", () => {
+    it("round-trips a generated code through build, validate, parse, verify, and extract", () => {
+      const shortCode = generateShortCode("Hotel booking deposit", "310.0000000");
+      const memo = buildSettlementMemo(shortCode);
+      assert.ok(memo);
+
+      // Creation → validation
+      assert.equal(validateMemo(memo).valid, true);
+      assert.ok(new TextEncoder().encode(memo).length <= STELLAR_MEMO_MAX_BYTES);
+
+      // Parsing → breakdown (no warnings when compared with the expected code)
+      const parsed = parseSettlementMemo(memo);
+      assert.equal(parsed.valid, true);
+      assert.equal(parsed.shortCode, shortCode);
+      const bd = breakdownMemo(memo, shortCode);
+      assert.equal(bd.conformsToConvention, true);
+      assert.equal(bd.warnings.length, 0);
+      assert.deepEqual(detectMemoDeviations(memo, shortCode), []);
+
+      // Verification → extraction from a history payload
+      assert.equal(verifyTransactionMemo(memo, shortCode).severity, "none");
+      const extracted = extractSettlementFromTransactionPayload({ memo, memo_type: "text" });
+      assert.equal(extracted.matched, true);
+      assert.equal(extracted.shortCode, shortCode);
+
+      // SDK serialization stays lossless
+      assert.equal(Memo.text(memo).value, memo);
+    });
+
+    it("keeps special-character labels ASCII-safe through the entire pipeline", () => {
+      const label = "Crème Brûlée & Café ☕ 2026";
+      const shortCode = generateShortCode(label, "1234.5678901");
+
+      // Accents, symbols, and emoji collapse into an ASCII-only slug.
+      assert.match(shortCode, /^[a-z0-9-]+$/);
+      assert.ok(shortCode.length <= MAX_SHORT_CODE_BYTES);
+
+      const memo = buildSettlementMemo(shortCode);
+      assert.ok(memo);
+      assert.ok(new TextEncoder().encode(memo).length <= STELLAR_MEMO_MAX_BYTES);
+      assert.equal(validateMemo(memo).valid, true);
+      assert.equal(isValidMergepayMemo(memo), true);
+      assert.equal(verifyTransactionMemo(memo, shortCode).severity, "none");
+      assert.deepEqual(detectMemoDeviations(memo, shortCode), []);
+      assert.equal(extractSettlementFromTransactionPayload({ memo }).matched, true);
+      assert.equal(Memo.text(memo).value, memo);
+
+      // Slug/hash decomposition stays consistent with the generated code.
+      const ref = extractExpenseReferenceFromMemo(memo);
+      assert.equal(ref.valid, true);
+      assert.equal(ref.shortCode, shortCode);
+      assert.equal(ref.hashSuffix, shortCode.split("-").at(-1));
+    });
+
+    it("keeps a mid-segment-capped slug within budget and round-trippable", () => {
+      // The 16-char slug cap can cut exactly onto a hyphen, producing a
+      // double hyphen before the hash suffix — the result must still fit
+      // the byte budget and survive the full round trip.
+      const shortCode = generateShortCode("123456789012345-abc", "1.00");
+      assert.ok(shortCode.length <= 21);
+      assert.match(shortCode, /^[a-z0-9-]+$/);
+
+      const memo = buildSettlementMemo(shortCode);
+      assert.ok(memo);
+      assert.equal(validateMemo(memo).valid, true);
+      assert.equal(parseSettlementMemo(memo).valid, true);
+      assert.equal(verifyTransactionMemo(memo, shortCode).severity, "none");
+    });
+  });
+});
+

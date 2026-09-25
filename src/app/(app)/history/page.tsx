@@ -27,6 +27,7 @@ import {
   toHistoryRow,
   matchesHistoryFilters,
   hasActiveFilters,
+  sortHistoryRows,
   type HistoryFilters,
 } from "@/lib/historyFilter";
 import { printReceipt } from "@/lib/export";
@@ -71,11 +72,10 @@ export default function HistoryPage() {
     if (filter === "settlements") {
       return settlements.map((s) => ({ type: "settlement" as const, item: s, date: s.createdAt }));
     }
-    const combined = [
+    return sortHistoryRows([
       ...expenses.map((e) => ({ type: "expense" as const, item: e, date: e.createdAt })),
       ...settlements.map((s) => ({ type: "settlement" as const, item: s, date: s.createdAt })),
-    ];
-    return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    ]);
   }, [filter, expenses, settlements]);
 
   // Apply the search bar filters (keyword, currency, person, date range).
