@@ -7,6 +7,7 @@ import { Badge, statusTone } from "@/components/ui/badge";
 import { Money } from "@/components/amount";
 import { TxLink } from "@/components/tx-link";
 import { SettlementStatusBadge } from "@/components/settle/settlement-status";
+import { MemoBadge } from "@/components/stellar/MemoBadge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,11 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                     {entry.expense.payer.displayName} paid ·{" "}
                     <Timestamp value={entry.createdAt} />
                   </p>
+                  {entry.expense.memo && (
+                    <div className="mt-1">
+                      <MemoBadge memo={entry.expense.memo} compact />
+                    </div>
+                  )}
                 </div>
                 <Money
                   value={entry.expense.amount}
@@ -99,6 +105,9 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                     assetCode={entry.settlement.assetCode}
                   />
                   <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
+                    {entry.settlement.memo && (
+                      <MemoBadge memo={entry.settlement.memo} compact />
+                    )}
                     <SettlementStatusBadge status={entry.settlement.status} />
                     {entry.settlement.stellarTxHash && (
                       <TxLink hash={entry.settlement.stellarTxHash} />

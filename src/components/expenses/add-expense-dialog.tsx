@@ -14,6 +14,7 @@ import { api } from "@/lib/api";
 import { handleApiError } from "@/lib/errorHandler";
 import { SETTLEMENT_ASSETS } from "@/lib/constants";
 import { AssetSelector } from "@/components/expenses/AssetSelector";
+import { ExpenseSplitPreview } from "@/components/expenses/ExpenseSplitPreview";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
 import {
   AMOUNT_DECIMAL_PLACES,
@@ -327,6 +328,21 @@ export function AddExpenseDialog({
         {getError("shares") && (
           <p className="text-xs font-bold text-flamingo-dark">{getError("shares")}</p>
         )}
+
+        <ExpenseSplitPreview
+          amount={amount}
+          assetCode={asset.code}
+          splitType={splitType}
+          participants={participants.map((id) => {
+            const member = members.find((m) => m.userId === id);
+            return {
+              userId: id,
+              displayName: member?.user.displayName ?? id,
+              avatarUrl: member?.user.avatarUrl ?? null,
+            };
+          })}
+          shares={sharesPayload}
+        />
 
         <div className="flex justify-end gap-2 pt-4">
           <Button type="button" variant="ghost" onClick={onClose}>
