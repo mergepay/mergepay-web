@@ -75,6 +75,11 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                     {entry.expense.payer.displayName} paid ·{" "}
                     <Timestamp value={entry.createdAt} />
                   </p>
+                  {entry.expense.memo && (
+                    <div className="mt-1">
+                      <MemoBadge memo={entry.expense.memo} compact />
+                    </div>
+                  )}
                 </div>
                 <Money
                   value={entry.expense.amount}
@@ -100,6 +105,9 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                     assetCode={entry.settlement.assetCode}
                   />
                   <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
+                    {entry.settlement.memo && (
+                      <MemoBadge memo={entry.settlement.memo} compact />
+                    )}
                     <SettlementStatusBadge status={entry.settlement.status} />
                     {/* Show the on-chain memo alongside the tx hash so a
                         ledger entry can be reconciled with its expense. */}
