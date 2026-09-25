@@ -7,6 +7,7 @@ import { Badge, statusTone } from "@/components/ui/badge";
 import { Money } from "@/components/amount";
 import { TxLink } from "@/components/tx-link";
 import { SettlementStatusBadge } from "@/components/settle/settlement-status";
+import { MemoBadge } from "@/components/stellar/MemoBadge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -100,6 +101,9 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                   />
                   <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
                     <SettlementStatusBadge status={entry.settlement.status} />
+                    {/* Show the on-chain memo alongside the tx hash so a
+                        ledger entry can be reconciled with its expense. */}
+                    <MemoBadge memo={entry.settlement.memo} />
                     {entry.settlement.stellarTxHash && (
                       <TxLink hash={entry.settlement.stellarTxHash} />
                     )}
