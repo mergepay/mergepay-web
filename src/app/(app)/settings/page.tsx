@@ -13,6 +13,7 @@ import CopyButton from "@/components/ui/CopyButton";
 import { useMe, useUpdateMe } from "@/lib/queries";
 import { handleApiError } from "@/lib/errorHandler";
 import { explorerAccountUrl, STELLAR_NETWORK } from "@/lib/constants";
+import { FiatCurrencySelect } from "@/components/FiatCurrencySelect";
 
 export default function SettingsPage() {
   const { data: me, isError: isMeError, error: meError } = useMe();
@@ -58,6 +59,8 @@ export default function SettingsPage() {
       />
 
       <div className="grid gap-6 md:grid-cols-5">
+        <FiatCurrencySelect className="md:col-span-2" />
+
         <Card className="md:col-span-3">
           <CardContent className="pt-5">
             <form onSubmit={save} className="space-y-4">

@@ -48,7 +48,9 @@ export function statusTone(status: string): Tone {
     case "settling":
     case "submitted":
     case "pending_user_transfer_start":
+    case "pending_external":
     case "pending_anchor":
+    case "no_market_active":
     case "awaiting_signatures":
       return "butter";
     case "failed":

@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect } from "react";
+import { toast } from "sonner";
 import { runOfflineSync } from "@/lib/offlineSync";
 import { useOfflineStore } from "@/lib/store/offlineStore";
 
 /**
  * Hosts the browser network listeners for the offline draft queue (#197)
  * and auto-flushes queued drafts whenever connectivity returns.
+ *
+ * Shows sonner toasts when the user transitions to offline (so they know
+ * drafts are being saved locally) and when pending items sync successfully
+ * after reconnection.
  *
  * Mount exactly once per session — the AppShell renders it. The manual
  * "Sync now" control lives on the banner and shares the same runner (and
@@ -19,10 +24,15 @@ export function useOfflineSync(): void {
 
     const onOnline = () => {
       useOfflineStore.getState().setOnline(true);
+      toast.info("Back online — syncing pending drafts…");
       void runOfflineSync();
     };
     const onOffline = () => {
       useOfflineStore.getState().setOnline(false);
+      toast.warning("You're offline — new changes will be saved locally", {
+        description: "Expenses you add now will sync automatically when the connection returns.",
+        duration: 6000,
+      });
     };
 
     window.addEventListener("online", onOnline);

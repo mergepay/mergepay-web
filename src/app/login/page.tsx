@@ -57,7 +57,7 @@ function postLoginTarget(): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { token, hydrated, restoring, login, isLoading: authLoading } = useAuth();
+  const { token, restoring, login, isLoading: authLoading } = useAuth();
   // The wallet's own active account, tracked independently of the
   // session, so the screen names the key the user is about to sign with.
   const activeWalletPublicKey = useAuthStore((s) => s.activeWalletPublicKey);
@@ -68,8 +68,8 @@ export default function LoginPage() {
   const [walletNetwork, setWalletNetwork] = useState<string | null>(null);
 
   useEffect(() => {
-    if (hydrated && token) router.replace(postLoginTarget());
-  }, [hydrated, token, router]);
+    if (!restoring && token) router.replace(postLoginTarget());
+  }, [restoring, token, router]);
 
   useEffect(() => {
     isFreighterAvailable().then(setHasFreighter);

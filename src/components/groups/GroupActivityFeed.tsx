@@ -1,19 +1,23 @@
 "use client";
 
-import { useGroupActivity } from "@/lib/queries";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { useGroupActivityPolling } from "@/hooks/useGroupActivityPolling";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { AssetBadge } from "@/components/asset-badge";
 import { Money } from "@/components/amount";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
-import { SectionError, SectionLoading } from "@/components/ui/section";
+import { SectionBoundary, SectionError, SectionLoading } from "@/components/ui/section";
+import { ExpenseFilterBar, type ActivityFilters } from "@/components/expenses/ExpenseFilterBar";
 import {
   Activity,
   CheckCircle2,
   Clock,
   Loader2,
   PlusCircle,
+  Radio,
   Trash2,
   UserPlus,
 } from "lucide-react";
@@ -22,6 +26,10 @@ import type { GroupActivityEvent, GroupActivityType } from "@/lib/types";
 export interface GroupActivityFeedProps {
   groupId: string;
   className?: string;
+  /** When true, polls for activity at a configurable interval. */
+  polling?: boolean;
+  /** Polling interval in ms (default 15 000). Ignored when polling is false. */
+  pollingIntervalMs?: number;
 }
 
 function formatRelativeTime(isoString: string): string {
@@ -86,56 +94,178 @@ function getActivityConfig(type: GroupActivityType) {
   }
 }
 
-export function GroupActivityFeed({
-  groupId,
-  className = "",
-}: GroupActivityFeedProps) {
-  const { data, isLoading, isError, error, refetch } = useGroupActivity(groupId);
-
-  if (isLoading) {
-    return (
-      <SectionLoading label="Loading group activity feed" minHeight="min-h-[16rem]">
-        <ListSkeleton rows={4} />
-      </SectionLoading>
-    );
-  }
-
-  if (isError) {
-    return (
-      <SectionError
-        subject="the activity feed for this group"
-        error={error}
-        onRetry={() => refetch()}
-      />
-    );
-  }
-
-  const activities = data?.activities ?? [];
-
+function ActivityList({
+  activities,
+}: {
+  activities: GroupActivityEvent[];
+}) {
   if (activities.length === 0) {
     return (
       <EmptyState
         icon={<Activity className="h-7 w-7" />}
-        title="No activity recorded yet"
-        description="Expenses, settlements, and member joins will appear here in real time."
+        title="No matching activity found"
+        description="Try adjusting your search query or filter criteria."
       />
     );
   }
 
   return (
-    <div className={`space-y-4 ${className}`}>
-      <div className="flex items-center justify-between">
-        <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
-          Activity Feed ({activities.length})
-        </h3>
-      </div>
-
+    <div className="space-y-4">
       <ul className="space-y-3" aria-label="Group activity events">
         {activities.map((event: GroupActivityEvent) => (
           <ActivityItem key={event.id} event={event} />
         ))}
       </ul>
     </div>
+  );
+}
+
+function PollingIndicator({
+  isPolling,
+  pollingStalled,
+}: {
+  isPolling: boolean;
+  pollingStalled: boolean;
+}) {
+  if (pollingStalled) {
+    return (
+      <Badge tone="tangerine" className="text-[10px] px-2 py-0.5">
+        <Clock className="h-3 w-3 mr-1" />
+        Polling paused
+      </Badge>
+    );
+  }
+
+  if (isPolling) {
+    return (
+      <Badge tone="aqua" className="text-[10px] px-2 py-0.5">
+        <Radio className="h-3 w-3 mr-1 animate-pulse" />
+        Live
+      </Badge>
+    );
+  }
+
+  return null;
+}
+
+export function GroupActivityFeed({
+  groupId,
+  className = "",
+  polling = false,
+  pollingIntervalMs,
+}: GroupActivityFeedProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const [filters, setFilters] = useState<ActivityFilters>(() => ({
+    keyword: searchParams.get("q") || undefined,
+    participant: searchParams.get("participant") || undefined,
+    fromDate: searchParams.get("from") || undefined,
+    toDate: searchParams.get("to") || undefined,
+    assetCode: searchParams.get("asset") || undefined,
+  }));
+
+  // Synchronize state changes to URL query parameters for shareable views
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (filters.keyword) params.set("q", filters.keyword);
+    if (filters.participant) params.set("participant", filters.participant);
+    if (filters.fromDate) params.set("from", filters.fromDate);
+    if (filters.toDate) params.set("to", filters.toDate);
+    if (filters.assetCode) params.set("asset", filters.assetCode);
+
+    const queryStr = params.toString();
+    const newUrl = queryStr ? `${pathname}?${queryStr}` : pathname;
+    router.replace(newUrl, { scroll: false });
+  }, [filters, pathname, router]);
+
+  const options = polling
+    ? { intervalMs: pollingIntervalMs ?? 15_000, enabled: true }
+    : { intervalMs: false as const, enabled: true };
+
+  const pollingResult = useGroupActivityPolling(groupId, options);
+
+  const {
+    activities: rawActivities,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isPolling: live,
+    pollingStalled,
+  } = pollingResult;
+
+  // Filter activities instantly client-side
+  const activities = useMemo(() => {
+    return rawActivities.filter((event) => {
+      if (filters.keyword) {
+        const q = filters.keyword.toLowerCase();
+        const matchesDesc = event.description.toLowerCase().includes(q);
+        const matchesActor = event.actor.displayName.toLowerCase().includes(q);
+        if (!matchesDesc && !matchesActor) return false;
+      }
+
+      if (filters.participant) {
+        const p = filters.participant.toLowerCase();
+        const matchesActor = event.actor.displayName.toLowerCase().includes(p);
+        if (!matchesActor) return false;
+      }
+
+      if (filters.assetCode) {
+        if (event.assetCode && event.assetCode !== filters.assetCode) return false;
+      }
+
+      if (filters.fromDate) {
+        const eventDate = new Date(event.timestamp).getTime();
+        const fromTime = new Date(filters.fromDate).getTime();
+        if (!isNaN(fromTime) && eventDate < fromTime) return false;
+      }
+
+      if (filters.toDate) {
+        const eventDate = new Date(event.timestamp).getTime();
+        // Set to end of day for inclusivity
+        const toTime = new Date(filters.toDate).getTime() + 86399999;
+        if (!isNaN(toTime) && eventDate > toTime) return false;
+      }
+
+      return true;
+    });
+  }, [rawActivities, filters]);
+
+  return (
+    <SectionBoundary subject="the activity feed">
+      <div className={className}>
+        {isLoading && (
+          <SectionLoading label="Loading group activity feed" minHeight="min-h-[16rem]">
+            <ListSkeleton rows={4} />
+          </SectionLoading>
+        )}
+
+        {isError && (
+          <SectionError
+            subject="the activity feed for this group"
+            error={error}
+            onRetry={() => refetch()}
+          />
+        )}
+
+        {!isLoading && !isError && (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
+                Activity Feed ({activities.length}{rawActivities.length !== activities.length ? ` of ${rawActivities.length}` : ""})
+              </h3>
+              {polling && <PollingIndicator isPolling={live} pollingStalled={pollingStalled} />}
+            </div>
+
+            <ExpenseFilterBar value={filters} onChange={setFilters} />
+
+            <ActivityList activities={activities} />
+          </>
+        )}
+      </div>
+    </SectionBoundary>
   );
 }
 
@@ -196,7 +326,7 @@ function ActivityItem({ event }: { event: GroupActivityEvent }) {
             <Money
               value={event.amount}
               assetCode={event.assetCode ?? "XLM"}
-              className="text-base font-bold text-ink"
+              className="font-mono font-bold text-sm"
             />
           </div>
         )}

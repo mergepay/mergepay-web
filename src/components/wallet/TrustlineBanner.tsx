@@ -20,11 +20,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { WalletError, addTrustline, walletMessage } from "@/lib/stellar";
-import { useTrustlineCheck } from "@/hooks/useTrustlineCheck";
+import { useTrustlineRequirements } from "@/hooks/useTrustlineRequirements";
 import { formatMissingAssetList, isAddableTrustline } from "@/lib/trustlineCheck";
 
 export function TrustlineBanner({ className }: { className?: string }) {
-  const { status, missing, address, refresh } = useTrustlineCheck();
+  const { status, missing, address, refresh } = useTrustlineRequirements();
   const [pending, setPending] = useState<string | null>(null);
 
   if (status !== "missing" || missing.length === 0) return null;

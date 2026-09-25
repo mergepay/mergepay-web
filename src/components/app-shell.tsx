@@ -28,7 +28,10 @@ import { FOCUSABLE_SELECTOR, nextFocusIndex } from "@/lib/dialog";
 
 import { HorizonHealthIndicator } from "./HorizonHealthIndicator";
 import { OfflineSyncBanner } from "./OfflineSyncBanner";
+import { OfflineBanner } from "./OfflineBanner";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
+import { BottomNav } from "./layout/BottomNav";
+
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -232,15 +235,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <main className="lg:pl-64">
+      <main className="lg:pl-64 pb-20 lg:pb-0">
         {/* Persistent reconnect prompt while the Freighter wallet is
             disconnected; also hosts the connection poll. */}
         <WalletDisconnectedBanner />
+        <OfflineBanner />
         <OfflineSyncBanner />
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-10">
           {children}
         </div>
       </main>
+      <BottomNav />
     </div>
   );
 }

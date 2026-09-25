@@ -8,6 +8,9 @@ import {
   Landmark,
   ShieldCheck,
   Users,
+  FileSignature,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -226,6 +229,61 @@ export function TreasuryPanel({
         </CardContent>
       </Card>
 
+      {/* Pending transactions awaiting signatures */}
+      {history.data?.transactions.some(
+        (t) => t.status === "awaiting_signatures" || t.status === "pending"
+      ) && (
+        <Card className="border-tangerine">
+          <div className="flex items-center gap-2 border-b-3 border-ink bg-tangerine px-5 py-3">
+            <FileSignature className="h-5 w-5" />
+            <span className="font-display text-sm uppercase tracking-tight">
+              Pending signatures
+            </span>
+          </div>
+          <CardContent className="space-y-2 pt-4">
+            {history.data?.transactions
+              .filter(
+                (t) => t.status === "awaiting_signatures" || t.status === "pending"
+              )
+              .map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between rounded-xl border-2 border-ink bg-cream px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg border-2 border-ink ${
+                        t.direction === "deposit" ? "bg-lime" : "bg-tangerine-pale"
+                      }`}
+                    >
+                      {t.direction === "deposit" ? (
+                        <ArrowDownToLine className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowUpFromLine className="h-3.5 w-3.5" />
+                      )}
+                    </span>
+                    <div>
+                      <p className="text-sm font-bold capitalize">{t.direction}</p>
+                      <p className="text-xs text-ink/50">
+                        {t.amount} {t.assetCode}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone="butter">
+                      <AlertCircle className="h-3 w-3 mr-1" />
+                      {t.status === "awaiting_signatures" ? "Needs signatures" : "Pending"}
+                    </Badge>
+                    {t.user && (
+                      <Avatar user={t.user} className="h-6 w-6" />
+                    )}
+                  </div>
+                </div>
+              ))}
+          </CardContent>
+        </Card>
+      )}
+
       <div>
         <h3 className="mb-3 font-display text-sm uppercase tracking-widest text-ink/60">
           Treasury activity
@@ -234,40 +292,44 @@ export function TreasuryPanel({
           <Skeleton className="h-24 w-full" />
         ) : history.data?.transactions.length ? (
           <div className="space-y-2">
-            {history.data.transactions.map((t) => (
-              <Card key={t.id} className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`flex h-9 w-9 items-center justify-center rounded-xl border-2 border-ink ${
-                      t.direction === "deposit" ? "bg-lime" : "bg-tangerine"
-                    }`}
-                  >
-                    {t.direction === "deposit" ? (
-                      <ArrowDownToLine className="h-4 w-4" />
-                    ) : (
-                      <ArrowUpFromLine className="h-4 w-4" />
-                    )}
-                  </span>
-                  <div>
-                    <p className="font-bold capitalize">{t.direction}</p>
-                    <p className="text-xs text-ink/50">{fullDate(t.createdAt)}</p>
-                    <p className="text-xs text-ink/50">
-                      <Timestamp value={t.createdAt} />
-                    </p>
+            {history.data.transactions
+              .filter(
+                (t) => t.status !== "awaiting_signatures" && t.status !== "pending"
+              )
+              .map((t) => (
+                <Card key={t.id} className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`flex h-9 w-9 items-center justify-center rounded-xl border-2 border-ink ${
+                        t.direction === "deposit" ? "bg-lime" : "bg-tangerine"
+                      }`}
+                    >
+                      {t.direction === "deposit" ? (
+                        <ArrowDownToLine className="h-4 w-4" />
+                      ) : (
+                        <ArrowUpFromLine className="h-4 w-4" />
+                      )}
+                    </span>
+                    <div>
+                      <p className="font-bold capitalize">{t.direction}</p>
+                      <p className="text-xs text-ink/50">{fullDate(t.createdAt)}</p>
+                      <p className="text-xs text-ink/50">
+                        <Timestamp value={t.createdAt} />
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <Money value={t.amount} assetCode={t.assetCode} />
-                  <div className="mt-1 flex justify-end">
-                    {t.stellarTxHash ? (
-                      <TxLink hash={t.stellarTxHash} />
-                    ) : (
-                      <Badge tone="butter">{t.status.replace(/_/g, " ")}</Badge>
-                    )}
+                  <div className="text-right">
+                    <Money value={t.amount} assetCode={t.assetCode} />
+                    <div className="mt-1 flex justify-end">
+                      {t.stellarTxHash ? (
+                        <TxLink hash={t.stellarTxHash} />
+                      ) : (
+                        <Badge tone="butter">{t.status.replace(/_/g, " ")}</Badge>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              ))}
           </div>
         ) : (
           <p className="text-sm text-ink/50">No treasury transactions yet.</p>

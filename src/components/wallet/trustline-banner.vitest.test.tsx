@@ -17,8 +17,8 @@ const { mockCheck, stellar } = vi.hoisted(() => ({
   stellar: { addTrustline: vi.fn() },
 }));
 
-vi.mock("@/hooks/useTrustlineCheck", () => ({
-  useTrustlineCheck: () => mockCheck.current,
+vi.mock("@/hooks/useTrustlineRequirements", () => ({
+  useTrustlineRequirements: () => mockCheck.current,
 }));
 
 vi.mock("@/lib/stellar", () => {

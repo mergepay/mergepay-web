@@ -26,7 +26,7 @@ vi.mock("@stellar/freighter-api", () => ({
   },
 }));
 
-import { useTrustlineCheck } from "../useTrustlineCheck";
+import { useTrustlineRequirements } from "../useTrustlineRequirements";
 
 const ADDRESS = "GBDIT4GPLGXKTQH2O2UYV7XKZPFT2OQ3GQ3H4J6B7Y5XGQY3UHMDXQK7A";
 
@@ -43,7 +43,7 @@ function asset(overrides: Partial<TrustlineAsset> = {}): TrustlineAsset {
 
 const XLM = asset({ code: "XLM", issuer: null, name: "Lumen", hasTrustline: true });
 
-describe("useTrustlineCheck", () => {
+describe("useTrustlineRequirements", () => {
   beforeEach(() => {
     stellar.isFreighterAvailable.mockResolvedValue(true);
     stellar.getGrantedAddress.mockResolvedValue(ADDRESS);
@@ -57,7 +57,7 @@ describe("useTrustlineCheck", () => {
   it("reports disconnected when Freighter is unavailable", async () => {
     stellar.isFreighterAvailable.mockResolvedValue(false);
 
-    const { result } = renderHook(() => useTrustlineCheck());
+    const { result } = renderHook(() => useTrustlineRequirements());
 
     await waitFor(() => expect(result.current.status).toBe("disconnected"));
     expect(result.current.address).toBeNull();
@@ -67,7 +67,7 @@ describe("useTrustlineCheck", () => {
   it("reports disconnected when no account is shared", async () => {
     stellar.getGrantedAddress.mockResolvedValue(null);
 
-    const { result } = renderHook(() => useTrustlineCheck());
+    const { result } = renderHook(() => useTrustlineRequirements());
 
     await waitFor(() => expect(result.current.status).toBe("disconnected"));
     expect(result.current.address).toBeNull();
@@ -79,7 +79,7 @@ describe("useTrustlineCheck", () => {
       asset({ hasTrustline: true }),
     ]);
 
-    const { result } = renderHook(() => useTrustlineCheck());
+    const { result } = renderHook(() => useTrustlineRequirements());
 
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(result.current.missing).toEqual([]);
@@ -90,7 +90,7 @@ describe("useTrustlineCheck", () => {
   it("reports missing assets when a trustline is absent", async () => {
     stellar.getWalletAssets.mockResolvedValue([XLM, asset()]);
 
-    const { result } = renderHook(() => useTrustlineCheck());
+    const { result } = renderHook(() => useTrustlineRequirements());
 
     await waitFor(() => expect(result.current.status).toBe("missing"));
     expect(result.current.missing.map((a) => a.code)).toEqual(["USDC"]);
@@ -99,7 +99,7 @@ describe("useTrustlineCheck", () => {
   it("absorbs Horizon failures without throwing", async () => {
     stellar.getWalletAssets.mockRejectedValue(new Error("ECONNREFUSED"));
 
-    const { result } = renderHook(() => useTrustlineCheck());
+    const { result } = renderHook(() => useTrustlineRequirements());
 
     await waitFor(() => expect(result.current.status).toBe("error"));
     expect(result.current.error).toMatch(/couldn't check/i);
@@ -109,7 +109,7 @@ describe("useTrustlineCheck", () => {
     stellar.getWalletAssets.mockResolvedValueOnce([XLM, asset()]);
     stellar.getWalletAssets.mockResolvedValue([XLM, asset({ hasTrustline: true })]);
 
-    const { result } = renderHook(() => useTrustlineCheck());
+    const { result } = renderHook(() => useTrustlineRequirements());
     await waitFor(() => expect(result.current.status).toBe("missing"));
 
     act(() => result.current.refresh());

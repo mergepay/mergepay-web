@@ -1,151 +1,36 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
+import { hasTrustline } from "@/lib/stellar";
+
 /**
- * Trustline check hook (#370 / #378).
+ * React Query hook that proactively checks whether the connected wallet
+ * holds the required trustline for a given Stellar asset.
  *
- * Reads the connected Freighter account's balances from Horizon (through
- * the shared `getWalletAssets` helper) and reports which configured
- * settlement assets the wallet cannot hold yet.
- *
- * The probe never prompts, so mounting this on a page cannot surface a
- * Freighter popup. `WatchWalletChanges` re-runs the check when the
- * account or network changes, so connecting, disconnecting or switching
- * accounts updates the result without a reload. Every failure is absorbed
- * into the returned state — a Horizon outage must never crash a page.
+ * Returns cached results with stale-while-revalidate (30 s stale / 5 min
+ * cache) so rapid open–close cycles don't re-hit Horizon.
  */
+export function useTrustlineCheck(
+  assetCode: string,
+  assetIssuer: string | null,
+  publicKey?: string | null,
+) {
+  const isNative =
+    !assetIssuer ||
+    assetCode.toUpperCase() === "XLM" ||
+    assetCode.toUpperCase() === "NATIVE";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { WatchWalletChanges } from "@stellar/freighter-api";
-import {
-  getGrantedAddress,
-  getWalletAssets,
-  isFreighterAvailable,
-} from "@/lib/stellar";
-import { summarizeTrustlines } from "@/lib/trustlineCheck";
-import type { TrustlineAsset } from "@/lib/trustline";
-
-/** How often Freighter reports account/network changes while mounted. */
-const WATCH_INTERVAL_MS = 15_000;
-
-export type TrustlineCheckStatus =
-  /** Still reading the wallet — the answer is not known yet. */
-  | "checking"
-  /** Aligned with the wallet: no missing trustlines. */
-  | "ready"
-  /** Wallet is connected but at least one settlement asset is missing. */
-  | "missing"
-  /** Freighter is absent or no account is shared — nothing to check. */
-  | "disconnected"
-  /** The wallet or Horizon could not be read. */
-  | "error";
-
-export interface TrustlineCheckState {
-  status: TrustlineCheckStatus;
-  /** Active public key the check ran against, or `null`. */
-  address: string | null;
-  /** Every configured settlement asset and its trustline status. */
-  assets: TrustlineAsset[];
-  /** Subset of `assets` the wallet cannot receive yet. */
-  missing: TrustlineAsset[];
-  /** User-facing message when `status` is `"error"`. */
-  error: string | null;
-}
-
-export interface UseTrustlineCheck extends TrustlineCheckState {
-  /** Re-read the wallet immediately (used after adding a trustline). */
-  refresh: () => void;
-}
-
-const INITIAL_STATE: TrustlineCheckState = {
-  status: "checking",
-  address: null,
-  assets: [],
-  missing: [],
-  error: null,
-};
-
-export function useTrustlineCheck(): UseTrustlineCheck {
-  const [state, setState] = useState<TrustlineCheckState>(INITIAL_STATE);
-  const mounted = useRef(true);
-
-  const runCheck = useCallback(async () => {
-    try {
-      const available = await isFreighterAvailable();
-      if (!mounted.current) return;
-
-      if (!available) {
-        setState({
-          status: "disconnected",
-          address: null,
-          assets: [],
-          missing: [],
-          error: null,
-        });
-        return;
+  return useQuery({
+    queryKey: ["trustline", assetCode, assetIssuer, publicKey],
+    queryFn: async () => {
+      if (isNative || !publicKey || !assetIssuer) {
+        return { hasTrustline: true };
       }
-
-      const address = await getGrantedAddress();
-      if (!mounted.current) return;
-
-      if (!address) {
-        setState({
-          status: "disconnected",
-          address: null,
-          assets: [],
-          missing: [],
-          error: null,
-        });
-        return;
-      }
-
-      setState((previous) => ({ ...previous, status: "checking", address }));
-
-      const assets = await getWalletAssets(address);
-      if (!mounted.current) return;
-
-      const { status, missing } = summarizeTrustlines(assets);
-      setState({ status, address, assets, missing, error: null });
-    } catch {
-      if (!mounted.current) return;
-      setState((previous) => ({
-        ...previous,
-        status: "error",
-        error: "We couldn't check your wallet's trustlines. Check your connection and try again.",
-      }));
-    }
-  }, []);
-
-  useEffect(() => {
-    mounted.current = true;
-    void runCheck();
-
-    let watcher: WatchWalletChanges | null = null;
-    try {
-      watcher = new WatchWalletChanges(WATCH_INTERVAL_MS);
-      watcher.watch(() => {
-        if (!mounted.current) return;
-        // Any account or network change invalidates the previous answer.
-        void runCheck();
-      });
-    } catch {
-      // No watcher available — the one-shot check above still applies.
-    }
-
-    return () => {
-      mounted.current = false;
-      try {
-        watcher?.stop();
-      } catch {
-        // Best effort; the watcher is gone with the component either way.
-      }
-    };
-  }, [runCheck]);
-
-  return {
-    ...state,
-    refresh: () => {
-      setState((previous) => ({ ...previous, status: "checking" }));
-      void runCheck();
+      const result = await hasTrustline(publicKey, assetCode, assetIssuer);
+      return { hasTrustline: result };
     },
-  };
+    enabled: !!publicKey && !isNative,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+  });
 }

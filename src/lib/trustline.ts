@@ -123,6 +123,22 @@ export function calculateAssetBalances(
 }
 
 /**
+ * Compute the subset of required assets whose trustline is missing.
+ *
+ * Native XLM is always considered to have a trustline, and assets without an
+ * issuer are treated as always-available. The result preserves the order of
+ * `requiredAssets` so callers can render the banner deterministically.
+ */
+export function missingTrustlines(
+  balances: HorizonBalanceItem[],
+  requiredAssets: ConfiguredAsset[]
+): ConfiguredAsset[] {
+  return requiredAssets.filter(
+    (asset) => !verifyTrustline(balances, asset.code, asset.issuer)
+  );
+}
+
+/**
  * Fetch Horizon balances for a given Stellar public key.
  */
 export async function fetchHorizonAccountBalances(

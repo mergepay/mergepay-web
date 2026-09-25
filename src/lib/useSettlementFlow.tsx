@@ -12,11 +12,29 @@ import {
   UserRejectedError,
 } from "./stellar";
 import { validateSettlementInput } from "./paymentValidation";
+import { NETWORK_PASSPHRASE } from "./constants";
 import type {
   Settlement,
   SettlementSuggestion,
   User,
 } from "./types";
+
+// ---------------------------------------------------------------------------
+// Pure guard — exported for testing
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the intent's network passphrase does not match the configured
+ * network. A mismatch means the API built the transaction envelope for
+ * a different Stellar network — signing it would fail on submission.
+ */
+export function isNetworkMismatch(
+  intentPassphrase: string | null | undefined,
+  expectedPassphrase: string = NETWORK_PASSPHRASE
+): boolean {
+  if (!intentPassphrase || intentPassphrase === "") return false;
+  return intentPassphrase !== expectedPassphrase;
+}
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -39,15 +57,22 @@ export interface SettleTarget {
   assetCode: string;
   assetIssuer: string | null;
   label: string;
+  /** Client-generated memo preview for display in the review step. */
+  previewMemo?: string | null;
+  /** Short code extracted from the memo, for edit/reconciliation tracking. */
+  shortCode?: string | null;
 }
 
-export function suggestionToTarget(s: SettlementSuggestion): SettleTarget {
+export function suggestionToTarget(
+  s: SettlementSuggestion & { memo?: string | null }
+): SettleTarget {
   return {
     to: s.to,
     amount: s.amount,
     assetCode: s.assetCode,
     assetIssuer: s.assetIssuer,
     label: `Settle up with ${s.to.displayName}`,
+    previewMemo: s.memo ?? null,
   };
 }
 
@@ -189,7 +214,21 @@ export function useSettlementFlow(groupId: string) {
               assetIssuer: target.assetIssuer,
             });
 
-        // 3. Sign in Freighter
+        // 3. Validate the network passphrase matches our configuration.
+        // A mismatch means the API built the envelope for a different
+        // network — signing would fail on submission, so we block early.
+        if (isNetworkMismatch(intent.networkPassphrase)) {
+          setStep("failed");
+          setErrorPayload({
+            message:
+              "The transaction was built for a different Stellar network than this deployment expects. Please try again later.",
+            walletErrorCode: null,
+          });
+          submittingRef.current = false;
+          return;
+        }
+
+        // 4. Sign in Freighter
         setStep("awaiting_wallet");
         const signedXdr = await signXdr(
           intent.xdr,

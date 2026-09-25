@@ -4,6 +4,7 @@ import {
   formatStellarBalance,
   verifyTrustline,
   calculateAssetBalances,
+  missingTrustlines,
   HorizonBalanceItem,
   ConfiguredAsset,
 } from "../trustline";
@@ -104,6 +105,49 @@ describe("Trustline Balancer & Verification Logic", () => {
       assert.strictEqual(results[2].code, "ARST");
       assert.strictEqual(results[2].hasTrustline, false);
       assert.strictEqual(results[2].balance, "0.0000000");
+    });
+  });
+
+  describe("missingTrustlines", () => {
+    const requiredAssets: ConfiguredAsset[] = [
+      { code: "XLM", issuer: null },
+      { code: "USDC", issuer: STABLE_ASSET.issuer },
+      { code: "ARST", issuer: "GBBD47IF6LWK2P7MDEVSCWR7DPUWV3NY3DTQEVFL4TWVC5GIOTASH4EU" },
+    ];
+
+    const balances: HorizonBalanceItem[] = [
+      { asset_type: "native", balance: "100" },
+      {
+        asset_type: "credit_alphanum4",
+        asset_code: "USDC",
+        asset_issuer: STABLE_ASSET.issuer,
+        balance: "50",
+      },
+    ];
+
+    it("returns only the assets whose trustline is absent", () => {
+      const missing = missingTrustlines(balances, requiredAssets);
+      assert.strictEqual(missing.length, 1);
+      assert.strictEqual(missing[0].code, "ARST");
+    });
+
+    it("returns an empty list when every required trustline is present", () => {
+      const allPresent = missingTrustlines(balances, [
+        { code: "XLM", issuer: null },
+        { code: "USDC", issuer: STABLE_ASSET.issuer },
+      ]);
+      assert.strictEqual(allPresent.length, 0);
+    });
+
+    it("preserves the order of the required assets", () => {
+      const missing = missingTrustlines(balances, [
+        { code: "ARST", issuer: "GBBD47IF6LWK2P7MDEVSCWR7DPUWV3NY3DTQEVFL4TWVC5GIOTASH4EU" },
+        { code: "MOON", issuer: "GBBD47IF6LWK2P7MDEVSCWR7DPUWV3NY3DTQEVFL4TWVC5GIOTASH4EU" },
+      ]);
+      assert.deepStrictEqual(
+        missing.map((a) => a.code),
+        ["ARST", "MOON"]
+      );
     });
   });
 });

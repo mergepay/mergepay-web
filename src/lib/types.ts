@@ -31,7 +31,9 @@ export type AnchorSessionKind = "deposit" | "withdrawal";
 export type AnchorSessionStatus =
   | "incomplete"
   | "pending_user_transfer_start"
+  | "pending_external"
   | "pending_anchor"
+  | "no_market_active"
   | "completed"
   | "error"
   | "refunded";
@@ -234,6 +236,8 @@ export interface Expense {
   receiptUrl: string | null;
   createdAt: string;
   shares: ExpenseShare[];
+  isOptimistic?: boolean;
+  pending?: boolean;
 }
 
 export interface ExpensesResponse {
@@ -508,6 +512,12 @@ export interface ConfiguredAsset {
   issuer: string | null;
   name?: string;
 }
+
+/**
+ * Asset codes the app can settle in. XLM is the native asset; USDC is the
+ * supported issued asset (see `SETTLEMENT_ASSETS` in `src/lib/constants.ts`).
+ */
+export type SettlementAssetCode = "XLM" | "USDC";
 
 export interface HorizonBalanceItem {
   asset_type: string;
