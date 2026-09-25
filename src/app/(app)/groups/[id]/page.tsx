@@ -37,6 +37,7 @@ import { BalancesPanel } from "@/components/balances/balances-panel";
 import { LedgerPanel } from "@/components/ledger/ledger-panel";
 import { TreasuryPanel } from "@/components/treasury/treasury-panel";
 import { MembersPanel } from "@/components/groups/members-panel";
+import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import {
   SectionBoundary,
   SectionError,
@@ -141,6 +142,11 @@ export default function GroupDetailPage() {
           <Badge tone="paper">This group is archived</Badge>
         </div>
       )}
+
+      {/* Settlement in a non-native asset fails on-chain without a
+          trustline, so warn here — before the user starts a settle — and
+          let them add it without leaving the group. */}
+      {!group.archived && <TrustlineBanner className="mb-6" />}
 
       <Tabs
         className="mb-6"
