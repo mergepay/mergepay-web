@@ -50,7 +50,7 @@ describe("explorerBaseUrl", () => {
   });
 });
 
-describe("isValidTxHash", () => {
+describe("isValidTxHash (#121)", () => {
   it("accepts a 64-character hex hash in either case", () => {
     assert.equal(isValidTxHash(TX_HASH), true);
     assert.equal(isValidTxHash(TX_HASH.toUpperCase()), true);
@@ -65,6 +65,24 @@ describe("isValidTxHash", () => {
     assert.equal(isValidTxHash(null), false);
     assert.equal(isValidTxHash(undefined), false);
     assert.equal(isValidTxHash(42), false);
+  });
+
+  it("rejects strings with spaces or whitespace", () => {
+    assert.equal(isValidTxHash(` ${TX_HASH}`), false);
+    assert.equal(isValidTxHash(`${TX_HASH} `), false);
+    assert.equal(isValidTxHash(TX_HASH.replace(/6/g, "6 ")), false);
+  });
+
+  it("rejects strings with special characters that could be URL-escaped", () => {
+    assert.equal(isValidTxHash(`${TX_HASH.slice(0, 63)}%`), false);
+    assert.equal(isValidTxHash(`${TX_HASH.slice(0, 63)}#`), false);
+    assert.equal(isValidTxHash(`${TX_HASH.slice(0, 63)}?`), false);
+  });
+
+  it("rejects empty-ish strings", () => {
+    assert.equal(isValidTxHash("   "), false);
+    assert.equal(isValidTxHash("\n"), false);
+    assert.equal(isValidTxHash("\t"), false);
   });
 });
 
@@ -82,7 +100,7 @@ describe("isValidPublicKey", () => {
   });
 });
 
-describe("explorerTxUrl", () => {
+describe("explorerTxUrl (#121)", () => {
   it("builds a mainnet link for the public network", () => {
     assert.equal(
       explorerTxUrl(TX_HASH, "public"),
@@ -119,6 +137,47 @@ describe("explorerTxUrl", () => {
   it("uses the configured network when none is passed", () => {
     const url = explorerTxUrl(TX_HASH);
     assert.equal(url, `${explorerBaseUrl()}/tx/${TX_HASH}`);
+  });
+
+  // Additional edge cases for safe external link handling (#121)
+  it("never mixes testnet hashes into mainnet links", () => {
+    const url = explorerTxUrl(TX_HASH, "public");
+    assert.ok(url, "expected a URL for valid hash on public");
+    assert.ok(url.includes("/explorer/public/"), url);
+    assert.ok(!url.includes("/explorer/testnet/"), url);
+  });
+
+  it("never mixes mainnet hashes into testnet links", () => {
+    const url = explorerTxUrl(TX_HASH, "testnet");
+    assert.ok(url, "expected a URL for valid hash on testnet");
+    assert.ok(url.includes("/explorer/testnet/"), url);
+    assert.ok(!url.includes("/explorer/public/"), url);
+  });
+
+  it("rejects path traversal attempts in transaction hash", () => {
+    const malicious = `${TX_HASH.slice(0, 40)}/../account/GALLEGED`;
+    assert.equal(explorerTxUrl(malicious, "public"), null);
+  });
+
+  it("rejects a hash that is too short", () => {
+    assert.equal(explorerTxUrl("abc123", "public"), null);
+  });
+
+  it("rejects a hash that is too long", () => {
+    assert.equal(explorerTxUrl(`${TX_HASH}abcd`, "public"), null);
+  });
+
+  it("rejects non-hex characters in hash", () => {
+    const nonHex = "z".repeat(64);
+    assert.equal(explorerTxUrl(nonHex, "public"), null);
+  });
+
+  it("returns null for numeric input", () => {
+    assert.equal(explorerTxUrl(42 as unknown as string, "public"), null);
+  });
+
+  it("returns null for object input", () => {
+    assert.equal(explorerTxUrl({} as unknown as string, "public"), null);
   });
 });
 

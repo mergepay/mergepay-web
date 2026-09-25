@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Check, FileText, Trash2 } from "lucide-react";
+import { Check, FileText, Loader2, Receipt, Trash2 } from "lucide-react";
+import { ReceiptPreview } from "@/components/ui/receipt-preview";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Money } from "@/components/amount";
 import { AssetBadge } from "@/components/asset-badge";
+import { FiatEquivalent, FiatInline } from "@/components/FiatEquivalent";
 import { Button } from "@/components/ui/button";
 import {
   SettleDialog,
@@ -16,6 +18,7 @@ import {
 import { useDeleteExpense } from "@/lib/queries";
 import { handleApiError } from "@/lib/errorHandler";
 import { Timestamp } from "@/components/timestamp";
+import { ExpenseReceiptModal } from "@/components/ExpenseReceiptModal";
 import type { Expense, GroupMember } from "@/lib/types";
 
 export function ExpenseCard({
@@ -37,16 +40,19 @@ export function ExpenseCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [settleTarget, setSettleTarget] = useState<SettleTarget | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const del = useDeleteExpense(groupId);
 
+  const isPending = Boolean(expense.isOptimistic || expense.pending);
   const isPayer = expense.payerUserId === currentUserId;
   const myShare = expense.shares.find((s) => s.userId === currentUserId);
-  const canDelete = isPayer && expense.shares.every((s) => s.status !== "settled");
+  const canDelete = !isPending && isPayer && expense.shares.every((s) => s.status !== "settled");
   const settledCount = expense.shares.filter((s) => s.status === "settled").length;
   // Mirror the per-card "Settle my share" button below: only `pending` shares
   // are directly settleable from the UI; "settling" is server-reconciled.
   const canSelectForBulk =
-    selectable && !isPayer && !!myShare && myShare.status === "pending";
+    !isPending && selectable && !isPayer && !!myShare && myShare.status === "pending";
 
   async function handleDelete() {
     if (!confirm("Delete this expense? This cannot be undone.")) return;
@@ -71,7 +77,7 @@ export function ExpenseCard({
   }
 
   return (
-    <Card>
+    <Card className={isPending ? "opacity-70 bg-cream/50" : undefined}>
       <div className="flex items-stretch">
         {selectable && (
           <button
@@ -89,8 +95,6 @@ export function ExpenseCard({
             }`}
           >
             <span
-              // Visual indicator only — the wrapping <button aria-pressed>
-              // carries the toggle semantics. Don't add role="checkbox" here.
               aria-hidden="true"
               className={`flex h-6 w-6 items-center justify-center rounded-md border-2 border-ink transition-colors ${
                 selected ? "bg-lime shadow-brutal-sm" : "bg-white"
@@ -114,6 +118,12 @@ export function ExpenseCard({
               <p className="truncate font-display text-base uppercase tracking-tight">
                 {expense.title}
               </p>
+              {isPending && (
+                <span className="inline-flex items-center gap-1">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ink/60" />
+                  <Badge tone="paper" className="text-[10px] uppercase">Posting…</Badge>
+                </span>
+              )}
               {expense.receiptUrl && <FileText className="h-3.5 w-3.5 text-ink/40" />}
             </div>
             <p className="text-xs text-ink/50">
@@ -125,8 +135,9 @@ export function ExpenseCard({
           </div>
           <div className="text-right">
             <Money value={expense.amount} assetCode={expense.assetCode} />
-            <div className="mt-1 flex justify-end gap-1">
+            <div className="mt-1 flex items-center justify-end gap-1.5">
               <AssetBadge code={expense.assetCode} />
+              <FiatEquivalent amount={expense.amount} assetCode={expense.assetCode} />
             </div>
           </div>
         </button>
@@ -164,6 +175,7 @@ export function ExpenseCard({
                   </span>
                   <span className="flex items-center gap-2">
                     <Money value={share.shareAmount} assetCode={expense.assetCode} />
+                    <FiatInline amount={share.shareAmount} assetCode={expense.assetCode} />
                     <Badge tone={statusTone(share.status)}>{share.status}</Badge>
                   </span>
                 </div>
@@ -173,12 +185,25 @@ export function ExpenseCard({
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setReceiptOpen(true)}
+                aria-label={`View receipt for \"${expense.title}\"`}
+              >
+                <Receipt className="h-3.5 w-3.5" /> Receipt
+              </Button>
               {expense.receiptUrl && (
-                <a href={expense.receiptUrl} target="_blank" rel="noopener noreferrer">
-                  <Button variant="ghost" size="sm">
-                    <FileText className="h-3.5 w-3.5" /> Receipt
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPreviewOpen(true)}
+                    aria-label={`Preview image receipt for \"${expense.title}\"`}
+                  >
+                    <FileText className="h-3.5 w-3.5" /> Image
                   </Button>
-                </a>
+                </>
               )}
               {canDelete && (
                 <Button
@@ -211,6 +236,21 @@ export function ExpenseCard({
         onClose={() => setSettleTarget(null)}
         groupId={groupId}
         target={settleTarget}
+      />
+
+      {expense.receiptUrl && (
+        <ReceiptPreview
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          url={expense.receiptUrl}
+          title={`Receipt — ${expense.title}`}
+        />
+      )}
+
+      <ExpenseReceiptModal
+        open={receiptOpen}
+        onClose={() => setReceiptOpen(false)}
+        expense={expense}
       />
     </Card>
   );

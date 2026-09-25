@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Archivo_Black, Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
-import { NetworkStatusBanner } from "@/components/NetworkStatusBanner";
+import { NetworkStatusComponent } from "@/components/network-status";
 
 
 const display = Archivo_Black({
@@ -47,7 +47,7 @@ export default function RootLayout({
       <body
         className={`${display.variable} ${body.variable} ${mono.variable} font-body`}
       >
-        <NetworkStatusBanner />
+        <NetworkStatusComponent />
         <Providers>{children}</Providers>
       </body>
 

@@ -1,14 +1,21 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  AMOUNT_MAX_DECIMALS,
+  AMOUNT_MIN_DECIMALS,
   AMOUNT_UNAVAILABLE,
   AMOUNT_UNAVAILABLE_LABEL,
+  DEFAULT_AMOUNT_LOCALE,
+  SUPPORTED_FIAT_CURRENCIES,
   UNKNOWN_ASSET_LABEL,
   amountToStroops,
+  convertCurrency,
+  currencyRate,
   formatAssetAmount,
   formatAssetAmountText,
   normalizeAssetCode,
   parseDecimalDigits,
+  rateDeviationPercent,
 } from "../currency";
 
 describe("formatAssetAmount — asset labelling (#110)", () => {
@@ -101,6 +108,63 @@ describe("formatAssetAmount — precision (#110)", () => {
   });
 });
 
+describe("formatAssetAmount — decimal precision and rounding edge cases (#332)", () => {
+  it("handles sub-stroop half-away-from-zero rounding threshold at 8th decimal place", () => {
+    // Positive values
+    assert.equal(formatAssetAmount("0.00000005", "XLM").text, "0.0000001 XLM");
+    assert.equal(formatAssetAmount("0.00000004", "XLM").text, "0.00 XLM");
+    assert.equal(formatAssetAmount("1.00000005", "USDC").text, "1.0000001 USDC");
+    assert.equal(formatAssetAmount("1.00000004", "USDC").text, "1.00 USDC");
+
+    // Negative values
+    assert.equal(formatAssetAmount("-0.00000005", "XLM").text, "-0.0000001 XLM");
+    assert.equal(formatAssetAmount("-0.00000004", "XLM").text, "0.00 XLM");
+    assert.equal(formatAssetAmount("-1.00000005", "USDC").text, "-1.0000001 USDC");
+    assert.equal(formatAssetAmount("-1.00000004", "USDC").text, "-1.00 USDC");
+  });
+
+  it("carries rounding through multiple nines into large integers", () => {
+    assert.equal(formatAssetAmount("0.99999996", "XLM").text, "1.00 XLM");
+    assert.equal(formatAssetAmount("999999.99999995", "XLM").text, "1,000,000.00 XLM");
+    assert.equal(formatAssetAmount("-0.99999996", "XLM").text, "-1.00 XLM");
+  });
+
+  it("preserves exact decimals up to 7 places and trims redundant trailing zeros", () => {
+    assert.equal(formatAssetAmount("1.5000000", "XLM").text, "1.50 XLM");
+    assert.equal(formatAssetAmount("1.5010000", "XLM").text, "1.501 XLM");
+    assert.equal(formatAssetAmount("1.1234567", "XLM").text, "1.1234567 XLM");
+  });
+
+  it("handles minDecimals and maxDecimals boundary constraints safely", () => {
+    // maxDecimals = 0 rounds to whole integer
+    assert.equal(formatAssetAmount("5.6", "XLM", { maxDecimals: 0 }).text, "6 XLM");
+    assert.equal(formatAssetAmount("5.4", "XLM", { maxDecimals: 0 }).text, "5 XLM");
+    assert.equal(formatAssetAmount("5.0", "XLM", { minDecimals: 0, maxDecimals: 0 }).text, "5 XLM");
+
+    // minDecimals higher than maxDecimals is clamped to maxDecimals
+    assert.equal(
+      formatAssetAmount("1.234", "USDC", { minDecimals: 5, maxDecimals: 2 }).text,
+      "1.23 USDC"
+    );
+
+    // Negative decimal settings clamped to 0
+    assert.equal(
+      formatAssetAmount("1.23", "USDC", { minDecimals: -2, maxDecimals: -1 }).text,
+      "1 USDC"
+    );
+
+    // Non-finite decimal settings fallback safely
+    assert.equal(
+      formatAssetAmount("1.5", "USDC", { maxDecimals: Infinity }).text,
+      "1.50 USDC"
+    );
+    assert.equal(
+      formatAssetAmount("1.5", "USDC", { minDecimals: NaN }).text,
+      "1.5000000 USDC"
+    );
+  });
+});
+
 describe("formatAssetAmount — magnitude and sign (#110)", () => {
   it("groups large integer parts", () => {
     assert.equal(
@@ -116,10 +180,38 @@ describe("formatAssetAmount — magnitude and sign (#110)", () => {
     );
   });
 
+  it("handles very large values (quintillions) without losing digit integrity", () => {
+    assert.equal(
+      formatAssetAmount("1000000000000000000", "USDC").text,
+      "1,000,000,000,000,000,000.00 USDC"
+    );
+    assert.equal(
+      formatAssetAmount("999999999999999.9999999", "XLM").text,
+      "999,999,999,999,999.9999999 XLM"
+    );
+  });
+
+  it("strips leading zeros from integer parts correctly", () => {
+    assert.equal(formatAssetAmount("0001234.56", "XLM").text, "1,234.56 XLM");
+    assert.equal(formatAssetAmount("-00042.50", "XLM").text, "-42.50 XLM");
+    assert.equal(formatAssetAmount("000", "XLM").text, "0.00 XLM");
+  });
+
   it("renders zero as a real value, not a fallback", () => {
     const zero = formatAssetAmount("0", "USDC");
     assert.equal(zero.text, "0.00 USDC");
     assert.equal(zero.valid, true);
+  });
+
+  it("handles all signed and unsigned zero representations identically", () => {
+    for (const val of ["0", "0.0", "0.0000", "+0", "+0.00", "-0", "-0.0", "-0.0000"]) {
+      assert.equal(formatAssetAmount(val, "XLM").text, "0.00 XLM", `Failed for ${val}`);
+    }
+  });
+
+  it("formats negative amounts with proper signs and grouping", () => {
+    assert.equal(formatAssetAmount("-1234567.89", "USDC").text, "-1,234,567.89 USDC");
+    assert.equal(formatAssetAmount("-0.0000001", "XLM").text, "-0.0000001 XLM");
   });
 
   it("prefixes a sign only when asked, and never on zero", () => {
@@ -132,14 +224,28 @@ describe("formatAssetAmount — magnitude and sign (#110)", () => {
       "0.00 XLM"
     );
     assert.equal(
+      formatAssetAmount("-0", "XLM", { signDisplay: "always" }).text,
+      "0.00 XLM"
+    );
+    assert.equal(
       formatAssetAmount("-5", "XLM", { signDisplay: "always" }).text,
       "-5.00 XLM"
     );
+    assert.equal(
+      formatAssetAmount("1234.5", "XLM", { signDisplay: "always" }).text,
+      "+1,234.50 XLM"
+    );
   });
 
-  it("reads exponential notation from number inputs", () => {
+  it("reads exponential notation from string and number inputs", () => {
     assert.equal(formatAssetAmount(1e-7, "XLM").text, "0.0000001 XLM");
     assert.equal(formatAssetAmount("1E+3", "XLM").text, "1,000.00 XLM");
+    assert.equal(formatAssetAmount("1.25e+2", "XLM").text, "125.00 XLM");
+    assert.equal(formatAssetAmount("1e+6", "XLM").text, "1,000,000.00 XLM");
+    assert.equal(formatAssetAmount("1.25e-4", "XLM").text, "0.000125 XLM");
+    assert.equal(formatAssetAmount("2.5e-8", "XLM").text, "0.00 XLM");
+    assert.equal(formatAssetAmount("-1.5e-3", "XLM").text, "-0.0015 XLM");
+    assert.equal(formatAssetAmount("-2.5e+3", "XLM").text, "-2,500.00 XLM");
   });
 
   it("localises separators without changing the digits", () => {
@@ -147,11 +253,31 @@ describe("formatAssetAmount — magnitude and sign (#110)", () => {
       formatAssetAmount("1234.5", "USDC", { locale: "de-DE" }).text,
       "1.234,50 USDC"
     );
+    assert.equal(
+      formatAssetAmount("1234567.89", "XLM", { locale: "fr-FR" }).text,
+      "1\u202f234\u202f567,89 XLM"
+    );
   });
 });
 
 describe("formatAssetAmount — invalid input (#110)", () => {
-  const invalid = [undefined, null, "", "   ", "abc", "1.2.3", "NaN", NaN, Infinity, "-", "."];
+  const invalid = [
+    undefined,
+    null,
+    "",
+    "   ",
+    "abc",
+    "1.2.3",
+    "NaN",
+    NaN,
+    Infinity,
+    "-",
+    ".",
+    "1e",
+    "e5",
+    "1e+",
+    "1e-abc",
+  ];
 
   for (const value of invalid) {
     it(`falls back rather than fabricating a zero for ${JSON.stringify(value)}`, () => {
@@ -189,7 +315,7 @@ describe("formatAssetAmount — raw values are untouched (#110)", () => {
   });
 });
 
-describe("parseDecimalDigits (#110)", () => {
+describe("parseDecimalDigits (#110, #332)", () => {
   it("splits a decimal string into exact digits", () => {
     assert.deepEqual(parseDecimalDigits("-12.340"), {
       negative: true,
@@ -211,18 +337,58 @@ describe("parseDecimalDigits (#110)", () => {
     });
   });
 
+  it("handles exponential forms in parseDecimalDigits", () => {
+    assert.deepEqual(parseDecimalDigits("+1.5e2"), {
+      negative: false,
+      int: "150",
+      frac: "",
+    });
+    assert.deepEqual(parseDecimalDigits("-1.25e-2"), {
+      negative: true,
+      int: "0",
+      frac: "0125",
+    });
+  });
+
+  it("preserves leading zeros in integer part", () => {
+    assert.deepEqual(parseDecimalDigits("007.89"), {
+      negative: false,
+      int: "007",
+      frac: "89",
+    });
+  });
+
   it("rejects anything that is not a number", () => {
     assert.equal(parseDecimalDigits("1,000"), null);
     assert.equal(parseDecimalDigits("1e"), null);
+    assert.equal(parseDecimalDigits("e5"), null);
+    assert.equal(parseDecimalDigits("1e+"), null);
+    assert.equal(parseDecimalDigits("1e-abc"), null);
     assert.equal(parseDecimalDigits({} as never), null);
   });
 });
 
-describe("amountToStroops (#110)", () => {
+describe("amountToStroops (#110, #332)", () => {
   it("converts to exact signed stroops", () => {
     assert.equal(amountToStroops("1.5"), 15_000_000n);
     assert.equal(amountToStroops("-0.0000001"), -1n);
     assert.equal(amountToStroops("0"), 0n);
+  });
+
+  it("handles sub-stroop half-away-from-zero rounding", () => {
+    assert.equal(amountToStroops("0.00000005"), 1n);
+    assert.equal(amountToStroops("0.00000004"), 0n);
+    assert.equal(amountToStroops("-0.00000005"), -1n);
+    assert.equal(amountToStroops("-0.00000004"), 0n);
+  });
+
+  it("handles very large values without precision loss", () => {
+    assert.equal(amountToStroops("922337203685477.5807"), 9223372036854775807000n);
+  });
+
+  it("converts exponential notation to stroops", () => {
+    assert.equal(amountToStroops("1.5e-3"), 15000n);
+    assert.equal(amountToStroops("-2e-7"), -2n);
   });
 
   it("sums without floating-point drift", () => {
@@ -234,5 +400,42 @@ describe("amountToStroops (#110)", () => {
   it("returns null for unreadable amounts", () => {
     assert.equal(amountToStroops("abc"), null);
     assert.equal(amountToStroops(undefined), null);
+    assert.equal(amountToStroops("1.2.3"), null);
   });
 });
+
+describe("currencyRate, convertCurrency, and rateDeviationPercent (#332)", () => {
+  it("provides fallback rates for all supported fiat currencies", () => {
+    for (const curr of SUPPORTED_FIAT_CURRENCIES) {
+      const rate = currencyRate(curr);
+      assert.ok(typeof rate === "number" && rate > 0, `Expected valid rate for ${curr}`);
+    }
+  });
+
+  it("converts currency with default or custom rates", () => {
+    assert.equal(convertCurrency("100", "USD"), "100");
+    assert.equal(convertCurrency("50.5", "EUR", 1.1), "55.55");
+    assert.equal(convertCurrency("0", "USD"), "0");
+    assert.equal(convertCurrency(0, "USD"), "0");
+    assert.equal(convertCurrency("0.0000001", "USD", 1), "0.0000001");
+  });
+
+  it("returns null for invalid inputs in convertCurrency", () => {
+    assert.equal(convertCurrency("-10", "USD"), null);
+    assert.equal(convertCurrency("abc", "USD"), null);
+    assert.equal(convertCurrency("10", "USD", 0), null);
+    assert.equal(convertCurrency("10", "USD", -1), null);
+    assert.equal(convertCurrency("10", "USD", NaN), null);
+  });
+
+  it("calculates rate deviation percentage correctly", () => {
+    assert.equal(rateDeviationPercent(1.0, 1.0), 0);
+    assert.equal(rateDeviationPercent(1.5, 1.0), 50);
+    assert.ok(Math.abs(rateDeviationPercent(1.1, 1.0) - 10) < 1e-10);
+    assert.ok(Math.abs(rateDeviationPercent(0.9, 1.0) - 10) < 1e-10);
+    assert.equal(rateDeviationPercent(1.0, 0), Infinity);
+    assert.equal(rateDeviationPercent(1.0, -1), Infinity);
+    assert.equal(rateDeviationPercent(NaN, 1.0), Infinity);
+  });
+});
+

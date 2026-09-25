@@ -20,10 +20,15 @@ export function CreateGroupDialog({
   const create = useCreateGroup();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
+    if (isOffline) {
+      toast.error("You’re offline — reconnect to create a group");
+      return;
+    }
     try {
       const { group } = await create.mutateAsync({
         name: name.trim(),
@@ -73,7 +78,14 @@ export function CreateGroupDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={create.isPending} disabled={!name.trim()}>
+          <Button
+            type="submit"
+            loading={create.isPending}
+            disabled={!name.trim() || isOffline}
+            title={
+              isOffline ? "You’re offline — reconnect to create a group" : undefined
+            }
+          >
             Create group
           </Button>
         </div>

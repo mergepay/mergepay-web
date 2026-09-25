@@ -7,6 +7,7 @@ import {
   escapeHtml,
   isValidTxHash,
 } from "../export";
+import { buildAuditDetails } from "../exportUtils";
 import {
   buildExpenseExportCsv,
   buildExportFilename,
@@ -238,6 +239,18 @@ describe("buildReceiptHtml", () => {
   it("falls back to the raw string for an unparseable date", () => {
     const html = buildReceiptHtml(settlement({ createdAt: "not-a-date" }));
     assert.ok(html.includes("<b>not-a-date</b>"));
+  });
+});
+
+describe("buildAuditDetails", () => {
+  it("builds a network-aware explorer link for a valid transaction hash", () => {
+    const audit = buildAuditDetails(settlement());
+    assert.equal(audit.stellarTxHash, VALID_HASH);
+    assert.ok(audit.explorerUrl?.endsWith(`/tx/${VALID_HASH}`));
+  });
+
+  it("does not create an explorer link for an invalid hash", () => {
+    assert.equal(buildAuditDetails(settlement({ stellarTxHash: "bad" })).explorerUrl, null);
   });
 });
 

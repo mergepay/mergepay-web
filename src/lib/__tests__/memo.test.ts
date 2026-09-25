@@ -1,98 +1,351 @@
 import { describe, it } from "node:test";
-import assert from "node:assert";
+import assert from "node:assert/strict";
 import {
-  MEMO_MAX_BYTES,
-  isValidSettlementMemo,
-  normalizeMemo,
-  parseMemo,
-} from "../memo";
+  generateShortCode,
+  validateMemo,
+  validateShortCode,
+  buildSettlementMemo,
+  breakdownMemo,
+  detectMemoDeviations,
+  STELLAR_MEMO_MAX_BYTES,
+  PREFIX_BYTES,
+  MAX_SHORT_CODE_BYTES,
+} from "../memoValidation";
+import { verifyTransactionMemo, isValidMergepayMemo } from "../memo";
 
-describe("normalizeMemo", () => {
-  it("returns null for null, undefined, and empty input", () => {
-    assert.strictEqual(normalizeMemo(null), null);
-    assert.strictEqual(normalizeMemo(undefined), null);
-    assert.strictEqual(normalizeMemo(""), null);
-    assert.strictEqual(normalizeMemo("   "), null);
+describe("Stellar Memo Generation & Validation Suite (#287, #332)", () => {
+  it("enforces Stellar memo constants (max 28 bytes)", () => {
+    assert.equal(STELLAR_MEMO_MAX_BYTES, 28);
+    assert.equal(PREFIX_BYTES, 3); // "MP:" is 3 ASCII bytes
+    assert.equal(MAX_SHORT_CODE_BYTES, 25);
+    assert.equal(PREFIX_BYTES + MAX_SHORT_CODE_BYTES, STELLAR_MEMO_MAX_BYTES);
   });
 
-  it("trims surrounding whitespace", () => {
-    assert.strictEqual(normalizeMemo("  MP:AB12CD  "), "MP:AB12CD");
+  describe("generateShortCode", () => {
+    it("generates deterministic short codes with MP: prefix constraints", () => {
+      const code1 = generateShortCode("Dinner", "50.00");
+      const code2 = generateShortCode("Dinner", "50.00");
+      assert.equal(code1, code2);
+      assert.match(code1, /^dinner-[0-9a-f]{4}$/);
+
+      const fullMemo = buildSettlementMemo(code1);
+      assert.match(fullMemo ?? "", /^MP:dinner-[0-9a-f]{4}$/);
+      assert.ok(new TextEncoder().encode(fullMemo ?? "").length <= 28);
+    });
+
+    it("generates different short codes for different amounts or labels", () => {
+      const code1 = generateShortCode("Dinner", "50.00");
+      const code2 = generateShortCode("Dinner", "60.00");
+      const code3 = generateShortCode("Lunch", "50.00");
+      assert.notEqual(code1, code2);
+      assert.notEqual(code1, code3);
+    });
+
+    it("sanitizes special characters and limits length in short code", () => {
+      const longTitle = "Party! @ John's House & Roof BBQ 2026";
+      const code = generateShortCode(longTitle, "123.45");
+      assert.ok(code.length <= 25);
+      assert.doesNotMatch(code, /[^a-z0-9-]/);
+    });
+
+    it("falls back to 'settle' when label has only special characters", () => {
+      const code = generateShortCode("@#$%^&*!", "10.00");
+      assert.match(code, /^settle-[0-9a-f]{4}$/);
+    });
+
+    it("falls back to 'settle' for empty or whitespace-only labels", () => {
+      assert.match(generateShortCode("", "10.00"), /^settle-[0-9a-f]{4}$/);
+      assert.match(generateShortCode("   ", "10.00"), /^settle-[0-9a-f]{4}$/);
+    });
+
+    it("strips emojis and non-ASCII characters from title slug", () => {
+      const code = generateShortCode("🍕 Pizza & Beer 🍻", "25.00");
+      assert.match(code, /^pizza-beer-[0-9a-f]{4}$/);
+    });
+
+    it("strips leading/trailing hyphens and collapses consecutive hyphens", () => {
+      const code = generateShortCode("---Trip  to   NYC---", "100.00");
+      assert.match(code, /^trip-to-nyc-[0-9a-f]{4}$/);
+    });
+
+    it("caps slug at 16 characters so full short code fits within budget", () => {
+      const longTitle = "Very long expense description that will definitely exceed sixteen characters";
+      const code = generateShortCode(longTitle, "42.00");
+      const slug = code.slice(0, code.lastIndexOf("-"));
+      assert.ok(slug.length <= 16);
+      assert.ok(code.length <= 21); // 16 + 1 + 4 = 21 chars, well within 25
+    });
+
+    it("handles diverse amount string formats deterministically", () => {
+      assert.match(generateShortCode("Trip", "0"), /^trip-[0-9a-f]{4}$/);
+      assert.match(generateShortCode("Trip", "0.0000001"), /^trip-[0-9a-f]{4}$/);
+      assert.match(generateShortCode("Trip", "1234567.8901234"), /^trip-[0-9a-f]{4}$/);
+      assert.match(generateShortCode("Trip", "-50.00"), /^trip-[0-9a-f]{4}$/);
+    });
+  });
+
+  describe("validateShortCode", () => {
+    it("accepts valid short codes", () => {
+      const result = validateShortCode("dinner-8f3a");
+      assert.equal(result.valid, true);
+      assert.equal(result.byteLength, 11);
+    });
+
+    it("rejects null, undefined, or empty string", () => {
+      assert.equal(validateShortCode(null).valid, false);
+      assert.equal(validateShortCode(undefined).valid, false);
+      assert.equal(validateShortCode("").valid, false);
+    });
+
+    it("rejects leading or trailing whitespace", () => {
+      const result = validateShortCode(" dinner-8f3a ");
+      assert.equal(result.valid, false);
+      assert.match(result.error ?? "", /whitespace/i);
+    });
+
+    it("rejects short codes containing the MP: prefix", () => {
+      const result = validateShortCode("MP:dinner-8f3a");
+      assert.equal(result.valid, false);
+      assert.match(result.error ?? "", /must not contain the prefix/i);
+    });
+
+    it("accepts short codes at exactly 25 bytes and rejects 26 bytes", () => {
+      const exact25 = "a".repeat(25);
+      const res25 = validateShortCode(exact25);
+      assert.equal(res25.valid, true);
+      assert.equal(res25.byteLength, 25);
+
+      const tooLong26 = "a".repeat(26);
+      const res26 = validateShortCode(tooLong26);
+      assert.equal(res26.valid, false);
+      assert.match(res26.error ?? "", /exceeds 25 bytes/i);
+    });
+
+    it("rejects control characters in short codes", () => {
+      assert.equal(validateShortCode("code\x00test").valid, false);
+      assert.equal(validateShortCode("code\x1ftest").valid, false);
+      assert.equal(validateShortCode("code\x7ftest").valid, false);
+    });
+  });
+
+  describe("buildSettlementMemo", () => {
+    it("builds valid MP: memo from valid short code", () => {
+      assert.equal(buildSettlementMemo("dinner-8f3a"), "MP:dinner-8f3a");
+    });
+
+    it("builds exact 28-byte memo from 25-byte short code", () => {
+      const shortCode = "a".repeat(25);
+      const memo = buildSettlementMemo(shortCode);
+      assert.equal(memo, `MP:${shortCode}`);
+      assert.equal(new TextEncoder().encode(memo ?? "").length, 28);
+    });
+
+    it("returns null for invalid short codes", () => {
+      assert.equal(buildSettlementMemo(null), null);
+      assert.equal(buildSettlementMemo(""), null);
+      assert.equal(buildSettlementMemo("  dinner-8f3a  "), null);
+      assert.equal(buildSettlementMemo("a".repeat(26)), null);
+      assert.equal(buildSettlementMemo("MP:already-prefixed"), null);
+      assert.equal(buildSettlementMemo("code\x00null"), null);
+    });
+  });
+
+  describe("validateMemo", () => {
+    it("accepts valid memos within 28 bytes", () => {
+      const valid = validateMemo("MP:dinner-8f3a");
+      assert.equal(valid.valid, true);
+      assert.equal(valid.byteLength, 14);
+    });
+
+    it("rejects null, undefined, empty, and whitespace-only strings", () => {
+      assert.equal(validateMemo(null).valid, false);
+      assert.equal(validateMemo(undefined).valid, false);
+      assert.equal(validateMemo("").valid, false);
+      assert.equal(validateMemo("   ").valid, false);
+    });
+
+    it("accepts memo at exact 28-byte ASCII boundary and rejects 29 bytes", () => {
+      const exact28 = "A".repeat(28);
+      const res28 = validateMemo(exact28);
+      assert.equal(res28.valid, true);
+      assert.equal(res28.byteLength, 28);
+
+      const tooLong29 = "A".repeat(29);
+      const res29 = validateMemo(tooLong29);
+      assert.equal(res29.valid, false);
+      assert.equal(res29.byteLength, 29);
+      assert.match(res29.error ?? "", /exceeds the Stellar limit of 28 bytes/i);
+    });
+
+    it("handles multi-byte UTF-8 byte length constraints accurately", () => {
+      // 🌟 is 4 bytes in UTF-8. 7 * 4 = 28 bytes exactly
+      const validUtf8 = "🌟".repeat(7);
+      const resValid = validateMemo(validUtf8);
+      assert.equal(resValid.valid, true);
+      assert.equal(resValid.byteLength, 28);
+
+      // 8 * 4 = 32 bytes (exceeds 28)
+      const overUtf8 = "🌟".repeat(8);
+      const resOver = validateMemo(overUtf8);
+      assert.equal(resOver.valid, false);
+      assert.equal(resOver.byteLength, 32);
+
+      // 2-byte and 3-byte UTF-8 characters: "é" (2 bytes), "€" (3 bytes)
+      const mixedUtf8 = "MP:café-10€"; // 3 ("MP:") + 3 ("caf") + 2 ("é") + 3 ("-10") + 3 ("€") = 14 bytes
+      const resMixed = validateMemo(mixedUtf8);
+      assert.equal(resMixed.valid, true);
+      assert.equal(resMixed.byteLength, 14);
+    });
+
+    it("rejects ASCII and C1 control characters", () => {
+      for (const ctrl of ["\x00", "\x07", "\x08", "\x09", "\x0a", "\x0d", "\x1b", "\x7f", "\x85", "\x9f"]) {
+        const result = validateMemo(`MP:te${ctrl}st`);
+        assert.equal(result.valid, false, `Expected control character ${JSON.stringify(ctrl)} to be rejected`);
+        assert.match(result.error ?? "", /control characters/i);
+      }
+    });
+  });
+
+  describe("breakdownMemo", () => {
+    it("inspects valid MP: memo and computes correct breakdown", () => {
+      const canonical = breakdownMemo("MP:dinner-8f3a");
+      assert.equal(canonical.conformsToConvention, true);
+      assert.equal(canonical.prefix, "MP:");
+      assert.equal(canonical.shortCode, "dinner-8f3a");
+      assert.equal(canonical.byteLength, 14);
+      assert.equal(canonical.maxLength, 28);
+      assert.equal(canonical.remainingBytes, 14);
+      assert.equal(canonical.warnings.length, 0);
+    });
+
+    it("handles null, undefined, or empty memo gracefully", () => {
+      const empty = breakdownMemo(null);
+      assert.equal(empty.conformsToConvention, false);
+      assert.equal(empty.byteLength, 0);
+      assert.equal(empty.remainingBytes, 28);
+      assert.equal(empty.warnings.length, 0);
+    });
+
+    it("identifies non-conforming memos lacking the MP: prefix", () => {
+      const custom = breakdownMemo("custom-memo-without-prefix");
+      assert.equal(custom.conformsToConvention, false);
+      assert.equal(custom.prefix, "");
+      assert.equal(custom.shortCode, "custom-memo-without-prefix");
+      assert.equal(custom.warnings.length, 1);
+      assert.match(custom.warnings[0], /prefix "MP:"/i);
+    });
+
+    it("detects deviation from expected short code", () => {
+      const matching = breakdownMemo("MP:dinner-8f3a", "dinner-8f3a");
+      assert.equal(matching.warnings.length, 0);
+
+      const deviating = breakdownMemo("MP:dinner-8f3a", "lunch-abcd");
+      assert.equal(deviating.warnings.length, 1);
+      assert.match(deviating.warnings[0], /deviates from the expected reconciliation code "lunch-abcd"/i);
+    });
+
+    it("calculates remaining bytes accurately with multi-byte UTF-8 and clamps to 0", () => {
+      // 🌟 is 4 bytes. Total: 3 ("MP:") + 8 = 11 bytes. Remaining: 28 - 11 = 17
+      const utf8Memo = breakdownMemo("MP:🌟🌟");
+      assert.equal(utf8Memo.byteLength, 11);
+      assert.equal(utf8Memo.remainingBytes, 17);
+
+      // Overlong memo: remainingBytes clamped to 0
+      const longMemo = breakdownMemo("A".repeat(35));
+      assert.equal(longMemo.byteLength, 35);
+      assert.equal(longMemo.remainingBytes, 0);
+    });
+  });
+
+  describe("detectMemoDeviations", () => {
+    it("returns empty warnings array when memo matches expected code", () => {
+      const warnings = detectMemoDeviations("MP:dinner-8f3a", "dinner-8f3a");
+      assert.deepEqual(warnings, []);
+    });
+
+    it("warns when memo short code deviates from expected code", () => {
+      const warnings = detectMemoDeviations("MP:wrong-code", "dinner-8f3a");
+      assert.ok(warnings.length > 0);
+      assert.ok(warnings.some((w) => w.includes('The expected memo is "MP:dinner-8f3a"')));
+    });
+
+    it("warns when memo lacks MP: prefix", () => {
+      const warnings = detectMemoDeviations("dinner-8f3a", "dinner-8f3a");
+      assert.ok(warnings.some((w) => w.includes('does not start with "MP:"')));
+    });
+
+    it("returns error when original code is invalid", () => {
+      const warnings = detectMemoDeviations("MP:test", "a".repeat(26));
+      assert.deepEqual(warnings, ["Original reconciliation code is invalid."]);
+    });
+
+    it("includes validation error when edited memo is invalid or too long", () => {
+      const warnings = detectMemoDeviations("MP:" + "a".repeat(30), "dinner-8f3a");
+      assert.ok(warnings.some((w) => w.includes("exceeds the Stellar limit of 28 bytes")));
+    });
+  });
+
+  describe("verifyTransactionMemo & isValidMergepayMemo (#222)", () => {
+    it("validates isValidMergepayMemo correctly", () => {
+      assert.equal(isValidMergepayMemo("MP:dinner-8f3a"), true);
+      assert.equal(isValidMergepayMemo("MP:123-abc"), true);
+      assert.equal(isValidMergepayMemo(null), false);
+      assert.equal(isValidMergepayMemo(""), false);
+      assert.equal(isValidMergepayMemo("dinner-8f3a"), false);
+      assert.equal(isValidMergepayMemo("MP:invalid spaces"), false);
+      assert.equal(isValidMergepayMemo("MP:" + "a".repeat(26)), false); // exceeds 28 bytes total
+    });
+
+    it("verifies valid transaction memo matching expected code", () => {
+      const res = verifyTransactionMemo("MP:dinner-8f3a", "dinner-8f3a");
+      assert.equal(res.isValid, true);
+      assert.equal(res.severity, "none");
+      assert.equal(res.byteLength, 14);
+      assert.equal(res.title, "Valid Settlement Memo");
+    });
+
+    it("identifies missing memo and marks severity as missing", () => {
+      const res = verifyTransactionMemo("", "dinner-8f3a");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "missing");
+      assert.equal(res.suggestedMemo, "MP:dinner-8f3a");
+      assert.match(res.title, /Missing/i);
+    });
+
+    it("flags byte length overflow", () => {
+      const longMemo = "MP:" + "x".repeat(30);
+      const res = verifyTransactionMemo(longMemo);
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "invalid_length");
+      assert.ok(res.byteLength > 28);
+    });
+
+    it("flags malformed memo missing MP: prefix", () => {
+      const res = verifyTransactionMemo("invoice-123", "dinner-8f3a");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "malformed");
+      assert.equal(res.suggestedMemo, "MP:dinner-8f3a");
+    });
+
+    it("flags malformed memo with empty code after prefix", () => {
+      const res = verifyTransactionMemo("MP:");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "malformed");
+    });
+
+    it("flags malformed memo with invalid characters", () => {
+      const res = verifyTransactionMemo("MP:dinner@#$");
+      assert.equal(res.isValid, false);
+      assert.equal(res.severity, "malformed");
+    });
+
+    it("flags deviation when code differs from expected short code", () => {
+      const res = verifyTransactionMemo("MP:lunch-456", "dinner-8f3a");
+      assert.equal(res.isValid, true); // structurally valid
+      assert.equal(res.severity, "deviation");
+      assert.equal(res.suggestedMemo, "MP:dinner-8f3a");
+      assert.match(res.message, /differs from the expected/i);
+    });
   });
 });
 
-describe("parseMemo", () => {
-  it("accepts a well-formed MP: memo and exposes its code", () => {
-    const parsed = parseMemo("MP:dinner-8f3a");
-    assert.strictEqual(parsed?.status, "valid");
-    assert.strictEqual(parsed?.code, "dinner-8f3a");
-    assert.strictEqual(parsed?.issue, null);
-  });
-
-  it("accepts an uppercase code with no separators", () => {
-    assert.strictEqual(parseMemo("MP:AB12CD")?.status, "valid");
-  });
-
-  it("accepts underscores and hyphens in the code", () => {
-    assert.strictEqual(parseMemo("MP:trip_2026-a")?.status, "valid");
-  });
-
-  it("returns null when there is no memo to inspect", () => {
-    assert.strictEqual(parseMemo(null), null);
-    assert.strictEqual(parseMemo("   "), null);
-  });
-
-  it("flags a memo without the MP: prefix", () => {
-    const parsed = parseMemo("dinner-8f3a");
-    assert.strictEqual(parsed?.status, "malformed");
-    assert.strictEqual(parsed?.issue, "wrong_prefix");
-    assert.strictEqual(parsed?.code, null);
-  });
-
-  it("is case-sensitive about the prefix", () => {
-    assert.strictEqual(parseMemo("mp:AB12CD")?.issue, "wrong_prefix");
-  });
-
-  it("flags an empty code after the prefix", () => {
-    const parsed = parseMemo("MP:");
-    assert.strictEqual(parsed?.status, "malformed");
-    assert.strictEqual(parsed?.issue, "empty_code");
-  });
-
-  it("flags disallowed characters in the code", () => {
-    const parsed = parseMemo("MP:has space");
-    assert.strictEqual(parsed?.status, "malformed");
-    assert.strictEqual(parsed?.issue, "invalid_characters");
-  });
-
-  it("flags a memo that exceeds the Stellar byte limit", () => {
-    const parsed = parseMemo(`MP:${"a".repeat(MEMO_MAX_BYTES)}`);
-    assert.strictEqual(parsed?.status, "malformed");
-    assert.strictEqual(parsed?.issue, "too_long");
-  });
-
-  it("accepts a memo exactly at the byte limit", () => {
-    // "MP:" is 3 bytes, so 25 code characters reach the 28-byte ceiling.
-    const memo = `MP:${"a".repeat(MEMO_MAX_BYTES - 3)}`;
-    assert.strictEqual(parseMemo(memo)?.status, "valid");
-  });
-
-  it("counts multi-byte characters against the limit", () => {
-    // Each "é" is 2 bytes; 13 of them plus the 3-byte prefix exceeds 28.
-    const parsed = parseMemo(`MP:${"é".repeat(13)}`);
-    assert.strictEqual(parsed?.issue, "too_long");
-  });
-
-  it("always explains its verdict", () => {
-    assert.ok(parseMemo("MP:ok")?.detail.length);
-    assert.ok(parseMemo("nope")?.detail.length);
-  });
-});
-
-describe("isValidSettlementMemo", () => {
-  it("is true only for a conformant MP: memo", () => {
-    assert.strictEqual(isValidSettlementMemo("MP:AB12CD"), true);
-    assert.strictEqual(isValidSettlementMemo("MP:"), false);
-    assert.strictEqual(isValidSettlementMemo("AB12CD"), false);
-    assert.strictEqual(isValidSettlementMemo(null), false);
-  });
-});

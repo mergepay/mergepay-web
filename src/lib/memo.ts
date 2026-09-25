@@ -1,128 +1,171 @@
 /**
- * Parsing and validation for Stellar transaction memos.
+ * Memo verification helper functions and re-exports for Mergepay payments.
+ * Enforces Stellar ledger constraints and the Mergepay `MP:<code>` convention.
  *
- * Mergepay stamps every settlement payment with a structured memo so an
- * on-chain transfer can be reconciled with the off-chain expense it pays
- * for. The format is `MP:<code>` — the prefix lives in `./constants`
- * (`SETTLEMENT_MEMO_PREFIX`) because the API builds the transaction with it
- * too.
- *
- * This module is deliberately free of React and of any browser API, so the
- * rules can be unit-tested directly and shared by every view that renders a
- * transaction. The only platform dependency is `TextEncoder`, available in
- * Node and every browser the app targets.
+ * @module lib/memo
  */
 
+import {
+  validateMemo,
+  validateShortCode,
+  buildSettlementMemo,
+  breakdownMemo,
+  detectMemoDeviations,
+  generateShortCode,
+  STELLAR_MEMO_MAX_BYTES,
+  PREFIX_BYTES,
+  MAX_SHORT_CODE_BYTES,
+  type MemoValidationResult,
+  type MemoBreakdown,
+} from "./memoValidation";
 import { SETTLEMENT_MEMO_PREFIX } from "./constants";
 
-/** Maximum size, in bytes, of a Stellar text memo (`MEMO_TEXT`). */
-export const MEMO_MAX_BYTES = 28;
+export {
+  validateMemo,
+  validateShortCode,
+  buildSettlementMemo,
+  breakdownMemo,
+  detectMemoDeviations,
+  generateShortCode,
+  STELLAR_MEMO_MAX_BYTES,
+  PREFIX_BYTES,
+  MAX_SHORT_CODE_BYTES,
+  SETTLEMENT_MEMO_PREFIX,
+  type MemoValidationResult,
+  type MemoBreakdown,
+};
 
-/**
- * Characters allowed in the code after the `MP:` prefix. Keep this in sync
- * with the API, which generates the code from expense ids (`dinner-8f3a`,
- * `AB12CD`).
- */
-const MEMO_CODE_PATTERN = /^[A-Za-z0-9_-]+$/;
+/** Memo verification status breakdown for UI warning banners. */
+export type MemoSeverity = "none" | "missing" | "malformed" | "invalid_length" | "deviation";
 
-export type MemoStatus = "valid" | "malformed";
-
-/** Why a memo is malformed — a machine-readable companion to `detail`. */
-export type MemoIssue =
-  | "wrong_prefix"
-  | "empty_code"
-  | "invalid_characters"
-  | "too_long";
-
-export interface ParsedMemo {
-  /** The memo exactly as stored, trimmed of surrounding whitespace. */
-  raw: string;
-  status: MemoStatus;
-  /** The expense reference after `MP:` — only set when the memo is valid. */
-  code: string | null;
-  issue: MemoIssue | null;
-  /** One sentence of plain text explaining the verdict. */
-  detail: string;
-}
-
-function byteLength(value: string): number {
-  if (typeof TextEncoder === "undefined") return value.length;
-  return new TextEncoder().encode(value).length;
+export interface MemoVerificationResult {
+  isValid: boolean;
+  severity: MemoSeverity;
+  title: string;
+  message: string;
+  actionHint?: string;
+  suggestedMemo?: string;
+  byteLength: number;
 }
 
 /**
- * Trim a memo and collapse `null`/empty input to `null`. Callers use this to
- * decide whether there is anything to render at all.
+ * Regex validating standard Mergepay `MP:<code>` structure.
+ * Prefix is "MP:", followed by 1 to 25 ASCII alphanumeric/hyphen characters.
  */
-export function normalizeMemo(memo: string | null | undefined): string | null {
-  if (typeof memo !== "string") return null;
+export const MERGEPAY_MEMO_REGEX = /^MP:[a-z0-9-]+$/i;
+
+/**
+ * Checks whether a given string adheres to the Mergepay `MP:<code>` format.
+ */
+export function isValidMergepayMemo(memo: string | null | undefined): boolean {
+  if (!memo) return false;
   const trimmed = memo.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  if (!trimmed.startsWith(SETTLEMENT_MEMO_PREFIX)) return false;
+  const shortCode = trimmed.slice(SETTLEMENT_MEMO_PREFIX.length);
+  if (!shortCode || shortCode.length > MAX_SHORT_CODE_BYTES) return false;
+  return MERGEPAY_MEMO_REGEX.test(trimmed) && new TextEncoder().encode(trimmed).length <= STELLAR_MEMO_MAX_BYTES;
 }
 
 /**
- * Validate a memo against the `MP:<code>` format.
+ * Verifies transaction memo and produces actionable user warnings for payment flows.
  *
- * Returns `null` when there is nothing to inspect (missing or blank memo) so
- * consumers can render nothing rather than a badge for an empty value.
+ * @param memo Raw user input or proposed transaction memo.
+ * @param expectedShortCode Optional expected expense short code to verify alignment.
  */
-export function parseMemo(memo: string | null | undefined): ParsedMemo | null {
-  const raw = normalizeMemo(memo);
-  if (raw === null) return null;
+export function verifyTransactionMemo(
+  memo: string | null | undefined,
+  expectedShortCode?: string
+): MemoVerificationResult {
+  const byteLength = memo ? new TextEncoder().encode(memo.trim()).length : 0;
+  const suggestedMemo = expectedShortCode ? buildSettlementMemo(expectedShortCode) ?? undefined : undefined;
 
-  const malformed = (issue: MemoIssue, detail: string): ParsedMemo => ({
-    raw,
-    status: "malformed",
-    code: null,
-    issue,
-    detail,
-  });
-
-  if (!raw.startsWith(SETTLEMENT_MEMO_PREFIX)) {
-    return malformed(
-      "wrong_prefix",
-      `Mergepay settlement memos must start with "${SETTLEMENT_MEMO_PREFIX}".`
-    );
+  // Case 1: Missing memo
+  if (!memo || memo.trim() === "") {
+    return {
+      isValid: false,
+      severity: "missing",
+      title: "Missing Settlement Memo",
+      message: "This payment does not include a reconciliation memo. Automated debt clearing requires an MP:<code> memo.",
+      actionHint: "Without this memo, off-chain debt cannot be marked as paid automatically and requires manual coordinator review.",
+      suggestedMemo,
+      byteLength: 0,
+    };
   }
 
-  if (byteLength(raw) > MEMO_MAX_BYTES) {
-    return malformed(
-      "too_long",
-      `This memo is longer than the ${MEMO_MAX_BYTES}-byte Stellar limit.`
-    );
+  const trimmed = memo.trim();
+
+  // Case 2: Byte length overflow
+  if (byteLength > STELLAR_MEMO_MAX_BYTES) {
+    return {
+      isValid: false,
+      severity: "invalid_length",
+      title: "Memo Exceeds Stellar Limit",
+      message: `Memo is ${byteLength} bytes, exceeding the Stellar ledger limit of ${STELLAR_MEMO_MAX_BYTES} bytes.`,
+      actionHint: "Please shorten the memo before signing with Freighter to prevent transaction rejection.",
+      suggestedMemo,
+      byteLength,
+    };
   }
 
-  const code = raw.slice(SETTLEMENT_MEMO_PREFIX.length);
-
-  if (code.length === 0) {
-    return malformed(
-      "empty_code",
-      `The memo has no expense code after "${SETTLEMENT_MEMO_PREFIX}".`
-    );
+  // Case 3: Missing MP: prefix or malformed structure
+  if (!trimmed.startsWith(SETTLEMENT_MEMO_PREFIX)) {
+    return {
+      isValid: false,
+      severity: "malformed",
+      title: "Unrecognized Memo Format",
+      message: `Memo "${trimmed}" does not begin with the required "${SETTLEMENT_MEMO_PREFIX}" prefix.`,
+      actionHint: `Prepend "${SETTLEMENT_MEMO_PREFIX}" or use the generated settlement code to enable automated reconciliation.`,
+      suggestedMemo,
+      byteLength,
+    };
   }
 
-  if (!MEMO_CODE_PATTERN.test(code)) {
-    return malformed(
-      "invalid_characters",
-      "The expense code may only contain letters, numbers, hyphens, and underscores."
-    );
+  const code = trimmed.slice(SETTLEMENT_MEMO_PREFIX.length);
+  if (!code || code.trim() === "") {
+    return {
+      isValid: false,
+      severity: "malformed",
+      title: "Empty Reconciliation Code",
+      message: `The memo contains "${SETTLEMENT_MEMO_PREFIX}" but lacks a reconciliation short code.`,
+      actionHint: "Append the specific expense identifier (e.g. MP:dinner-8f3a).",
+      suggestedMemo,
+      byteLength,
+    };
   }
 
+  // Case 4: Invalid characters in code
+  if (!/^[a-z0-9-]+$/i.test(code)) {
+    return {
+      isValid: false,
+      severity: "malformed",
+      title: "Invalid Memo Characters",
+      message: "The short code contains unsupported special characters or spaces.",
+      actionHint: "Use only letters, numbers, and hyphens in settlement memos.",
+      suggestedMemo,
+      byteLength,
+    };
+  }
+
+  // Case 5: Deviation from expected code
+  if (expectedShortCode && code.toLowerCase() !== expectedShortCode.toLowerCase()) {
+    return {
+      isValid: true, // structurally valid on Stellar, but flags deviation warning
+      severity: "deviation",
+      title: "Reconciliation Code Mismatch",
+      message: `Memo code "${code}" differs from the expected expense code "${expectedShortCode}".`,
+      actionHint: "Double-check that you are settling the intended expense before submitting.",
+      suggestedMemo,
+      byteLength,
+    };
+  }
+
+  // Fully valid
   return {
-    raw,
-    status: "valid",
-    code,
-    issue: null,
-    detail: `Linked to expense reference ${code}.`,
+    isValid: true,
+    severity: "none",
+    title: "Valid Settlement Memo",
+    message: "Memo conforms to Mergepay on-chain reconciliation requirements.",
+    suggestedMemo,
+    byteLength,
   };
-}
-
-/**
- * Whether a memo follows the `MP:<code>` format. Convenience wrapper for
- * callers that only need the boolean.
- */
-export function isValidSettlementMemo(
-  memo: string | null | undefined
-): boolean {
-  return parseMemo(memo)?.status === "valid";
 }
