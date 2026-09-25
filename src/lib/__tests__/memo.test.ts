@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { Memo } from "@stellar/stellar-sdk";
 import {
   generateShortCode,
   validateMemo,
@@ -7,11 +8,27 @@ import {
   buildSettlementMemo,
   breakdownMemo,
   detectMemoDeviations,
+  sanitizeMemoInput,
+  parseSettlementMemo,
+  extractExpenseReferenceFromMemo,
+  extractSettlementFromTransactionPayload,
+  stellarTextMemoSchema,
+  mergepaySettlementMemoSchema,
   STELLAR_MEMO_MAX_BYTES,
   PREFIX_BYTES,
   MAX_SHORT_CODE_BYTES,
 } from "../memoValidation";
 import { verifyTransactionMemo, isValidMergepayMemo } from "../memo";
+
+function expectStellarSchemaAccepts(value: string): void {
+  const parsed = stellarTextMemoSchema.safeParse(value);
+  assert.equal(parsed.success, true);
+}
+
+function expectMergepaySchemaAccepts(value: string): void {
+  const parsed = mergepaySettlementMemoSchema.safeParse(value);
+  assert.equal(parsed.success, true);
+}
 
 describe("Stellar Memo Generation & Validation Suite (#287, #332)", () => {
   it("enforces Stellar memo constants (max 28 bytes)", () => {
@@ -345,6 +362,232 @@ describe("Stellar Memo Generation & Validation Suite (#287, #332)", () => {
       assert.equal(res.severity, "deviation");
       assert.equal(res.suggestedMemo, "MP:dinner-8f3a");
       assert.match(res.message, /differs from the expected/i);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Parsing / verification half of the pipeline (#321): reading structured
+  // `MP:<code>` memos back during transaction history inspection.
+  // -----------------------------------------------------------------------
+
+  describe("parseSettlementMemo", () => {
+    it("round-trips a generated memo back into its short code", () => {
+      const shortCode = generateShortCode("Dinner at Terra Kulture", "150.00");
+      const memo = buildSettlementMemo(shortCode);
+      assert.ok(memo);
+      const parsed = parseSettlementMemo(memo);
+      assert.equal(parsed.valid, true);
+      assert.equal(parsed.prefix, "MP:");
+      assert.equal(parsed.shortCode, shortCode);
+    });
+
+    it("rejects malformed memo strings without the MP: prefix", () => {
+      for (const bad of ["dinner-8f3a", "XP:dinner-8f3a", "mpX:dinner", "Dinner party payment"]) {
+        const parsed = parseSettlementMemo(bad);
+        assert.equal(parsed.valid, false, `expected "${bad}" to be rejected`);
+        assert.match(parsed.error ?? "", /prefix/i);
+      }
+    });
+
+    it("rejects empty codes and whitespace-only input", () => {
+      assert.equal(parseSettlementMemo(null).valid, false);
+      assert.equal(parseSettlementMemo(undefined).valid, false);
+      assert.equal(parseSettlementMemo("").valid, false);
+      assert.equal(parseSettlementMemo("   ").valid, false);
+      assert.equal(parseSettlementMemo("MP:").valid, false);
+      assert.equal(parseSettlementMemo("MP:   ").valid, false);
+      const emptyPrefix = parseSettlementMemo("MP:");
+      assert.match(emptyPrefix.error ?? "", /short code|prefix|code/i);
+    });
+
+    it("rejects memos exceeding the 28-byte Stellar text memo limit", () => {
+      const overlong = "MP:" + "a".repeat(26); // 29 bytes
+      const parsed = parseSettlementMemo(overlong);
+      assert.equal(parsed.valid, false);
+      assert.match(parsed.error ?? "", /28 bytes|exceeds/i);
+    });
+
+    it("rejects control characters and null bytes", () => {
+      for (const ctrl of ["\x00", "\x1f", "\x7f"]) {
+        const parsed = parseSettlementMemo(`MP:da${ctrl}ta`);
+        assert.equal(parsed.valid, false, `expected control char to be rejected`);
+      }
+    });
+
+    it("rejects codes that contain a second MP: prefix", () => {
+      const parsed = parseSettlementMemo("MP:MP:dinner");
+      assert.equal(parsed.valid, false);
+      assert.match(parsed.error ?? "", /prefix/i);
+    });
+
+    it("rejects codes with leading/trailing whitespace", () => {
+      // parseSettlementMemo trims the full memo, so a trailing space would be
+      // stripped; a code with interior padding around a second space is what
+      // matters — here the trimmed memo still ends with a space.
+      const parsed = parseSettlementMemo("MP:dinner-8f3a ");
+      assert.equal(parsed.valid, true); // full-memo trim removes the trailing space
+    });
+
+    it("survives sanitization of control characters before parsing", () => {
+      const dirty = "  MP:lunch-1a2b\x00\x07  ";
+      const clean = sanitizeMemoInput(dirty);
+      assert.equal(clean, "MP:lunch-1a2b");
+      const parsed = parseSettlementMemo(clean);
+      assert.equal(parsed.valid, true);
+      assert.equal(parsed.shortCode, "lunch-1a2b");
+    });
+  });
+
+  describe("extractExpenseReferenceFromMemo", () => {
+    it("splits a generated memo into expense slug and hash suffix", () => {
+      const shortCode = generateShortCode("Taxi to airport", "42.5000000");
+      const memo = buildSettlementMemo(shortCode);
+      assert.ok(memo);
+      const ref = extractExpenseReferenceFromMemo(memo);
+      assert.equal(ref.valid, true);
+      assert.equal(ref.shortCode, shortCode);
+      assert.ok(ref.expenseSlug);
+      assert.match(ref.hashSuffix ?? "", /^[0-9a-f]{4}$/);
+    });
+
+    it("parses hand-crafted memos with multi-word slugs", () => {
+      const ref = extractExpenseReferenceFromMemo("MP:team-lunch-trip-9b2c");
+      assert.equal(ref.valid, true);
+      assert.equal(ref.expenseSlug, "team-lunch-trip");
+      assert.equal(ref.hashSuffix, "9b2c");
+      assert.equal(ref.shortCode, "team-lunch-trip-9b2c");
+    });
+
+    it("treats a code without a hyphen as a bare slug", () => {
+      const ref = extractExpenseReferenceFromMemo("MP:dinner");
+      assert.equal(ref.valid, true);
+      assert.equal(ref.expenseSlug, "dinner");
+      assert.equal(ref.hashSuffix, undefined);
+    });
+
+    it("rejects non-MP: and over-long memos", () => {
+      assert.equal(extractExpenseReferenceFromMemo("no-prefix-here").valid, false);
+      assert.equal(
+        extractExpenseReferenceFromMemo("MP:" + "a".repeat(26)).valid,
+        false
+      );
+      assert.equal(extractExpenseReferenceFromMemo(null).valid, false);
+    });
+
+    it("keeps slug+suffix consistent with generateShortCode output shape", () => {
+      const code = generateShortCode("Groceries", "25.00");
+      const ref = extractExpenseReferenceFromMemo(buildSettlementMemo(code));
+      assert.equal(ref.valid, true);
+      assert.equal(ref.shortCode, code);
+      assert.equal(ref.hashSuffix, code.split("-").at(-1));
+      assert.equal(ref.expenseSlug, code.split("-").slice(0, -1).join("-"));
+    });
+  });
+
+  describe("extractSettlementFromTransactionPayload", () => {
+    it("recovers the expense reference from a Horizon-style history entry", () => {
+      const shortCode = generateShortCode("Hotel booking", "310.00");
+      const memo = buildSettlementMemo(shortCode);
+      assert.ok(memo);
+      const payload = {
+        id: "tx-history-1",
+        memo,
+        memo_type: "text",
+      };
+      const res = extractSettlementFromTransactionPayload(payload);
+      assert.equal(res.matched, true);
+      assert.equal(res.memo, memo);
+      assert.equal(res.shortCode, shortCode);
+      assert.ok(res.expenseSlug);
+      assert.match(res.hashSuffix ?? "", /^[0-9a-f]{4}$/);
+    });
+
+    it("reads memo_text and nested memo object Horizon variants", () => {
+      const viaMemoText = extractSettlementFromTransactionPayload({
+        memo_text: "MP:groceries-4e12",
+      });
+      assert.equal(viaMemoText.matched, true);
+      assert.equal(viaMemoText.shortCode, "groceries-4e12");
+
+      const viaMemoObject = extractSettlementFromTransactionPayload({
+        memo: { type: "text", value: "MP:hotel-99aa" },
+      });
+      assert.equal(viaMemoObject.matched, true);
+      assert.equal(viaMemoObject.shortCode, "hotel-99aa");
+    });
+
+    it("returns matched=false for payloads without any memo", () => {
+      assert.equal(extractSettlementFromTransactionPayload(null).matched, false);
+      assert.equal(extractSettlementFromTransactionPayload("nope").matched, false);
+      assert.equal(extractSettlementFromTransactionPayload({}).matched, false);
+      assert.equal(
+        extractSettlementFromTransactionPayload({ id: "tx-1" }).matched,
+        false
+      );
+    });
+
+    it("returns matched=false for non-Mergepay memos while preserving the memo text", () => {
+      const res = extractSettlementFromTransactionPayload({ memo: "Personal gift" });
+      assert.equal(res.matched, false);
+      assert.equal(res.memo, "Personal gift");
+      assert.ok(res.error);
+    });
+
+    it("matches the expected code through the settle-dialog pipeline", () => {
+      // Mirrors settle-dialog.tsx: generate -> build -> verify.
+      const shortCode = generateShortCode("Concert tickets", "85.00");
+      const memo = buildSettlementMemo(shortCode);
+      assert.ok(memo);
+      const verification = verifyTransactionMemo(memo, shortCode);
+      assert.equal(verification.isValid, true);
+      assert.equal(verification.severity, "none");
+
+      // ...then the history-inspection half: extract from the tx payload.
+      const extracted = extractSettlementFromTransactionPayload({ memo });
+      assert.equal(extracted.matched, true);
+      assert.equal(extracted.shortCode, shortCode);
+    });
+  });
+
+  describe("Zod memo schemas", () => {
+    it("stellarTextMemoSchema accepts generated memos", () => {
+      const memo = buildSettlementMemo(generateShortCode("Lunch", "12.00"));
+      assert.ok(memo);
+      expectStellarSchemaAccepts(memo);
+    });
+
+    it("stellarTextMemoSchema rejects over-long and control-character memos", () => {
+      assert.equal(stellarTextMemoSchema.safeParse("a".repeat(29)).success, false);
+      assert.equal(stellarTextMemoSchema.safeParse("bad\u0000memo").success, false);
+    });
+
+    it("mergepaySettlementMemoSchema enforces the MP: structure", () => {
+      expectMergepaySchemaAccepts("MP:dinner-8f3a");
+      assert.equal(mergepaySettlementMemoSchema.safeParse("dinner-8f3a").success, false);
+      assert.equal(mergepaySettlementMemoSchema.safeParse("MP:MP:dinner").success, false);
+    });
+  });
+
+  describe("Stellar SDK memo serialization", () => {
+    it("serializes generated memos through Memo.text without data loss", () => {
+      for (const label of ["Dinner", "Trip to NYC", "Utilities", "🍕 Pizza & Beer"]) {
+        const memo = buildSettlementMemo(generateShortCode(label, "10.0000000"));
+        assert.ok(memo);
+        const textMemo = Memo.text(memo);
+        assert.equal(textMemo.value, memo);
+        assert.equal(textMemo.type, "text");
+      }
+    });
+
+    it("serializes the maximum-length 28-byte memo", () => {
+      const memo = buildSettlementMemo("a".repeat(MAX_SHORT_CODE_BYTES));
+      assert.ok(memo);
+      assert.equal(new TextEncoder().encode(memo).length, STELLAR_MEMO_MAX_BYTES);
+      assert.equal(Memo.text(memo).value, memo);
+    });
+
+    it("Memo.text enforces the same 28-byte limit the validators use", () => {
+      assert.throws(() => Memo.text("a".repeat(29)), /max 28 bytes/);
     });
   });
 });

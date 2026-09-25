@@ -36,6 +36,11 @@ declare module "@stellar/stellar-sdk" {
   export class Account {
     constructor(accountId: string, sequence: string);
   }
+  export class Memo {
+    static text(value: string): Memo;
+    type: string;
+    value: string;
+  }
 }
 
 declare module "tailwind-merge" {
