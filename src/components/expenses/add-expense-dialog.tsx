@@ -303,6 +303,7 @@ export function AddExpenseDialog({
             id="expense-asset"
             value={assetKey}
             onChange={(e) => setAssetKey(e.target.value)}
+            className={getError("assetCode") || getError("assetIssuer") ? "border-flamingo" : undefined}
           >
             {SUPPORTED_ASSET_CODES.map((code) => (
               <option key={code} value={code}>
@@ -310,6 +311,11 @@ export function AddExpenseDialog({
               </option>
             ))}
           </Select>
+          {(getError("assetCode") || getError("assetIssuer")) && (
+            <p className="mt-1 text-xs font-bold text-flamingo-dark">
+              {getError("assetCode") ?? getError("assetIssuer")}
+            </p>
+          )}
         </div>
 
         <div>
