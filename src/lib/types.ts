@@ -487,6 +487,33 @@ export interface AnchorSessionsResponse {
   sessions: AnchorSession[];
 }
 
+/**
+ * How an anchor's SEP-24 interactive UI is presented.
+ *
+ * Anchors that forbid framing (`frame-ancestors` / `X-Frame-Options`) must
+ * be opened in a popup window instead of an inline iframe.
+ */
+export type AnchorInteractiveMode = "iframe" | "popup";
+
+/**
+ * Resolved SEP-24 interactive details for a started transfer.
+ *
+ * Built from the session returned by `POST /anchors/sessions/:id/complete`
+ * after the wallet signs the anchor's SEP-10 challenge. The modal renders the
+ * anchor-hosted transaction URL and any customer/KYC fields the anchor
+ * requires before the transfer can settle.
+ */
+export interface AnchorInteractiveInfo {
+  /** The underlying SEP-24 session (source of truth for status). */
+  session: AnchorSession;
+  /** Anchor-hosted transfer/KYC URL, or `null` when not issued / not https. */
+  interactiveUrl: string | null;
+  /** Preferred presentation mode for the interactive URL. */
+  mode: AnchorInteractiveMode;
+  /** Customer/KYC fields the anchor reports as required, if any. */
+  customerFields: string[];
+}
+
 // ---------------------------------------------------------------------------
 // History & uploads
 // ---------------------------------------------------------------------------
