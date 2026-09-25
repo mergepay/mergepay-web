@@ -10,7 +10,8 @@ import { Plus, Users, Receipt, ArrowLeft, Search } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
-import { InviteModal } from "@/components/groups/InviteModal";
+import { InviteMemberModal } from "@/components/groups/InviteMemberModal";
+import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import { BalancesPanel } from "@/components/balances/balances-panel";
 import { ExpenseCard } from "@/components/expenses/expense-card";
 import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
@@ -103,6 +104,11 @@ export default function GroupDetailPage() {
           </div>
         </ErrorBoundary>
 
+        {/* Settling a non-native asset fails on-chain without a trustline,
+            so warn here — before the user starts a settle — and let them
+            add it without leaving the group. */}
+        {!group?.archived && <TrustlineBanner />}
+
         <ErrorBoundary>
           <GroupBudgetTracker
             groupId={groupId}
@@ -194,10 +200,11 @@ export default function GroupDetailPage() {
           currentUserId={currentUserId}
         />
 
-        <InviteModal
+        <InviteMemberModal
           open={inviteOpen}
           onClose={() => setInviteOpen(false)}
           groupId={groupId}
+          groupName={group?.name}
         />
       </div>
     </ErrorBoundary>
