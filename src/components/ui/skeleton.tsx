@@ -1,3 +1,6 @@
+import { type ReactNode } from "react";
+import { motion, useReducedMotion } from "framer-motion";
+
 import { cn } from "@/lib/utils";
 
 export function Skeleton({ className, ...props }: { className?: string } & React.HTMLAttributes<HTMLDivElement>) {
@@ -5,7 +8,9 @@ export function Skeleton({ className, ...props }: { className?: string } & React
     <div
       {...props}
       className={cn(
-        "animate-pulse rounded-xl border-2 border-ink/10 bg-ink/10",
+        // `motion-reduce` stops the pulse for users who asked the OS for less
+        // movement — the block still reads as a placeholder without animating.
+        "motion-safe:animate-pulse rounded-xl border-2 border-ink/10 bg-ink/10",
         className
       )}
     />
@@ -175,5 +180,58 @@ export function GroupCardSkeleton({ className }: { className?: string }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Cross-fade between a loading placeholder and resolved content.
+ *
+ * A hard swap makes the page "pop" as the real layout replaces differently
+ * sized blocks, which is exactly the layout shift the skeletons exist to
+ * hide. This fades the incoming side in over a short, eased transition —
+ * and only ever animates opacity, so nothing reflows mid-transition.
+ *
+ * While `isPending` the skeleton is the only thing in the tree: a fading
+ * placeholder underneath live content would let users click rows that are
+ * about to be replaced. Content is also hidden from assistive tech until
+ * data lands, so a screen reader doesn't announce stale or empty regions.
+ *
+ * Respects `prefers-reduced-motion` — the swap becomes instant rather than
+ * animated.
+ */
+export function SkeletonBoundary({
+  isPending,
+  skeleton,
+  children,
+  durationMs = 200,
+  className,
+}: {
+  isPending: boolean;
+  /** Placeholder rendered while the query is pending. */
+  skeleton: ReactNode;
+  /** Real content, rendered once the query resolves. */
+  children: ReactNode;
+  durationMs?: number;
+  className?: string;
+}) {
+  const duration = durationMs / 1000;
+  const prefersReducedMotion = useReducedMotion();
+  const transition = prefersReducedMotion
+    ? { duration: 0 }
+    : { duration, ease: [0.4, 0, 0.2, 1] as const };
+
+  if (isPending) {
+    return <div className={className}>{skeleton}</div>;
+  }
+
+  return (
+    <motion.div
+      className={className}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={transition}
+    >
+      {children}
+    </motion.div>
   );
 }

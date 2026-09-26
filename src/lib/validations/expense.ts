@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isValidEd25519PublicKey } from "../strkey";
+import { mergepayMemoSchema } from "./memo";
 
 /**
  * Comprehensive Zod schema for expense creation and split validation.
@@ -87,12 +88,11 @@ export const expenseFormSchema = z
       .string()
       .optional()
       .refine((value) => value === undefined || value.trim() !== "", "Choose who paid"),
-    memo: z
-      .string()
-      .max(28, "Memo must be 28 characters or fewer")
-      .regex(/^[^\u0000-\u001f\u007f]*$/, "Memo must not contain control characters")
-      .nullable()
-      .optional(),
+    // Optional, but when present it must be a well-formed `MP:<code>` memo.
+    // The character cap and the charset both come from `mergepayMemoSchema`,
+    // which also enforces the 28-*byte* Stellar limit (characters alone let a
+    // multi-byte memo through and get it rejected at submission instead).
+    memo: mergepayMemoSchema.nullable().optional(),
     receiptUrl: z.string().nullable().optional(),
   })
   .superRefine((data, ctx) => {

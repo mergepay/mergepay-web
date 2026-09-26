@@ -43,7 +43,7 @@ const HISTORY_PAGE_SIZE = 10;
 export default function HistoryPage() {
   const {
     data: pages,
-    isLoading,
+    isPending,
     isError,
     isFetching,
     isFetchingNextPage,
@@ -151,7 +151,7 @@ export default function HistoryPage() {
 
       {hasData && <HistoryFilterBar value={filters} onChange={setFilters} />}
 
-      {isLoading ? (
+      {isPending ? (
         <ListSkeleton rows={5} />
       ) : isError ? (
         <EmptyState

@@ -311,10 +311,28 @@ describe("expenseFormSchema — percentage split", () => {
 });
 
 describe("expenseFormSchema — memo and title", () => {
-  it("caps the memo at 28 characters and rejects control characters", () => {
-    expect(parse({ memo: "A".repeat(28) }).success).toBe(true);
-    expect(parse({ memo: "A".repeat(29) }).success).toBe(false);
+  it("caps the memo at the 28-byte limit and rejects control characters", () => {
+    // "MP:" is 3 bytes, so a 25-character code lands exactly on the limit.
+    expect(parse({ memo: `MP:${"A".repeat(25)}` }).success).toBe(true);
+    expect(parse({ memo: `MP:${"A".repeat(26)}` }).success).toBe(false);
     expect(parse({ memo: "bad\u0000memo" }).success).toBe(false);
+  });
+
+  it("requires a well-formed MP: memo when one is supplied", () => {
+    expect(parse({ memo: "dinner-1a2b" }).success).toBe(false);
+    expect(parse({ memo: "MP:dinner 1a2b" }).success).toBe(false);
+    expect(parse({ memo: "MP:dinner-1a2b" }).success).toBe(true);
+  });
+
+  it("treats an empty memo as absent rather than malformed", () => {
+    expect(parse({ memo: "" }).success).toBe(true);
+    expect(parse({ memo: null }).success).toBe(true);
+  });
+
+  it("normalises a whitespace-only memo to undefined", () => {
+    const result = parse({ memo: "   " });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.memo).toBeUndefined();
   });
 
   it("requires a title and caps it at 80 characters", () => {

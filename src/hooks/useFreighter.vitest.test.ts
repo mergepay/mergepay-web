@@ -8,6 +8,7 @@ vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),
+    warning: vi.fn(),
   },
 }));
 
@@ -16,12 +17,18 @@ vi.mock("@/lib/stellar", async (importOriginal) => {
   return {
     ...actual,
     connectWallet: vi.fn(),
+    // These cases cover retry behaviour, not network state. Stubbing the
+    // guard keeps them off the real Freighter API (which never answers under
+    // jsdom); network mismatch has its own suite in
+    // `useFreighter.network.vitest.test.ts`.
+    assertWalletNetwork: vi.fn().mockResolvedValue(undefined),
   };
 });
 
 describe("useFreighter Hook (#283)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(stellar.assertWalletNetwork).mockResolvedValue(undefined);
   });
 
   it("successfully connects wallet on first attempt", async () => {

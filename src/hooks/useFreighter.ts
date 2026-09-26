@@ -3,17 +3,42 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import {
+  assertWalletNetwork,
   connectWallet,
+  NetworkMismatchError,
   WalletError,
   type WalletErrorCode,
-  walletMessage,
 } from "@/lib/stellar";
+import { EXPECTED_NETWORK_LABEL } from "@/lib/constants";
 
 export interface UseFreighterOptions {
   maxRetries?: number;
   retryDelayMs?: number;
   showToasts?: boolean;
+  /**
+   * Compare the wallet's network against this deployment after access is
+   * granted. Defaults to `true`; pass `false` for a bare connection probe.
+   */
+  validateNetwork?: boolean;
 }
+
+/**
+ * Copy shown when the wallet is on the wrong network. A mismatch is fixed in
+ * the Freighter extension, not here, so the message says exactly where to go.
+ */
+function networkMismatchToastMessage(walletNetwork: string): string {
+  return `Switch Freighter to ${EXPECTED_NETWORK_LABEL} (currently ${walletNetwork}), then reconnect. Open the extension → Settings → Network.`;
+}
+
+/**
+ * Codes that will never succeed on a retry: the user has to act first —
+ * grant access, unlock the wallet, or switch networks in the extension.
+ */
+const NON_RETRYABLE_CODES: readonly WalletErrorCode[] = [
+  "user_rejected",
+  "not_installed",
+  "network_mismatch",
+];
 
 export interface UseFreighterResult {
   isConnecting: boolean;
@@ -43,7 +68,12 @@ export function useFreighter(): UseFreighterResult {
 
   const connectWithRetry = useCallback(
     async (options: UseFreighterOptions = {}): Promise<string> => {
-      const { maxRetries = 3, retryDelayMs = 1000, showToasts = true } = options;
+      const {
+        maxRetries = 3,
+        retryDelayMs = 1000,
+        showToasts = true,
+        validateNetwork = true,
+      } = options;
       setIsConnecting(true);
       setError(null);
       setErrorCode(null);
@@ -58,6 +88,11 @@ export function useFreighter(): UseFreighterResult {
           }
 
           const publicKey = await connectWallet();
+          // Only readable once access is granted, so it is checked here rather
+          // than inside `connectWallet` (which also runs pre-auth flows).
+          if (validateNetwork) {
+            await assertWalletNetwork();
+          }
           setIsConnecting(false);
           setIsRetrying(false);
           setRetryCount(0);
@@ -75,9 +110,10 @@ export function useFreighter(): UseFreighterResult {
             userMessage = err.message;
           }
 
-          // User cancellation or missing extension shouldn't retry in a loop
-          const isNonRetryable =
-            errCode === "user_rejected" || errCode === "not_installed";
+          // User cancellation, a missing extension, or a network mismatch
+          // can't be fixed by trying again — the retry loop would only burn
+          // time and hide the real problem behind a generic failure.
+          const isNonRetryable = NON_RETRYABLE_CODES.includes(errCode);
 
           if (isNonRetryable || attempt > maxRetries) {
             setIsConnecting(false);
@@ -86,7 +122,14 @@ export function useFreighter(): UseFreighterResult {
             setErrorCode(errCode);
 
             if (showToasts) {
-              toast.error(userMessage);
+              if (errCode === "network_mismatch" && err instanceof NetworkMismatchError) {
+                toast.warning(networkMismatchToastMessage(err.walletNetwork), {
+                  description: err.message,
+                  duration: 10_000,
+                });
+              } else {
+                toast.error(userMessage);
+              }
             }
             throw err;
           }
@@ -113,6 +156,7 @@ export function useFreighter(): UseFreighterResult {
         showToasts = true,
         errorMessage,
         successMessage,
+        validateNetwork,
       } = options;
 
       setIsConnecting(true);
@@ -126,6 +170,12 @@ export function useFreighter(): UseFreighterResult {
             setIsRetrying(true);
             setRetryCount(attempt);
             await new Promise((res) => setTimeout(res, retryDelayMs));
+          }
+
+          // Actions are wallet calls too, so they get the same network guard
+          // unless the caller has already validated it.
+          if (validateNetwork) {
+            await assertWalletNetwork();
           }
 
           const result = await actionFn();
@@ -150,8 +200,7 @@ export function useFreighter(): UseFreighterResult {
             message = err.message;
           }
 
-          const isNonRetryable =
-            errCode === "user_rejected" || errCode === "not_installed";
+          const isNonRetryable = NON_RETRYABLE_CODES.includes(errCode);
 
           if (isNonRetryable || attempt > maxRetries) {
             setIsConnecting(false);
@@ -160,7 +209,14 @@ export function useFreighter(): UseFreighterResult {
             setErrorCode(errCode);
 
             if (showToasts) {
-              toast.error(message);
+              if (errCode === "network_mismatch" && err instanceof NetworkMismatchError) {
+                toast.warning(networkMismatchToastMessage(err.walletNetwork), {
+                  description: err.message,
+                  duration: 10_000,
+                });
+              } else {
+                toast.error(message);
+              }
             }
             throw err;
           }

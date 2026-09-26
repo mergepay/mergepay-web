@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { useCreateExpense } from "@/lib/queries";
 import { api } from "@/lib/api";
 import { handleApiError } from "@/lib/errorHandler";
-import { SETTLEMENT_ASSETS } from "@/lib/constants";
+import { SETTLEMENT_ASSETS, SETTLEMENT_MEMO_PREFIX } from "@/lib/constants";
 import { AssetSelector } from "@/components/expenses/AssetSelector";
 import { ExpenseSplitPreview } from "@/components/expenses/ExpenseSplitPreview";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
@@ -294,6 +294,34 @@ export function AddExpenseDialog({
           />
           {getError("amount") && (
             <p className="mt-1 text-xs font-bold text-flamingo-dark">{getError("amount")}</p>
+          )}
+        </div>
+
+        {/* Optional on-chain reconciliation tag. Validated on blur so the
+            user isn't scolded while still typing, but the format is enforced
+            before submit — a malformed memo produces a payment the backend
+            cannot attribute. */}
+        <div>
+          <Label htmlFor="expense-memo">Memo (optional)</Label>
+          <Input
+            id="expense-memo"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            onBlur={() => markTouched("memo")}
+            placeholder={`${SETTLEMENT_MEMO_PREFIX}dinner-1a2b`}
+            aria-describedby="expense-memo-hint"
+            aria-invalid={getError("memo") ? true : undefined}
+            className={getError("memo") ? "border-flamingo" : undefined}
+          />
+          {getError("memo") ? (
+            <p id="expense-memo-hint" className="mt-1 text-xs font-bold text-flamingo-dark" role="alert">
+              {getError("memo")}
+            </p>
+          ) : (
+            <p id="expense-memo-hint" className="mt-1 text-xs text-ink/60">
+              Reconciliation tag recorded on-chain. Format: {SETTLEMENT_MEMO_PREFIX} followed by letters,
+              numbers, hyphens, or underscores (28 bytes max).
+            </p>
           )}
         </div>
 
