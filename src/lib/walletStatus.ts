@@ -17,12 +17,13 @@ export type WalletStatusTone = "lime" | "butter" | "flamingo" | "paper";
 export type WalletStatusKind =
   | "checking"
   | "unavailable"
+  | "locked"
   | "disconnected"
   | "network_mismatch"
   | "connected";
 
 /** The recovery step offered to the user for a given state. */
-export type WalletActionKind = "install" | "connect" | "switch_network" | null;
+export type WalletActionKind = "install" | "connect" | "switch_network" | "unlock" | null;
 
 /** Raw observations about the wallet — all optional, all public data. */
 export interface WalletProbe {
@@ -34,6 +35,8 @@ export interface WalletProbe {
   networkPassphrase: string | null;
   /** Human-readable network name reported by the wallet (e.g. "TESTNET"). */
   networkName: string | null;
+  /** Whether the wallet is locked (requires user to unlock in extension). */
+  locked: boolean | null;
 }
 
 /** The network this deployment is configured for. */
@@ -106,6 +109,21 @@ export function deriveWalletStatus(
       canSign: false,
       address: null,
       networkName: null,
+    };
+  }
+
+  if (probe.locked) {
+    return {
+      kind: "locked",
+      label: "Wallet locked",
+      message:
+        "Your Freighter wallet is locked. Unlock it in the extension to continue.",
+      actionLabel: "Unlock wallet",
+      actionKind: "unlock",
+      tone: "flamingo",
+      canSign: false,
+      address: null,
+      networkName: probe.networkName,
     };
   }
 

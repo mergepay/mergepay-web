@@ -4,7 +4,13 @@ import { useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { FOCUSABLE_SELECTOR, nextFocusIndex } from "@/lib/dialog";
+import {
+  dialogStack,
+  FOCUSABLE_SELECTOR,
+  pickInitialFocusIndex,
+  nextFocusIndex,
+  shouldCloseOnEscape,
+} from "@/lib/dialog";
 
 export interface MobileDrawerProps {
   open: boolean;
@@ -29,41 +35,49 @@ export function MobileDrawer({
 }: MobileDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const drawerId = "mobile-drawer"; // Fixed ID for stack tracking
 
-  const getDrawerFocusable = useCallback(
-    () =>
-      drawerRef.current
-        ? Array.from(
-            drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-          ).filter((el) => el.tabIndex !== -1)
-        : [],
-    []
-  );
+  // Get focusable elements inside the drawer content (excluding header)
+  const getContentFocusable = useCallback(() => {
+    if (!drawerRef.current) return [];
+    const content = drawerRef.current.querySelector('[class*="flex-1"]');
+    if (!content) return [];
+    return Array.from(
+      content.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+    ).filter((el) => el.tabIndex !== -1);
+  }, []);
+
+  // Get all focusable elements (including header) for focus trapping
+  const getAllFocusable = useCallback(() => {
+    if (!drawerRef.current) return [];
+    return Array.from(
+      drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+    ).filter((el) => el.tabIndex !== -1);
+  }, []);
 
   // Trap focus and handle Escape
   useEffect(() => {
     if (!open) return;
 
+    // Register this drawer in the dialog stack
+    dialogStack.push(drawerId);
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && dismissible) {
+      if (shouldCloseOnEscape({ key: e.key, dismissible, isTopmost: dialogStack.isTopmost(drawerId) })) {
         e.stopPropagation();
         onClose();
         return;
       }
       if (e.key !== "Tab") return;
-      const focusable = getDrawerFocusable();
+      const focusable = getAllFocusable();
       if (focusable.length === 0) return;
       const active = document.activeElement as HTMLElement | null;
-      const target = nextFocusIndex(
-        focusable.length,
-        active ? focusable.indexOf(active) : -1,
-        e.shiftKey
-      );
+      const currentIndex = active ? focusable.indexOf(active) : -1;
+      const target = nextFocusIndex(focusable.length, currentIndex, e.shiftKey);
       if (target === null) return;
       e.preventDefault();
       focusable[target]?.focus();
@@ -72,16 +86,39 @@ export function MobileDrawer({
     window.addEventListener("keydown", handleKeyDown, true);
 
     const frame = requestAnimationFrame(() => {
-      const focusable = getDrawerFocusable();
-      if (focusable.length > 0) focusable[0]?.focus();
+      const focusable = getContentFocusable();
+      if (focusable.length === 0) {
+        // Fallback to all focusable if no content focusable
+        const allFocusable = getAllFocusable();
+        if (allFocusable.length === 0) return;
+
+        const candidates = allFocusable.map((el) => ({
+          autofocus: el.hasAttribute("data-autofocus"),
+          inBody: !el.closest('[class*="border-b"], [class*="border-r"], [class*="border-l"]'),
+        }));
+
+        const initialIndex = pickInitialFocusIndex(candidates);
+        allFocusable[initialIndex]?.focus();
+        return;
+      }
+
+      // Build candidates for initial focus selection - all in content are "in body"
+      const candidates = focusable.map((el) => ({
+        autofocus: el.hasAttribute("data-autofocus"),
+        inBody: true,
+      }));
+
+      const initialIndex = pickInitialFocusIndex(candidates);
+      focusable[initialIndex]?.focus();
     });
 
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("keydown", handleKeyDown, true);
+      dialogStack.remove(drawerId);
       previousFocusRef.current?.focus();
     };
-  }, [open, onClose, dismissible, getDrawerFocusable]);
+  }, [open, onClose, dismissible, getContentFocusable, getAllFocusable, drawerId]);
 
   // Prevent body scroll when drawer is open
   useEffect(() => {
@@ -119,6 +156,8 @@ export function MobileDrawer({
     right: "inset-y-0 right-0 w-72 border-l-3",
   };
 
+  const titleId = title ? `drawer-title-${drawerId}` : undefined;
+
   return (
     <AnimatePresence>
       {open && (
@@ -126,7 +165,7 @@ export function MobileDrawer({
           className="fixed inset-0 z-50"
           role="dialog"
           aria-modal="true"
-          aria-label={title}
+          aria-labelledby={titleId}
         >
           {/* Backdrop */}
           <motion.div
@@ -170,7 +209,7 @@ export function MobileDrawer({
             {/* Header */}
             {title && (
               <div className="border-b-3 border-ink px-4 py-3">
-                <h2 className="font-display text-sm uppercase tracking-widest pr-8">
+                <h2 id={titleId} className="font-display text-sm uppercase tracking-widest pr-8">
                   {title}
                 </h2>
               </div>

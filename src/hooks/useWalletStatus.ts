@@ -22,6 +22,7 @@ const INITIAL_PROBE: WalletProbe = {
   address: null,
   networkPassphrase: null,
   networkName: null,
+  locked: null,
 };
 
 /**
@@ -48,14 +49,25 @@ export function useWalletStatus(): WalletStatus & { refresh: () => void } {
         address: null,
         networkPassphrase: null,
         networkName: null,
+        locked: false,
       });
       return;
     }
 
-    const [address, network] = await Promise.all([
-      getGrantedAddress(),
-      getWalletNetwork(),
-    ]);
+    // Check if wallet is locked by trying to get address
+    let locked = false;
+    let address: string | null = null;
+    try {
+      address = await getGrantedAddress();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Check if error indicates locked wallet
+      if (msg.toLowerCase().includes("locked")) {
+        locked = true;
+      }
+    }
+
+    const network = await getWalletNetwork();
     if (!mountedRef.current) return;
 
     setProbe({
@@ -63,6 +75,7 @@ export function useWalletStatus(): WalletStatus & { refresh: () => void } {
       address,
       networkPassphrase: network?.networkPassphrase ?? null,
       networkName: network?.network || null,
+      locked,
     });
   }, []);
 
@@ -81,11 +94,14 @@ export function useWalletStatus(): WalletStatus & { refresh: () => void } {
           void refresh();
           return;
         }
+        // Detect locked state from error or missing address
+        const locked = params.error?.toLowerCase().includes("locked") ?? false;
         setProbe({
           available: true,
           address: params.address || null,
           networkPassphrase: params.networkPassphrase || null,
           networkName: params.network || null,
+          locked,
         });
       });
     } catch {

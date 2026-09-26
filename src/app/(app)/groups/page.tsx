@@ -10,6 +10,7 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useGroups } from "@/lib/queries";
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
+import { ListSkeleton, GroupCardSkeleton } from "@/components/ui/skeleton";
 
 export default function GroupsPage() {
   const { data, isLoading, refetch } = useGroups();
@@ -41,8 +42,8 @@ export default function GroupsPage() {
         </div>
 
         {isLoading ? (
-          <div className="text-center py-12 text-ink/60 font-mono text-sm">
-            Loading groups...
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <ListSkeleton rows={6} variant="card" />
           </div>
         ) : groups.length === 0 ? (
           <EmptyState

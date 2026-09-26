@@ -30,6 +30,7 @@ function probe(overrides: Partial<WalletProbe> = {}): WalletProbe {
     address: ADDRESS,
     networkPassphrase: PUBLIC_PASSPHRASE,
     networkName: "PUBLIC",
+    locked: false,
     ...overrides,
   };
 }
@@ -78,6 +79,14 @@ describe("deriveWalletStatus", () => {
       kind: "disconnected",
       canSign: false,
       action: "connect",
+    },
+    {
+      name: "wallet is locked",
+      probe: probe({ address: null, locked: true }),
+      expected: PUBLIC_APP,
+      kind: "locked",
+      canSign: false,
+      action: "unlock",
     },
     {
       name: "wallet on testnet while the app targets mainnet",

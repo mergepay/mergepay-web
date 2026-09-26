@@ -10,7 +10,8 @@ import { Plus, Users, Receipt, ArrowLeft, Search } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
-import { InviteModal } from "@/components/groups/InviteModal";
+import { InviteMemberModal } from "@/components/groups/InviteMemberModal";
+import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import { BalancesPanel } from "@/components/balances/balances-panel";
 import { ExpenseCard } from "@/components/expenses/expense-card";
 import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
@@ -19,6 +20,7 @@ import { ExportGroupStatementButton } from "@/components/ExportGroupStatementBut
 import { GroupExportButton } from "@/components/groups/GroupExportButton";
 import { TreasuryOverview } from "@/components/treasury/TreasuryOverview";
 import { ExpenseListFilters, type ExpenseFilterState } from "@/components/expenses/expense-list-filters";
+import { ListSkeleton, GroupHeaderSkeleton } from "@/components/ui/skeleton";
 import type { Expense, GroupMember } from "@/lib/types";
 
 export default function GroupDetailPage() {
@@ -93,22 +95,35 @@ export default function GroupDetailPage() {
         </div>
 
         <ErrorBoundary>
-          <div className="rounded-2xl border-3 border-ink bg-paper p-6 shadow-brutal">
-            <h1 className="font-display text-2xl uppercase tracking-tight">
-              {group?.name ?? "Loading group..."}
-            </h1>
-            {group?.description && (
-              <p className="mt-1 text-sm text-ink/70">{group.description}</p>
-            )}
-          </div>
+          {groupQuery.isLoading ? (
+            <GroupHeaderSkeleton />
+          ) : (
+            <div className="rounded-2xl border-3 border-ink bg-paper p-6 shadow-brutal">
+              <h1 className="font-display text-2xl uppercase tracking-tight">
+                {group?.name ?? "Group"}
+              </h1>
+              {group?.description && (
+                <p className="mt-1 text-sm text-ink/70">{group.description}</p>
+              )}
+            </div>
+          )}
         </ErrorBoundary>
 
+        {/* Settling a non-native asset fails on-chain without a trustline,
+            so warn here — before the user starts a settle — and let them
+            add it without leaving the group. */}
+        {!group?.archived && <TrustlineBanner />}
+
         <ErrorBoundary>
-          <GroupBudgetTracker
-            groupId={groupId}
-            expenses={expenses}
-            isAdmin={isAdmin}
-          />
+          {groupQuery.isLoading ? (
+            <ListSkeleton rows={2} variant="balance" />
+          ) : (
+            <GroupBudgetTracker
+              groupId={groupId}
+              expenses={expenses}
+              isAdmin={isAdmin}
+            />
+          )}
         </ErrorBoundary>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -121,7 +136,9 @@ export default function GroupDetailPage() {
 
                 <ExpenseListFilters expenses={expenses} members={members} onChange={onFilterChange} />
 
-                {expensesQuery.isLoading && <p>Loading expenses...</p>}
+                {expensesQuery.isLoading && (
+                  <ListSkeleton rows={5} variant="expense" />
+                )}
                 {expensesQuery.isError && (
                   <div className="rounded-xl border-2 border-ink bg-flamingo-pale p-4">
                     <p>Could not load expenses.</p>
@@ -194,10 +211,11 @@ export default function GroupDetailPage() {
           currentUserId={currentUserId}
         />
 
-        <InviteModal
+        <InviteMemberModal
           open={inviteOpen}
           onClose={() => setInviteOpen(false)}
           groupId={groupId}
+          groupName={group?.name}
         />
       </div>
     </ErrorBoundary>
