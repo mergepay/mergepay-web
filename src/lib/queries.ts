@@ -8,7 +8,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { api, getInviteByCode } from "./api";
-import { handleApiError } from "./errorHandler";
+import { ApiRequestError, handleApiError } from "./errorHandler";
 import { useAuth } from "./auth-store";
 import type {
   BalancesResponse,
@@ -650,6 +650,38 @@ export function calculateOptimisticBalances(
   };
 }
 
+/**
+ * Automatic retries for a failed expense creation, on top of the query
+ * client's defaults. A flaky mobile connection is transient by nature and
+ * the request carries an `Idempotency-Key` (see the expense form), so a
+ * retry cannot create the expense twice.
+ */
+export const EXPENSE_CREATE_MAX_RETRIES = 2;
+
+/** Exponential backoff (ms) between expense-creation retries, capped. */
+export function expenseCreateRetryDelay(attempt: number): number {
+  return Math.min(1000 * 2 ** attempt, 8_000);
+}
+
+/**
+ * Retry policy for expense creation: retry transient failures (network drops,
+ * 5xx) up to the cap, but never a deterministic 4xx response. Retries are
+ * only safe because the request carries an idempotency key.
+ */
+export function shouldRetryExpenseCreate(
+  failureCount: number,
+  error: unknown
+): boolean {
+  if (
+    error instanceof ApiRequestError &&
+    error.status >= 400 &&
+    error.status < 500
+  ) {
+    return false;
+  }
+  return failureCount < EXPENSE_CREATE_MAX_RETRIES;
+}
+
 export function useCreateExpense(groupId: string) {
   const invalidate = useInvalidator();
   const qc = useQueryClient();
@@ -657,6 +689,11 @@ export function useCreateExpense(groupId: string) {
 
   return useMutation({
     mutationFn: (data: CreateExpenseRequest) => api.createExpense(groupId, data),
+    // Retry only what can succeed on a second attempt. 4xx responses are
+    // deterministic (validation, auth), so surface them immediately; network
+    // drops and 5xx are worth a bounded retry.
+    retry: shouldRetryExpenseCreate,
+    retryDelay: expenseCreateRetryDelay,
     // Optimistically update group member balances and activity feed before the API responds
     onMutate: async (data: CreateExpenseRequest) => {
       const expensesKey = qk.expenses(groupId);

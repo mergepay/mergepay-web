@@ -85,3 +85,20 @@ export function shouldSuppressSubmitKey(
   if (event.key !== "Enter") return false;
   return pending || event.repeat === true;
 }
+
+/**
+ * Generate an idempotency key for a write request.
+ *
+ * Sent as the `Idempotency-Key` header so a submission that is retried — by
+ * React Query on a flaky connection, or by the user after a timeout — is
+ * deduplicated by the server instead of creating a second record. Prefers
+ * `crypto.randomUUID` and falls back to a time + randomness key where it is
+ * unavailable.
+ */
+export function createIdempotencyKey(): string {
+  const cryptoObj = globalThis.crypto as Crypto | undefined;
+  if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
+    return cryptoObj.randomUUID();
+  }
+  return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}

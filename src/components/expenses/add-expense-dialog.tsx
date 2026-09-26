@@ -15,7 +15,7 @@ import { handleApiError } from "@/lib/errorHandler";
 import { SETTLEMENT_ASSETS } from "@/lib/constants";
 import { AssetSelector } from "@/components/expenses/AssetSelector";
 import { ExpenseSplitPreview } from "@/components/expenses/ExpenseSplitPreview";
-import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
+import type { CreateExpenseRequest, GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
 import {
   AMOUNT_DECIMAL_PLACES,
   MAX_TITLE_LENGTH,
@@ -33,6 +33,7 @@ import { convertCurrency, currencyRate, rateDeviationPercent, SUPPORTED_FIAT_CUR
 import { useLocalStorageDraft } from "@/lib/useLocalStorageDraft";
 import { parseExpenseDeepLink } from "@/lib/deepLink";
 import { useOfflineStore } from "@/lib/store/offlineStore";
+import { createIdempotencyKey } from "@/lib/submission";
 
 const SUPPORTED_ASSET_CODES = SETTLEMENT_ASSETS.map((a) => a.code);
 
@@ -111,8 +112,14 @@ export function AddExpenseDialog({
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [showErrors, setShowErrors] = useState(false);
   const walletDisconnected = useWalletDisconnected();
-  const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
-  const submitBlocked = isOffline || walletDisconnected;
+  // The offline store is the single source of truth for connectivity (the
+  // network listeners in AppShell keep it current), so the form and the sync
+  // runner agree on whether it is safe to post.
+  const isOnline = useOfflineStore((s) => s.isOnline);
+  const isOffline = !isOnline;
+  // Offline no longer blocks recording an expense — it queues the draft. A
+  // connected wallet is still required because the request needs the session.
+  const submitBlocked = walletDisconnected;
 
   const pending = create.isPending || submitting;
 
@@ -197,19 +204,39 @@ export function AddExpenseDialog({
       return;
     }
 
+    const payload: CreateExpenseRequest = {
+      title: title.trim(),
+      description: description.trim() || undefined,
+      amount,
+      assetCode: asset.code,
+      assetIssuer: asset.issuer,
+      splitType,
+      shares: sharesPayload,
+      payerUserId,
+      memo: memo.trim() || undefined,
+      receiptUrl,
+    };
+
+    // Offline: persist the draft in the queue; the sync runner posts it (with
+    // its idempotency key) the moment the connection returns.
+    if (isOffline) {
+      useOfflineStore.getState().enqueue(groupId, payload);
+      clearDraft();
+      reset();
+      toast.success(
+        "Saved offline — this expense will sync when you're back online"
+      );
+      onClose();
+      return;
+    }
+
     try {
       setSubmitting(true);
       await create.mutateAsync({
-        title: title.trim(),
-        description: description.trim() || undefined,
-        amount,
-        assetCode: asset.code,
-        assetIssuer: asset.issuer,
-        splitType,
-        shares: sharesPayload,
-        payerUserId,
-        memo: memo.trim() || undefined,
-        receiptUrl,
+        ...payload,
+        // Makes the bounded retries in `useCreateExpense` (and a manual retry
+        // after a timeout) safe: the server deduplicates them into one row.
+        idempotencyKey: createIdempotencyKey(),
       });
       clearDraft();
       toast.success("Expense added successfully");
@@ -355,7 +382,7 @@ export function AddExpenseDialog({
             Cancel
           </Button>
           <Button type="submit" loading={pending} disabled={submitBlocked}>
-            Add Expense
+            {isOffline ? "Save offline" : "Add Expense"}
           </Button>
         </div>
       </form>
