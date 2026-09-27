@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { PubkeyChip } from "@/components/tx-link";
-import { InviteDialog } from "./invite-dialog";
+import { InviteMemberModal } from "./InviteMemberModal";
 import {
   useArchiveGroup,
   useLeaveGroup,
@@ -159,10 +159,11 @@ export function MembersPanel({
       </div>
 
 
-      <InviteDialog
+      <InviteMemberModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
         groupId={detail.group.id}
+        groupName={detail.group.name}
       />
     </div>
   );

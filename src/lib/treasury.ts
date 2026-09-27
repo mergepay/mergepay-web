@@ -143,3 +143,140 @@ export function aggregateTreasury(sources: TreasurySource[]): TreasuryAggregate 
 export function hasEnabledTreasuries(sources: TreasurySource[]): boolean {
   return sources.length > 0;
 }
+
+// ---------------------------------------------------------------------------
+// Per-treasury distribution (#367)
+// ---------------------------------------------------------------------------
+
+/** One asset's slice of a treasury overview. */
+export interface TreasuryAssetSlice {
+  assetCode: string;
+  assetIssuer: string | null;
+  /** Decimal string exactly as the API reported it. */
+  balance: string;
+  /** Numeric balance, floored at 0 (`NaN` becomes 0). */
+  amount: number;
+  /**
+   * The metric the slice was weighted by — fiat value when a rate is known,
+   * raw units otherwise (see {@link TreasuryDistribution.basis}).
+   */
+  value: number;
+  /** Share of the treasury, 0–100, one decimal place. */
+  percent: number;
+  /** `false` when the trustline is missing or the balance is zero. */
+  established: boolean;
+}
+
+export interface TreasuryDistribution {
+  assets: TreasuryAssetSlice[];
+  /** Sum of every slice's `value`. */
+  totalValue: number;
+  /**
+   * How `percent` was derived:
+   *  - `"value"`    — fiat weights (rates available for every holding),
+   *  - `"relative"` — each balance scaled against the largest holding,
+   *                   used when no fiat rate is known,
+   *  - `"none"`     — nothing to show (all balances zero/missing).
+   */
+  basis: "value" | "relative" | "none";
+  /** `true` when no asset holds anything (or nothing is reported at all). */
+  allZero: boolean;
+}
+
+/** Round to one decimal place without float noise. */
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/**
+ * Build the asset distribution shown by `TreasuryOverview`.
+ *
+ * XLM and USDC are different units, so a percentage split only makes sense
+ * once they share a common measure. Callers pass `valueOf` (typically the
+ * fiat converter from `useCurrencyRates`); when no rate is available the
+ * split degrades to a relative scale against the largest holding rather than
+ * summing incomparable units — and when everything is zero we report
+ * `"none"` so the UI can show its empty-state banner instead of an empty
+ * chart.
+ *
+ * Pure and dependency-free so it can be unit-tested without React.
+ *
+ * `expectedCodes` lists the assets the treasury *should* hold (the group's
+ * settlement assets). Any of them that the API did not report is injected as
+ * a zero slice so the overview can surface a missing trustline instead of
+ * silently dropping the asset from the chart.
+ */
+export function buildTreasuryDistribution(
+  balances: TreasuryBalance[] = [],
+  valueOf: (amount: string, assetCode: string) => number = () => 0,
+  expectedCodes: readonly string[] = []
+): TreasuryDistribution {
+  const reported = (balances ?? []).filter(
+    (b): b is TreasuryBalance => Boolean(b) && typeof b.assetCode === "string"
+  );
+
+  const present = new Set(reported.map((b) => b.assetCode.toUpperCase()));
+  const rows: TreasuryBalance[] = [
+    ...reported,
+    ...expectedCodes
+      .filter((code) => !present.has(code.trim().toUpperCase()))
+      .map<TreasuryBalance>((code) => ({
+        assetCode: code.trim(),
+        assetIssuer: null,
+        balance: "0",
+      })),
+  ];
+
+  const parsed = rows.map((row) => {
+    const amount = Math.max(0, parseFloat(row.balance) || 0);
+    const rawValue = valueOf(row.balance ?? "0", row.assetCode);
+    const value = Number.isFinite(rawValue) ? Math.max(0, rawValue) : 0;
+    return { row, amount, value };
+  });
+
+  const totalValue = parsed.reduce((sum, r) => sum + r.value, 0);
+  const maxAmount = parsed.reduce((max, r) => Math.max(max, r.amount), 0);
+  const basis: TreasuryDistribution["basis"] =
+    totalValue > 0 ? "value" : maxAmount > 0 ? "relative" : "none";
+
+  const assets: TreasuryAssetSlice[] = parsed
+    .map(({ row, amount, value }) => ({
+      assetCode: row.assetCode,
+      assetIssuer: row.assetIssuer ?? null,
+      balance: row.balance ?? "0",
+      amount,
+      value,
+      percent:
+        basis === "value"
+          ? round1((value / totalValue) * 100)
+          : basis === "relative"
+            ? round1((amount / maxAmount) * 100)
+            : 0,
+      established: amount > 0,
+    }))
+    .sort((a, b) => b.percent - a.percent || b.amount - a.amount);
+
+  return {
+    assets,
+    totalValue,
+    basis,
+    allZero: basis === "none",
+  };
+}
+
+/**
+ * The asset codes a treasury is expected to hold, split into "funded" and
+ * "not established" buckets so the overview can call out a missing trustline
+ * instead of silently omitting the asset.
+ */
+export function splitTrustlineState(
+  expected: readonly string[],
+  balances: TreasuryBalance[]
+): { funded: string[]; missing: string[] } {
+  const funded = new Set<string>();
+  for (const b of balances ?? []) {
+    if (b && parseFloat(b.balance || "0") > 0) funded.add(b.assetCode);
+  }
+  const missing = expected.filter((code) => !funded.has(code));
+  return { funded: expected.filter((code) => funded.has(code)), missing };
+}

@@ -78,7 +78,7 @@ export default function DashboardPage() {
                 <CardContent className="flex flex-col justify-between h-full p-5">
                   <div>
                     <div className="flex items-center justify-between">
-                      <span className="font-display text-lg uppercase tracking-tight truncate">
+                      <span className="font-display text-lg uppercase tracking-tight truncate" title={group.name}>
                         {group.name}
                       </span>
                     </div>
@@ -91,7 +91,7 @@ export default function DashboardPage() {
                   <div className="mt-6 flex items-center justify-between pt-4 border-t-2 border-ink/10">
                     <span className="text-xs font-mono text-ink/50">
                       {group.memberCount ?? 1} member{(group.memberCount ?? 1) === 1 ? "" : "s"}
-                    ંચ</span>
+                    </span>
                     <Link href={`/groups/${group.id}`}>
                       <Button size="sm" variant="outline">
                         Open <ArrowRight className="h-3.5 w-3.5 ml-1" />

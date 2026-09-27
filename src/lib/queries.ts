@@ -19,6 +19,7 @@ import type {
   CreateSettlementRequest,
   EnableTreasuryRequest,
   GroupActivityResponse,
+  GroupDetail,
   InviteRequest,
   SettleExpenseRequest,
   TreasuryDepositRequest,
@@ -35,17 +36,16 @@ import {
 } from "./treasury";
 import { mergeHistoryPages, type AccumulatedHistory } from "./expenses";
 import type { Expense, LedgerEntry, Settlement } from "./types";
-import type { HistoryResponse, LedgerResponse } from "./types";
+import type { HistoryResponse, LedgerResponse, AnchorSessionStatus } from "./types";
+import {
+  ANCHOR_POLL_MAX_PERSISTENT_FAILURES,
+  anchorPollInterval,
+} from "./anchor-state";
 import {
   createOptimisticExpenseEvent,
   calculateOptimisticActivityList,
 } from "./activity";
-import {
-  buildOptimisticExpense,
-  prependOptimisticExpense,
-  restoreExpenseQueries,
-  snapshotExpenseQueries,
-} from "./expenseOptimistic";
+import { buildOptimisticExpense, insertOptimisticExpense } from "./optimistic";
 
 export const qk = {
   me: ["me"] as const,
@@ -59,10 +59,10 @@ export const qk = {
   treasury: (groupId: string) => ["groups", groupId, "treasury"] as const,
   treasuryHistory: (groupId: string) =>
     ["groups", groupId, "treasury", "history"] as const,
-  invite: (code: string) => ["invite", code] as const,
   anchors: ["anchors"] as const,
   anchorSessions: ["anchors", "sessions"] as const,
   history: ["history"] as const,
+  invite: (code: string) => ["invites", code] as const,
 };
 
 /** Polling parameters for settlement status while pending/submitted. */
@@ -152,9 +152,10 @@ export function useGroup(id: string) {
 }
 
 export function useInviteByCode(code: string | null) {
+  const code_ = code ?? "";
   return useQuery({
-    queryKey: qk.invite(code ?? ""),
-    queryFn: () => getInviteByCode(code!),
+    queryKey: qk.invite(code_),
+    queryFn: () => getInviteByCode(code_),
     enabled: Boolean(code),
     retry: false,
     staleTime: 60_000,
@@ -347,6 +348,41 @@ export function useAnchorSessions() {
     queryFn: api.anchorSessions,
     refetchInterval: 15_000,
   });
+}
+
+export function useAnchorSession(sessionId: string | null) {
+  const failureCount = useRef(0);
+  const [pollingStalled, setPollingStalled] = useState(false);
+
+  const query = useQuery({
+    queryKey: ["anchors", "session", sessionId],
+    queryFn: () => api.anchorSession(sessionId as string),
+    enabled: Boolean(sessionId),
+    refetchInterval: (q) =>
+      anchorPollInterval({
+        state: {
+          data: q.state.data?.session as { status?: AnchorSessionStatus } | undefined,
+        },
+        failureCount: failureCount.current,
+      }),
+    refetchIntervalInBackground: false,
+    retry: false,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    if (query.isError) {
+      failureCount.current += 1;
+      if (failureCount.current >= ANCHOR_POLL_MAX_PERSISTENT_FAILURES) {
+        setPollingStalled(true);
+      }
+    } else if (query.isSuccess) {
+      failureCount.current = 0;
+      setPollingStalled(false);
+    }
+  }, [query.isError, query.isSuccess, query.errorUpdatedAt, query.dataUpdatedAt]);
+
+  return { ...query, pollingStalled };
 }
 
 export function useInfiniteHistory(options: { limit?: number } = {}) {
@@ -621,23 +657,47 @@ export function useCreateExpense(groupId: string) {
 
   return useMutation({
     mutationFn: (data: CreateExpenseRequest) => api.createExpense(groupId, data),
-    // Optimistically update expense list, balances, and activity feed before the API responds
+    // Optimistically update group member balances and activity feed before the API responds
     onMutate: async (data: CreateExpenseRequest) => {
+      const expensesKey = qk.expenses(groupId);
       const balanceKey = qk.balances(groupId);
       const activityKey = qk.activity(groupId);
-      const expensesKeyPrefix = qk.expenses(groupId);
 
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
       await Promise.all([
+        qc.cancelQueries({ queryKey: expensesKey }),
         qc.cancelQueries({ queryKey: balanceKey }),
         qc.cancelQueries({ queryKey: activityKey }),
-        qc.cancelQueries({ queryKey: expensesKeyPrefix }),
       ]);
 
       // Save a snapshot of current query data for rollback on error
+      const previousExpenses = qc.getQueriesData({ queryKey: expensesKey });
       const previousBalances = qc.getQueryData<BalancesResponse>(balanceKey);
       const previousActivity = qc.getQueryData<GroupActivityResponse>(activityKey);
-      const previousExpenses = snapshotExpenseQueries(qc, expensesKeyPrefix);
+
+      const payer = me.data?.user ?? useAuth.getState().user;
+
+      // Insert the new expense at the top of the list straight away (#375).
+      // It carries `isOptimistic`, which the expense card renders dimmed with
+      // a "Saving…" badge until the invalidation refetch replaces it with the
+      // server's copy (or the rollback below removes it).
+      if (payer) {
+        const detail = qc.getQueryData<GroupDetail>(qk.group(groupId));
+        const memberById = new Map(
+          (detail?.members ?? []).map((m) => [m.userId, m.user])
+        );
+        const optimisticExpense = buildOptimisticExpense({
+          groupId,
+          request: data,
+          payer,
+          resolveUser: (userId) =>
+            memberById.get(userId) ??
+            (payer.id === userId ? payer : undefined),
+        });
+        qc.setQueriesData({ queryKey: expensesKey }, (old: unknown) =>
+          insertOptimisticExpense(old, optimisticExpense)
+        );
+      }
 
       // Apply optimistic update only if previous balance cache exists
       if (previousBalances) {
@@ -665,27 +725,22 @@ export function useCreateExpense(groupId: string) {
         return calculateOptimisticActivityList(old, optEvent);
       });
 
-      // Optimistically prepend new expense to cached expense list queries
-      prependOptimisticExpense(
-        qc,
-        expensesKeyPrefix,
-        buildOptimisticExpense(groupId, data, user)
-      );
-
-      return { previousBalances, previousActivity, previousExpenses };
+      return { previousExpenses, previousBalances, previousActivity };
     },
     // On failure, revert back to saved snapshot and display error toast
     onError: (err, _variables, context) => {
+      if (context?.previousExpenses) {
+        for (const [queryKey, queryData] of context.previousExpenses) {
+          qc.setQueryData(queryKey, queryData);
+        }
+      }
       if (context?.previousBalances) {
         qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
       }
-      if (context?.previousExpenses) {
-        restoreExpenseQueries(qc, context.previousExpenses);
-      }
-      handleApiError(err, "Failed to create expense. Cache reverted.");
+      handleApiError(err, "Failed to create expense. Balances and activity reverted.");
     },
     // Refetch canonical data on settlement (success or error) so the list,
     // balances, ledger, and activity feed reflect the server's view.

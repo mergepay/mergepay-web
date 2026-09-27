@@ -513,6 +513,12 @@ export interface ConfiguredAsset {
   name?: string;
 }
 
+/**
+ * Asset codes the app can settle in. XLM is the native asset; USDC is the
+ * supported issued asset (see `SETTLEMENT_ASSETS` in `src/lib/constants.ts`).
+ */
+export type SettlementAssetCode = "XLM" | "USDC";
+
 export interface HorizonBalanceItem {
   asset_type: string;
   balance: string;

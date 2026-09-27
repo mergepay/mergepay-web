@@ -18,6 +18,7 @@
  * @module memoValidation
  */
 
+import { z } from "zod";
 import { SETTLEMENT_MEMO_PREFIX } from "./constants";
 
 // ---------------------------------------------------------------------------
@@ -302,3 +303,197 @@ export function detectMemoDeviations(
 
   return warnings;
 }
+
+// ---------------------------------------------------------------------------
+// Sanitization & Parsing Utilities (Closes #389)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sanitize a raw memo or short-code input string.
+ * Strips ASCII control characters and null bytes, normalizes whitespace.
+ *
+ * @param input Raw user or transaction input string
+ */
+export function sanitizeMemoInput(input: string | null | undefined): string {
+  if (!input) return "";
+  return input
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Zod schema for validating raw Stellar text memos (max 28 UTF-8 bytes, no control chars).
+ */
+export const stellarTextMemoSchema = z
+  .string()
+  .min(1, { message: "Memo cannot be empty." })
+  .refine(
+    (val) => new TextEncoder().encode(val.trim()).length <= STELLAR_MEMO_MAX_BYTES,
+    {
+      message: `Memo exceeds the Stellar limit of ${STELLAR_MEMO_MAX_BYTES} bytes.`,
+    }
+  )
+  .refine((val) => !CONTROL_CHAR_RE.test(val), {
+    message: "Memo contains control characters that are not allowed on Stellar.",
+  });
+
+/**
+ * Zod schema for validating Mergepay structured settlement memos (`MP:<code>`).
+ */
+export const mergepaySettlementMemoSchema = stellarTextMemoSchema
+  .refine((val) => val.startsWith(SETTLEMENT_MEMO_PREFIX), {
+    message: `Memo must start with the Mergepay prefix "${SETTLEMENT_MEMO_PREFIX}".`,
+  })
+  .refine(
+    (val) => {
+      const code = val.slice(SETTLEMENT_MEMO_PREFIX.length);
+      return code.length > 0 && !code.includes(SETTLEMENT_MEMO_PREFIX);
+    },
+    {
+      message: "Memo must contain a valid reconciliation short code.",
+    }
+  );
+
+export interface ParsedSettlementMemo {
+  valid: boolean;
+  prefix?: string;
+  shortCode?: string;
+  error?: string;
+}
+
+/**
+ * Parse a full settlement memo into its prefix and reconciliation short code.
+ *
+ * @param rawMemo The memo string to parse
+ */
+export function parseSettlementMemo(rawMemo: string | null | undefined): ParsedSettlementMemo {
+  const validation = validateMemo(rawMemo);
+  if (!validation.valid || !rawMemo) {
+    return { valid: false, error: validation.error ?? "Invalid memo." };
+  }
+
+  const memo = rawMemo.trim();
+  if (!memo.startsWith(SETTLEMENT_MEMO_PREFIX)) {
+    return {
+      valid: false,
+      error: `Memo does not match expected prefix "${SETTLEMENT_MEMO_PREFIX}".`,
+    };
+  }
+
+  const shortCode = memo.slice(SETTLEMENT_MEMO_PREFIX.length).trim();
+  const codeValidation = validateShortCode(shortCode);
+  if (!codeValidation.valid) {
+    return { valid: false, error: codeValidation.error ?? "Invalid reconciliation code." };
+  }
+
+  return {
+    valid: true,
+    prefix: SETTLEMENT_MEMO_PREFIX,
+    shortCode,
+  };
+}
+
+export interface ExtractedExpenseReference {
+  valid: boolean;
+  shortCode?: string;
+  expenseSlug?: string;
+  hashSuffix?: string;
+  error?: string;
+}
+
+/**
+ * Extract expense reference details (slug and hash suffix) from a Mergepay memo.
+ *
+ * @param rawMemo Full memo string (e.g., "MP:dinner-8f3a")
+ */
+export function extractExpenseReferenceFromMemo(
+  rawMemo: string | null | undefined
+): ExtractedExpenseReference {
+  const parsed = parseSettlementMemo(rawMemo);
+  if (!parsed.valid || !parsed.shortCode) {
+    return { valid: false, error: parsed.error };
+  }
+
+  const shortCode = parsed.shortCode;
+  const parts = shortCode.split("-");
+
+  if (parts.length < 2) {
+    return {
+      valid: true,
+      shortCode,
+      expenseSlug: shortCode,
+    };
+  }
+
+  const hashSuffix = parts[parts.length - 1];
+  const expenseSlug = parts.slice(0, -1).join("-");
+
+  return {
+    valid: true,
+    shortCode,
+    expenseSlug,
+    hashSuffix,
+  };
+}
+
+export interface ExtractedTransactionSettlement {
+  matched: boolean;
+  memo?: string;
+  shortCode?: string;
+  expenseSlug?: string;
+  hashSuffix?: string;
+  error?: string;
+}
+
+/**
+ * Extract and verify a settlement reference from an incoming Stellar transaction payload.
+ * Supports Horizon transaction objects, Soroban event logs, or generic payment operation payloads.
+ *
+ * @param txPayload Transaction payload object containing memo or memo_text
+ */
+export function extractSettlementFromTransactionPayload(
+  txPayload: unknown
+): ExtractedTransactionSettlement {
+  if (!txPayload || typeof txPayload !== "object") {
+    return { matched: false, error: "Transaction payload is missing or invalid." };
+  }
+
+  const payload = txPayload as Record<string, unknown>;
+
+  // Detect memo string across common Horizon API formats
+  let memoValue: string | undefined;
+
+  if (typeof payload.memo === "string") {
+    memoValue = payload.memo;
+  } else if (typeof payload.memo_text === "string") {
+    memoValue = payload.memo_text;
+  } else if (payload.memo && typeof payload.memo === "object") {
+    const memoObj = payload.memo as Record<string, unknown>;
+    if (typeof memoObj.value === "string") {
+      memoValue = memoObj.value;
+    } else if (typeof memoObj._value === "string") {
+      memoValue = memoObj._value;
+    }
+  }
+
+  if (!memoValue) {
+    return { matched: false, error: "Transaction payload does not contain a memo." };
+  }
+
+  const sanitized = sanitizeMemoInput(memoValue);
+  const ref = extractExpenseReferenceFromMemo(sanitized);
+
+  if (!ref.valid) {
+    return { matched: false, memo: sanitized, error: ref.error };
+  }
+
+  return {
+    matched: true,
+    memo: sanitized,
+    shortCode: ref.shortCode,
+    expenseSlug: ref.expenseSlug,
+    hashSuffix: ref.hashSuffix,
+  };
+}
+

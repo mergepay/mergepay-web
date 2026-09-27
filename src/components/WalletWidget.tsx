@@ -22,11 +22,13 @@ import {
   CheckCircle2,
   Loader2,
   Plug,
+  QrCode,
   RefreshCcw,
   ShieldAlert,
   Wallet,
   WifiOff,
 } from "lucide-react";
+import { ReceiveQrModal } from "@/components/ReceiveQrModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -207,6 +209,8 @@ export function WalletWidget({
   // Optimistically-set trustlines, keyed by asset code. Kept separate from
   // the fetched state so a confirmed changeTrust flips the card immediately.
   const [optimistic, setOptimistic] = useState<Record<string, boolean>>({});
+  // Receive-money QR modal (#328) for the connected address.
+  const [receiveOpen, setReceiveOpen] = useState(false);
   const mounted = useRef(true);
 
   const address = status.address;
@@ -374,10 +378,24 @@ export function WalletWidget({
                 {shortKey(address, 6)}
               </span>
               <span className="sr-only">Connected Stellar address: {address}</span>
+              <button
+                type="button"
+                onClick={() => setReceiveOpen(true)}
+                className="flex items-center gap-1 rounded-lg border-2 border-ink bg-butter px-2 py-1 font-display text-[10px] font-bold uppercase tracking-widest text-ink shadow-brutal-sm transition-colors hover:bg-lime-pale"
+                aria-label="Open QR code to receive money"
+              >
+                <QrCode className="h-3.5 w-3.5" /> Receive
+              </button>
               <span className="text-[11px] text-ink/50">
                 {networkDisplayName(STELLAR_NETWORK)}
               </span>
             </div>
+
+            <ReceiveQrModal
+              open={receiveOpen}
+              onClose={() => setReceiveOpen(false)}
+              stellarPublicKey={address}
+            />
 
             <div className="space-y-2">
               {assetsLoading && assets.length === 0 ? (

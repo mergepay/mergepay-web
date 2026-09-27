@@ -2,11 +2,13 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Expense, Settlement } from "../types";
 import {
-  toHistoryRow,
+  toHistoryRow, 
   matchesHistoryFilters,
   filterHistoryRows,
   hasActiveFilters,
+  sortHistoryRows,
   type HistoryFilters,
+  type HistoryRow,
 } from "../historyFilter";
 
 const baseExpense: Expense = {
@@ -180,5 +182,120 @@ describe("hasActiveFilters", () => {
     assert.equal(hasActiveFilters({ assetCode: "XLM" }), true);
     assert.equal(hasActiveFilters({ kind: "expenses" }), true);
     assert.equal(hasActiveFilters({ fromDate: "2024-01-01" }), true);
+  });
+});
+
+describe("sortHistoryRows (issue #314)", () => {
+  function row(
+    id: string,
+    createdAt: string,
+    type: HistoryRow["type"] = "expense"
+  ): HistoryRow {
+    return {
+      type,
+      id,
+      createdAt,
+      assetCode: "XLM",
+      searchText: `history item ${id}`,
+      participants: [],
+    };
+  }
+
+  it("sorts newest-first by default (history page order)", () => {
+    const items = [row("old", "2024-03-01T12:00:00.000Z"), row("new", "2024-03-09T12:00:00.000Z"), row("mid", "2024-03-05T08:30:00.000Z")];
+    const sorted = sortHistoryRows(items);
+    assert.deepEqual(sorted.map((r) => r.id), ["new", "mid", "old"]);
+  });
+
+  it("sorts oldest-first when order is \"oldest\"", () => {
+    const items = [row("new", "2024-03-09T12:00:00.000Z"), row("old", "2024-03-01T12:00:00.000Z"), row("mid", "2024-03-05T08:30:00.000Z")];
+    const sorted = sortHistoryRows(items, "oldest");
+    assert.deepEqual(sorted.map((r) => r.id), ["old", "mid", "new"]);
+  });
+
+  it("returns a new array and never mutates the source", () => {
+    const items = [row("a", "2024-03-02T00:00:00.000Z"), row("b", "2024-03-03T00:00:00.000Z")];
+    const before = [...items];
+    const sorted = sortHistoryRows(items);
+    assert.notStrictEqual(sorted, items);
+    assert.deepEqual(items, before);
+  });
+
+  it("is stable for equal timestamps in both directions", () => {
+    const same = "2024-03-04T10:00:00.000Z";
+    const items = [row("first", same), row("second", same), row("third", "2024-03-01T00:00:00.000Z")];
+    assert.deepEqual(sortHistoryRows(items).map((r) => r.id), ["first", "second", "third"]);
+    assert.deepEqual(sortHistoryRows(items, "oldest").map((r) => r.id), ["third", "first", "second"]);
+  });
+
+  it("handles an empty list", () => {
+    assert.deepEqual(sortHistoryRows([]), []);
+  });
+
+  it("sorts mixed expense and settlement items together", () => {
+    const items = [
+      row("exp-1", "2024-03-02T00:00:00.000Z", "expense"),
+      row("set-1", "2024-03-08T00:00:00.000Z", "settlement"),
+      row("exp-2", "2024-03-05T00:00:00.000Z", "expense"),
+    ];
+    const sorted = sortHistoryRows(items);
+    assert.deepEqual(sorted.map((r) => r.id), ["set-1", "exp-2", "exp-1"]);
+  });
+});
+
+describe("filterHistoryRows combined filters (issue #314)", () => {
+  const expenseRow = toHistoryRow({ type: "expense", ...baseExpense }); // USDC, title "Team lunch", memo "Thanks for organizing"
+  const settlementRow = toHistoryRow({ type: "settlement", ...baseSettlement }); // XLM, memo "Paying back the lunch"
+
+  it("applies asset type + search query simultaneously", () => {
+    // USDC + "lunch" → only the expense matches (settlement is XLM).
+    const both = filterHistoryRows([expenseRow, settlementRow], {
+      assetCode: "USDC",
+      keyword: "lunch",
+    });
+    assert.deepEqual(both.map((r) => r.id), ["e1"]);
+
+    // XLM + "lunch" → only the settlement matches (expense is USDC).
+    const bothXlm = filterHistoryRows([expenseRow, settlementRow], {
+      assetCode: "XLM",
+      keyword: "lunch",
+    });
+    assert.deepEqual(bothXlm.map((r) => r.id), ["s1"]);
+  });
+
+  it("combined filters with no overlap return an empty list", () => {
+    const none = filterHistoryRows([expenseRow, settlementRow], {
+      assetCode: "USDC",
+      keyword: "paying back",
+    });
+    assert.deepEqual(none, []);
+  });
+
+  it("searches by expense description", () => {
+    const described: Expense = {
+      ...baseExpense,
+      description: "Airport taxi ride share",
+    };
+    const describedRow = toHistoryRow({ type: "expense", ...described });
+    assert.ok(matchesHistoryFilters(describedRow, { keyword: "taxi ride" }));
+    assert.ok(!matchesHistoryFilters(describedRow, { keyword: "taxi ride to the airport" }));
+  });
+
+  it("searches by settlement memo", () => {
+    assert.ok(matchesHistoryFilters(settlementRow, { keyword: "paying back" }));
+    // Case-insensitive: the stored memo is "Paying back the lunch".
+    assert.ok(matchesHistoryFilters(settlementRow, { keyword: "PAYING BACK" }));
+    assert.ok(!matchesHistoryFilters(settlementRow, { keyword: "organizing" }));
+  });
+
+  it("combines asset + search + date range at once", () => {
+    const rows = [expenseRow, settlementRow];
+    const all = filterHistoryRows(rows, {
+      assetCode: "XLM",
+      keyword: "paying back",
+      fromDate: "2024-03-02",
+      toDate: "2024-03-02",
+    });
+    assert.deepEqual(all.map((r) => r.id), ["s1"]);
   });
 });

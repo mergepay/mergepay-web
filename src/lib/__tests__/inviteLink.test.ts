@@ -2,8 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   INVITE_CODE_MAX_LENGTH,
+  INVITE_TOKEN_BYTES,
+  buildInviteLink,
   describeInviteCodeProblem,
   describeInviteFailure,
+  generateInviteToken,
   inviteJoinPath,
   isSafeInviteUrl,
   isValidInviteCode,
@@ -236,5 +239,135 @@ describe("isSafeInviteUrl — additional cases", () => {
 
   it("rejects URLs with fragment identifiers containing code", () => {
     assert.equal(isSafeInviteUrl("https://mergepay.app/join#7QF3KD2P"), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invite link generation (#372)
+// ---------------------------------------------------------------------------
+
+describe("generateInviteToken", () => {
+  it("produces a URL-safe token that passes invite validation", () => {
+    const token = generateInviteToken();
+    assert.equal(isValidInviteCode(token), true);
+    // 16 random bytes encode to 22 base64url characters, no padding.
+    assert.equal(token.length, 22);
+  });
+
+  it("is deterministic when the random source is injected", () => {
+    const random = (bytes: Uint8Array) => bytes.fill(0xab);
+    assert.equal(
+      generateInviteToken({ random }),
+      generateInviteToken({ random })
+    );
+  });
+
+  it("generates distinct tokens across calls", () => {
+    const tokens = new Set(
+      Array.from({ length: 50 }, () => generateInviteToken())
+    );
+    assert.equal(tokens.size, 50);
+  });
+
+  it("honours a custom byte length", () => {
+    const token = generateInviteToken({ bytes: 6 });
+    assert.equal(token.length, 8);
+  });
+
+  it("never emits base64 padding or unsafe characters", () => {
+    const token = generateInviteToken();
+    assert.doesNotMatch(token, /[+/=]/);
+    assert.doesNotMatch(token, /[^A-Za-z0-9_-]/);
+  });
+
+  it("respects the documented maximum token size", () => {
+    const longest = generateInviteToken({ bytes: INVITE_TOKEN_BYTES * 3 });
+    assert.equal(longest.length <= INVITE_CODE_MAX_LENGTH, true);
+  });
+});
+
+describe("buildInviteLink", () => {
+  it("carries both the group id and the access token", () => {
+    const link = buildInviteLink({
+      baseUrl: "https://mergepay.app",
+      groupId: "grp_7f3a",
+      token: "7QF3KD2P",
+    });
+    assert.equal(link, "https://mergepay.app/join/7QF3KD2P?group=grp_7f3a");
+  });
+
+  it("accepts http origins for local development", () => {
+    const link = buildInviteLink({
+      baseUrl: "http://localhost:3000",
+      groupId: "g1",
+      token: "ABCD1234",
+    });
+    assert.equal(link, "http://localhost:3000/join/ABCD1234?group=g1");
+  });
+
+  it("rejects a token that does not parse instead of interpolating it", () => {
+    assert.equal(
+      buildInviteLink({
+        baseUrl: "https://mergepay.app",
+        groupId: "g1",
+        token: "../../etc/passwd",
+      }),
+      null
+    );
+    assert.equal(
+      buildInviteLink({
+        baseUrl: "https://mergepay.app",
+        groupId: "g1",
+        token: "",
+      }),
+      null
+    );
+  });
+
+  it("rejects a malformed group id", () => {
+    assert.equal(
+      buildInviteLink({
+        baseUrl: "https://mergepay.app",
+        groupId: "../../admin",
+        token: "ABCD1234",
+      }),
+      null
+    );
+    assert.equal(
+      buildInviteLink({
+        baseUrl: "https://mergepay.app",
+        groupId: "",
+        token: "ABCD1234",
+      }),
+      null
+    );
+  });
+
+  it("rejects non-http(s) and unparseable base URLs", () => {
+    assert.equal(
+      buildInviteLink({
+        baseUrl: "javascript:alert(1)",
+        groupId: "g1",
+        token: "ABCD1234",
+      }),
+      null
+    );
+    assert.equal(
+      buildInviteLink({ baseUrl: "", groupId: "g1", token: "ABCD1234" }),
+      null
+    );
+  });
+
+  it("round-trips the generated token through the join path parser", () => {
+    const token = generateInviteToken();
+    const link = buildInviteLink({
+      baseUrl: "https://mergepay.app",
+      groupId: "g1",
+      token,
+    });
+    assert.ok(link);
+    const url = new URL(link);
+    assert.equal(url.pathname, `/join/${token}`);
+    assert.equal(url.searchParams.get("group"), "g1");
   });
 });

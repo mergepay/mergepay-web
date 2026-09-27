@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { createQueryClient } from "@/lib/queryClient";
-import { ApiRequestError, ApiValidationError, isSessionExpired } from "@/lib/api";
+import { setSessionExpiredHandler } from "@/lib/api";
+import { toast } from "sonner";
 import { useSessionRestore } from "@/hooks/useSessionRestore";
 
 /**
@@ -23,6 +24,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
   // One QueryClient per browser session, created lazily inside useState so
   // SSR never shares a cache between requests.
   const [queryClient] = useState(createQueryClient);
+
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      queryClient.clear();
+      toast.error("Your session expired. Please sign in again.");
+    });
+    return () => setSessionExpiredHandler(null);
+  }, [queryClient]);
 
   return (
     <QueryClientProvider client={queryClient}>

@@ -32,8 +32,12 @@ describe("Freighter Connection & State Management (#291)", () => {
     );
   });
 
-  it("autoReconnectWallet returns null if session storage is empty", async () => {
+  it("autoReconnectWallet returns failure result if session storage is empty", async () => {
     const result = await autoReconnectWallet();
-    assert.equal(result, null);
+    assert.equal(result.success, false);
+    // In test environment (jsdom), window exists but Freighter is not available
+    assert.ok(
+      result.reason === "not_previously_connected" || result.reason === "wallet_unavailable"
+    );
   });
 });

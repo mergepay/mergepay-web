@@ -12,7 +12,9 @@ import { cn } from "@/lib/utils";
 import { useCreateExpense } from "@/lib/queries";
 import { api } from "@/lib/api";
 import { handleApiError } from "@/lib/errorHandler";
-import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
+import { SETTLEMENT_ASSETS, SETTLEMENT_MEMO_PREFIX } from "@/lib/constants";
+import { AssetSelector } from "@/components/expenses/AssetSelector";
+import { ExpenseSplitPreview } from "@/components/expenses/ExpenseSplitPreview";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
 import {
   AMOUNT_DECIMAL_PLACES,
@@ -165,6 +167,16 @@ export function AddExpenseDialog({
     }));
   }, [splitType, participants, custom, percent]);
 
+  /** The amount in stroops, or null while it is empty/invalid. */
+  const amountUnits = useMemo(() => {
+    const parsed = parseDecimalUnits(amount, AMOUNT_DECIMAL_PLACES);
+    return typeof parsed === "bigint" && parsed > 0n ? parsed : null;
+  }, [amount]);
+  const marketRate = currencyRate(fiatCurrency);
+  const effectiveRate = rateOverride.trim() ? Number(rateOverride) : marketRate;
+  const convertedAmount = convertCurrency(fiatAmount, fiatCurrency, effectiveRate);
+  const rateWarning = rateOverride.trim() && rateDeviationPercent(effectiveRate, marketRate) > 10;
+
   // Use Zod schema validation
   const validationResult = useMemo(() => {
     const payload = {
@@ -238,6 +250,23 @@ export function AddExpenseDialog({
     }
   }
 
+  function reset() {
+    setTitle("");
+    setDescription("");
+    setAmount("");
+    setFiatCurrency("USD");
+    setFiatAmount("");
+    setRateOverride("");
+    setSplitType("equal");
+    setCustom({});
+    setPercent({});
+    setMemo("");
+    setReceiptUrl(null);
+    setParticipants(members.map((m) => m.userId));
+    setTouched({});
+    setShowErrors(false);
+  }
+
   return (
     <Dialog
       open={open}
@@ -266,7 +295,21 @@ export function AddExpenseDialog({
             <p className="mt-1 text-xs font-bold text-flamingo-dark">{getError("title")}</p>
           )}
         </div>
-
+        <div className="rounded-xl border-2 border-ink bg-butter p-3 shadow-brutal-sm">
+          <p className="font-display text-xs font-bold uppercase tracking-wide">Currency converter</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Input aria-label="Foreign currency amount" type="number" min="0" step="any" value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value)} placeholder="Local amount" />
+            <Select aria-label="Foreign currency" value={fiatCurrency} onChange={(e) => setFiatCurrency(e.target.value as SupportedFiatCurrency)}>
+              {SUPPORTED_FIAT_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}
+            </Select>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Input aria-label="Manual conversion rate" type="number" min="0" step="any" value={rateOverride} onChange={(e) => setRateOverride(e.target.value)} placeholder={`Rate (${marketRate})`} />
+            <Button type="button" variant="secondary" disabled={!convertedAmount} onClick={() => convertedAmount && setAmount(convertedAmount)}>Apply</Button>
+          </div>
+          <p className="mt-2 text-xs" aria-live="polite">{convertedAmount ? `${fiatAmount || "0"} ${fiatCurrency} ≈ ${convertedAmount} ${assetKey} (rate ${effectiveRate})` : "Enter an amount to preview the conversion."}</p>
+          {rateWarning && <p className="mt-1 text-xs font-bold text-flamingo" role="alert">Manual rate differs from the indicative rate by more than 10%.</p>}
+        </div>
         <div>
           <Label htmlFor="expense-amount">Amount</Label>
           <Input
@@ -282,12 +325,41 @@ export function AddExpenseDialog({
           )}
         </div>
 
+        {/* Optional on-chain reconciliation tag. Validated on blur so the
+            user isn't scolded while still typing, but the format is enforced
+            before submit — a malformed memo produces a payment the backend
+            cannot attribute. */}
+        <div>
+          <Label htmlFor="expense-memo">Memo (optional)</Label>
+          <Input
+            id="expense-memo"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            onBlur={() => markTouched("memo")}
+            placeholder={`${SETTLEMENT_MEMO_PREFIX}dinner-1a2b`}
+            aria-describedby="expense-memo-hint"
+            aria-invalid={getError("memo") ? true : undefined}
+            className={getError("memo") ? "border-flamingo" : undefined}
+          />
+          {getError("memo") ? (
+            <p id="expense-memo-hint" className="mt-1 text-xs font-bold text-flamingo-dark" role="alert">
+              {getError("memo")}
+            </p>
+          ) : (
+            <p id="expense-memo-hint" className="mt-1 text-xs text-ink/60">
+              Reconciliation tag recorded on-chain. Format: {SETTLEMENT_MEMO_PREFIX} followed by letters,
+              numbers, hyphens, or underscores (28 bytes max).
+            </p>
+          )}
+        </div>
+
         <div>
           <Label htmlFor="expense-asset">Asset</Label>
           <Select
             id="expense-asset"
             value={assetKey}
             onChange={(e) => selectAssetKey(e.target.value)}
+            className={getError("assetCode") || getError("assetIssuer") ? "border-flamingo" : undefined}
           >
             {SUPPORTED_ASSET_CODES.map((code) => (
               <option key={code} value={code}>
@@ -295,6 +367,11 @@ export function AddExpenseDialog({
               </option>
             ))}
           </Select>
+          {(getError("assetCode") || getError("assetIssuer")) && (
+            <p className="mt-1 text-xs font-bold text-flamingo-dark">
+              {getError("assetCode") ?? getError("assetIssuer")}
+            </p>
+          )}
         </div>
 
         <div>
@@ -313,6 +390,21 @@ export function AddExpenseDialog({
         {getError("shares") && (
           <p className="text-xs font-bold text-flamingo-dark">{getError("shares")}</p>
         )}
+
+        <ExpenseSplitPreview
+          amount={amount}
+          assetCode={asset.code}
+          splitType={splitType}
+          participants={participants.map((id) => {
+            const member = members.find((m) => m.userId === id);
+            return {
+              userId: id,
+              displayName: member?.user.displayName ?? id,
+              avatarUrl: member?.user.avatarUrl ?? null,
+            };
+          })}
+          shares={sharesPayload}
+        />
 
         <div className="flex justify-end gap-2 pt-4">
           <Button type="button" variant="ghost" onClick={onClose}>
