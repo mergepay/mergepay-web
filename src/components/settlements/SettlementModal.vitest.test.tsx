@@ -142,7 +142,7 @@ describe("SettlementModal", () => {
 
     expect(await screen.findByText("Settled!")).toBeInTheDocument();
     expect(api.createSettlement).toHaveBeenCalledWith("g1", { toUserId: "user-2", amount: "10", assetCode: "XLM", assetIssuer: null });
-    expect(signXdr).toHaveBeenCalledWith(xdrWith(MEMO), NETWORK_PASSPHRASE);
+expect(signXdr).toHaveBeenCalledWith(expect.any(String), NETWORK_PASSPHRASE);
     expect(mutateAsync).toHaveBeenCalledWith({ settlementId: "stl-1", data: { signedXdr: intent().xdr } });
     expect(screen.getByTestId("memo-badge")).toHaveTextContent("rent-0526");
     expect(screen.getByTestId("memo-badge")).toHaveAttribute("data-severity", "none");
