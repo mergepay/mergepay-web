@@ -9,11 +9,8 @@ import { NetAmount, Money } from "@/components/amount";
 import { FiatEquivalent } from "@/components/FiatEquivalent";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
-import {
-  SettleDialog,
-  suggestionToTarget,
-  type SettleTarget,
-} from "@/components/settle/settle-dialog";
+import { SettlementModal } from "@/components/settlements/SettlementModal";
+import type { SettleTarget } from "@/lib/useSettlementFlow";
 import { SectionError, SectionLoading } from "@/components/ui/section";
 import { useBalances } from "@/lib/queries";
 import { resolveSectionStatus } from "@/lib/sectionState";
@@ -162,7 +159,7 @@ export function BalancesPanel({
         )}
       </div>
 
-      <SettleDialog
+      <SettlementModal
         open={!!target}
         onClose={() => setTarget(null)}
         groupId={groupId}
