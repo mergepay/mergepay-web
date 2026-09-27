@@ -146,11 +146,19 @@ export default function GroupDetailPage() {
                   <ListSkeleton rows={5} variant="expense" />
                 )}
                 {expensesQuery.isError && (
-                  <div className="rounded-xl border-2 border-ink bg-flamingo-pale p-4">
-                    <p>Could not load expenses.</p>
-                    <Button size="sm" onClick={() => expensesQuery.refetch()} className="mt-2">
-                      Retry
-                    </Button>
+                  <div className="rounded-xl border-3 border-ink bg-flamingo-pale p-6 shadow-brutal-sm">
+                    <div className="flex items-start gap-3">
+                      <SearchX className="h-6 w-6 text-flamingo mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <h3 className="font-bold text-ink mb-1">Failed to load expenses</h3>
+                        <p className="text-sm text-ink/70 mb-4">
+                          There was a problem fetching the expense list. Please check your connection and try again.
+                        </p>
+                        <Button size="sm" onClick={() => expensesQuery.refetch()}>
+                          Retry
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )}
                 {!expensesQuery.isPending && !expensesQuery.isError && visibleExpenses.length === 0 && (
