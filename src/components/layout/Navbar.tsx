@@ -1,16 +1,21 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Menu } from "lucide-react";
 import { WalletWidget } from "../WalletWidget";
 import { Logo } from "../logo";
+import { Button } from "../ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useSessionRestore } from "@/hooks/useSessionRestore";
+import { MobileNavDrawer } from "./MobileNavDrawer";
 
 export function Navbar() {
   useSessionRestore();
   const pathname = usePathname();
   const { token } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-40 border-b-3 border-ink bg-paper">
@@ -50,9 +55,19 @@ export function Navbar() {
         </nav>
 
         <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="md:hidden p-2"
+            onClick={() => setMobileMenuOpen(true)}
+            aria-label="Open navigation menu"
+          >
+            <Menu className="h-6 w-6" />
+          </Button>
           <WalletWidget />
         </div>
       </div>
+      <MobileNavDrawer open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
     </header>
   );
 }
