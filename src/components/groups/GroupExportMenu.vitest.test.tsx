@@ -92,6 +92,21 @@ describe("GroupExportMenu", () => {
     expect(items[0]).toHaveFocus();
   });
 
+  it("uses a caller-provided accessible name for the menu (#362)", () => {
+    render(
+      <GroupExportMenu
+        groupId="all"
+        expenses={[expense]}
+        settlements={[]}
+        menuLabel="Export transaction history"
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /export/i }));
+    expect(screen.getByRole("menu")).toHaveAccessibleName(
+      "Export transaction history"
+    );
+  });
+
   it("closes on Escape and returns focus to the trigger", () => {
     render(<GroupExportMenu groupId="g1" expenses={[expense]} settlements={[]} />);
     const trigger = screen.getByRole("button", { name: /export/i });

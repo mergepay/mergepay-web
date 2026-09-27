@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight,
-  Download,
   FileDown,
   History as HistoryIcon,
   Receipt,
@@ -31,8 +30,8 @@ import {
   type HistoryFilters,
 } from "@/lib/historyFilter";
 import { printReceipt } from "@/lib/export";
-import { exportTransactionHistoryCsv } from "@/lib/utils/transactionHistoryCsv";
-import { AuditDetails, GroupExportButton } from "@/components/GroupHistoryExport";
+import { AuditDetails } from "@/components/GroupHistoryExport";
+import { GroupExportMenu } from "@/components/groups/GroupExportMenu";
 import { Timestamp } from "@/components/timestamp";
 
 import { Pagination } from "@/components/ui/pagination";
@@ -126,13 +125,16 @@ export default function HistoryPage() {
               >
                 <RefreshCcw className="h-4 w-4" /> Refresh
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => exportTransactionHistoryCsv(expenses, settlements)}
-              >
-                <Download className="h-4 w-4" /> Export CSV
-              </Button>
-              <GroupExportButton expenses={expenses} settlements={settlements} />
+              {/* One dropdown for both formats instead of the three
+                  overlapping export buttons this header used to render
+                  (#362). Files are timestamped so repeat exports never
+                  overwrite each other. */}
+              <GroupExportMenu
+                groupId="all"
+                expenses={expenses}
+                settlements={settlements}
+                menuLabel="Export transaction history"
+              />
             </div>
           )
         }

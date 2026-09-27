@@ -31,12 +31,18 @@ export function GroupExportMenu({
   expenses,
   settlements,
   className,
+  menuLabel = "Export group history",
 }: {
   groupId: string;
   groupName?: string | null;
   expenses: Expense[];
   settlements: Settlement[];
   className?: string;
+  /**
+   * Accessible name for the popup menu. Defaults to the group-dashboard
+   * wording; the account-wide history view passes its own (#362).
+   */
+  menuLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -136,7 +142,7 @@ export function GroupExportMenu({
         <div
           id={menuId}
           role="menu"
-          aria-label="Export group history"
+          aria-label={menuLabel}
           onKeyDown={onMenuKeyDown}
           className="absolute right-0 z-30 mt-2 w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border-3 border-ink bg-cream p-1.5 shadow-brutal"
         >

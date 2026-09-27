@@ -261,7 +261,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <main className="lg:pl-64 pb-20 lg:pb-0">
+      {/* The bottom padding clears the fixed mobile bottom nav, plus the
+          device's safe-area inset so content is not hidden by a home
+          indicator (#542). */}
+      <main className="lg:pl-64 pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-0">
         {/* Persistent reconnect prompt while the Freighter wallet is
             disconnected; also hosts the connection poll. */}
         <WalletDisconnectedBanner />
