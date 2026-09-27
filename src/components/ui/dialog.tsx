@@ -1,8 +1,18 @@
+"use client";
+
 import * as React from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback, useId } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
+import {
+  dialogStack,
+  createFocusContainmentListener,
+  FOCUSABLE_SELECTOR,
+  pickInitialFocusIndex,
+  nextFocusIndex,
+  shouldCloseOnEscape,
+} from "@/lib/dialog";
 
 export interface DialogProps {
   open: boolean;
@@ -26,74 +36,146 @@ export function Dialog({
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
+  const dialogId = useId();
 
-  const titleId = React.useId();
-  const descriptionId = React.useId();
+  const titleId = useId();
+  const descriptionId = useId();
+
+  // Get focusable elements inside the dialog content (excluding title bar)
+  const getFocusable = useCallback(() => {
+    if (!dialogRef.current) return [];
+    const content = dialogRef.current.querySelector("[data-dialog-content]");
+    if (!content) return [];
+    return Array.from(
+      content.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+    ).filter((el) => el.tabIndex !== -1);
+  }, []);
+
+  // Get all focusable elements (including title bar) for focus trapping
+  const getAllFocusable = useCallback(() => {
+    if (!dialogRef.current) return [];
+    return Array.from(
+      dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+    ).filter((el) => el.tabIndex !== -1);
+  }, []);
 
   // Store the previously focused element and restore focus on close
   useEffect(() => {
     if (open) {
+      // Register this dialog in the stack
+      dialogStack.push(dialogId);
       previousActiveElement.current = document.activeElement as HTMLElement;
-      // Focus the dialog container or first focusable element
-      const timer = setTimeout(() => {
-        if (dialogRef.current) {
-          const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-          );
-          if (focusable.length > 0) {
-            focusable[0].focus();
-          } else {
-            dialogRef.current.focus();
+
+      // Focus the first focusable element in content (preferring body content over close button)
+      const frame = requestAnimationFrame(() => {
+        const focusable = getFocusable();
+        if (focusable.length === 0) {
+          // Fallback to all focusable if no content focusable
+          const allFocusable = getAllFocusable();
+          if (allFocusable.length === 0) {
+            dialogRef.current?.focus();
+            return;
           }
+          const candidates = allFocusable.map((el) => ({
+            autofocus: el.hasAttribute("data-autofocus"),
+            inBody: !el.closest('[class*="border-b"]'),
+          }));
+          const initialIndex = pickInitialFocusIndex(candidates);
+          allFocusable[initialIndex]?.focus();
+          return;
         }
-      }, 50);
-      return () => clearTimeout(timer);
+
+        // Build candidates for initial focus selection
+        const candidates = focusable.map((el) => ({
+          autofocus: el.hasAttribute("data-autofocus"),
+          inBody: true, // All in content are considered "in body"
+        }));
+
+        const initialIndex = pickInitialFocusIndex(candidates);
+        focusable[initialIndex]?.focus();
+      });
+
+      return () => {
+        cancelAnimationFrame(frame);
+        dialogStack.remove(dialogId);
+        // Unmounting while open (route change, parent removal) must not
+        // strand focus on a dead element — send it back to the trigger.
+        if (
+          previousActiveElement.current &&
+          typeof previousActiveElement.current.focus === "function"
+        ) {
+          previousActiveElement.current.focus();
+        }
+      };
     } else {
+      dialogStack.remove(dialogId);
       if (previousActiveElement.current && typeof previousActiveElement.current.focus === "function") {
         previousActiveElement.current.focus();
       }
     }
-  }, [open]);
+  }, [open, dialogId, getFocusable, getAllFocusable]);
 
   // Handle Escape key and focus trapping
   useEffect(() => {
     if (!open) return;
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && dismissible) {
+      // Escape key - only close if this is the topmost dialog
+      if (shouldCloseOnEscape({ key: e.key, dismissible, isTopmost: dialogStack.isTopmost(dialogId) })) {
         e.stopPropagation();
         onClose();
         return;
       }
 
-      if (e.key === "Tab" && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        if (focusable.length === 0) return;
+      if (e.key !== "Tab") return;
 
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
+      const focusable = getAllFocusable();
+      if (focusable.length === 0) return;
 
-        if (e.shiftKey) {
-          if (document.activeElement === first) {
-            last.focus();
-            e.preventDefault();
-          }
-        } else {
-          if (document.activeElement === last) {
-            first.focus();
-            e.preventDefault();
-          }
-        }
-      }
+      const active = document.activeElement as HTMLElement | null;
+      const currentIndex = active ? focusable.indexOf(active) : -1;
+      const target = nextFocusIndex(focusable.length, currentIndex, e.shiftKey);
+
+      if (target === null) return;
+      e.preventDefault();
+      focusable[target]?.focus();
     }
 
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [open, onClose, dismissible]);
+  }, [open, onClose, dismissible, dialogId, getAllFocusable]);
+
+  // Pull focus back whenever it lands outside the dialog (#481). Tab handling
+  // only constrains the next key press; browser chrome, screen-reader
+  // shortcuts and programmatic focus can still walk straight out of the
+  // panel, which strands keyboard-only users behind the backdrop.
+  useEffect(() => {
+    if (!open) return;
+
+    const listener = createFocusContainmentListener({
+      getContainer: () => dialogRef.current,
+      getFocusable: getAllFocusable,
+      isActive: () => dialogStack.isTopmost(dialogId),
+    });
+    document.addEventListener("focusin", listener);
+    return () => {
+      document.removeEventListener("focusin", listener);
+    };
+  }, [open, dialogId, getAllFocusable]);
+
+  // Freeze the page behind the dialog while it is open and put the previous
+  // scroll position back on close, so the background cannot be scrolled out
+  // from under an open modal.
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -137,12 +219,16 @@ export function Dialog({
         </div>
 
         {description && (
-          <p id={descriptionId} className="sr-only">
+          <p id={descriptionId} className="text-sm text-ink/70">
             {description}
           </p>
         )}
 
-        <div className="pt-4">{children}</div>
+        {/* `data-dialog-content` marks the body the focus rules use — a class
+            name would silently break the trap on a style change. */}
+        <div className="pt-4" data-dialog-content>
+          {children}
+        </div>
       </div>
     </div>
   );

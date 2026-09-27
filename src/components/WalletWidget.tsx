@@ -45,6 +45,7 @@ import {
   type WalletErrorCode,
 } from "@/lib/stellar";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
+import { showWalletErrorToast } from "@/lib/walletToasts";
 import { networkDisplayName } from "@/lib/walletStatus";
 import type { TrustlineAsset } from "@/lib/trustline";
 
@@ -254,17 +255,30 @@ export function WalletWidget({
     };
   }, [address, loadAssets]);
 
+  // Guards `handleConnect` against a second click landing before React has
+  // re-rendered with `connecting` — each click would open a new Freighter
+  // popup, and the second popup's rejection is what users see as "it failed".
+  const connectingRef = useRef(false);
+
   async function handleConnect() {
+    if (connectingRef.current) return;
+    connectingRef.current = true;
     setConnecting(true);
     try {
       await connectWallet();
       toast.success("Wallet connected");
       // useWalletStatus's watcher picks up the new address.
     } catch (e) {
-      toast.error(
-        e instanceof WalletError ? e.message : "Could not reach your wallet."
+      // Locked and missing-extension failures get their own remediation line
+      // instead of reading like an unexplained dead end (#487).
+      showWalletErrorToast(
+        e instanceof WalletError ? e.code : "unknown",
+        e instanceof Error && e.message
+          ? e.message
+          : "Could not reach your wallet."
       );
     } finally {
+      connectingRef.current = false;
       setConnecting(false);
     }
   }

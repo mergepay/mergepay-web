@@ -1,8 +1,15 @@
 import { z } from "zod";
 
+import { isValidEd25519PublicKey } from "../strkey";
+import { mergepayMemoSchema } from "./memo";
+
 /**
  * Comprehensive Zod schema for expense creation and split validation.
  * Enforces multi-field sum invariants using .refine()/.superRefine() to prevent rounding errors.
+ *
+ * Rules mirror the `CreateExpenseRequest` contract in `src/lib/types.ts`:
+ * decimal-string amounts, Stellar asset codes, an optional issuer public
+ * key, and a non-empty participant array.
  */
 export const expenseShareSchema = z.object({
   userId: z.string().trim().min(1, "Participant is required"),
@@ -30,6 +37,12 @@ function unitsToDecimal(units: bigint): string {
 /** Plain decimal amount (integer part + optional fraction), no sign/exponent. */
 const plainAmount = /^\d+(?:\.\d+)?$/;
 
+/**
+ * Stellar asset codes are 1–12 alphanumeric characters (XLM, USDC, …).
+ * Anything longer or containing symbols cannot exist on the network.
+ */
+const ASSET_CODE_PATTERN = /^[A-Za-z0-9]{1,12}$/;
+
 /** Exactly the "plain number" error family the UI copy promises. */
 const PLAIN_NUMBER = "Amount must be a plain number";
 const MAX_PRECISION = "Amount must have at most 7 decimal places";
@@ -41,13 +54,32 @@ export const expenseFormSchema = z
       .trim()
       .min(1, "Title is required")
       .max(80, "Title must be 80 characters or fewer"),
-    description: z.string().nullable().optional(),
+    description: z
+      .string()
+      .trim()
+      .max(500, "Description must be 500 characters or fewer")
+      .regex(/^[^\u0000-\u001f\u007f]*$/, "Description must not contain control characters")
+      .nullable()
+      .optional(),
     amount: z
       .string()
       .min(1, "Amount is required")
       .regex(/^\d+(?:\.\d{1,7})?$/, `${PLAIN_NUMBER} with at most 7 decimal places`),
-    assetCode: z.string().min(1, "Asset code is required"),
-    assetIssuer: z.string().nullable().optional(),
+    assetCode: z
+      .string()
+      .trim()
+      .min(1, "Asset code is required")
+      .regex(ASSET_CODE_PATTERN, "Asset code must be 1-12 letters or digits"),
+    assetIssuer: z
+      .string()
+      .trim()
+      .refine(
+        (value) => value === "" || isValidEd25519PublicKey(value),
+        "Asset issuer must be a valid Stellar public key"
+      )
+      .transform((value) => (value === "" ? null : value))
+      .nullable()
+      .optional(),
     splitType: z.enum(["equal", "custom", "percentage"], {
       errorMap: () => ({ message: "Choose how to split this expense" }),
     }),
@@ -56,15 +88,30 @@ export const expenseFormSchema = z
       .string()
       .optional()
       .refine((value) => value === undefined || value.trim() !== "", "Choose who paid"),
-    memo: z
-      .string()
-      .max(28, "Memo must be 28 characters or fewer")
-      .regex(/^[^\u0000-\u001f\u007f]*$/, "Memo must not contain control characters")
-      .nullable()
-      .optional(),
+    // Optional, but when present it must be a well-formed `MP:<code>` memo.
+    // The character cap and the charset both come from `mergepayMemoSchema`,
+    // which also enforces the 28-*byte* Stellar limit (characters alone let a
+    // multi-byte memo through and get it rejected at submission instead).
+    memo: mergepayMemoSchema.nullable().optional(),
     receiptUrl: z.string().nullable().optional(),
   })
   .superRefine((data, ctx) => {
+    // Reject duplicate participants before summing shares: a repeated user
+    // id would otherwise double-count in custom/percentage splits.
+    const seen = new Set<string>();
+    for (let i = 0; i < data.shares.length; i++) {
+      const id = data.shares[i].userId;
+      if (seen.has(id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["shares"],
+          message: "A participant is selected more than once",
+        });
+        break;
+      }
+      seen.add(id);
+    }
+
     // Validate amount > 0
     try {
       const totalUnits = parseUnits(data.amount);

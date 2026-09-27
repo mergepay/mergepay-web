@@ -452,12 +452,26 @@ export interface AnchorSession {
   createdAt: string;
 }
 
-export interface AnchorDepositRequest {
+/**
+ * Values a SEP-24 start request can prefill on the anchor's interactive
+ * page. All optional: an anchor collects anything that is missing itself.
+ * Validated client-side by `src/lib/validations/anchor.ts` before submission.
+ */
+export interface AnchorTransferPrefill {
+  /** Transfer amount as a plain decimal string (e.g. "12.5"). */
+  amount?: string;
+  /** Stellar account the anchor should fund (deposit) or pay out (withdrawal). */
+  destination?: string;
+  /** Text memo attached to the transfer (max 28 bytes on Stellar). */
+  memo?: string;
+}
+
+export interface AnchorDepositRequest extends AnchorTransferPrefill {
   assetCode: string;
   anchorName?: string;
 }
 
-export interface AnchorWithdrawRequest {
+export interface AnchorWithdrawRequest extends AnchorTransferPrefill {
   assetCode: string;
   anchorName?: string;
 }
@@ -485,6 +499,33 @@ export interface AnchorSessionResponse {
 
 export interface AnchorSessionsResponse {
   sessions: AnchorSession[];
+}
+
+/**
+ * How an anchor's SEP-24 interactive UI is presented.
+ *
+ * Anchors that forbid framing (`frame-ancestors` / `X-Frame-Options`) must
+ * be opened in a popup window instead of an inline iframe.
+ */
+export type AnchorInteractiveMode = "iframe" | "popup";
+
+/**
+ * Resolved SEP-24 interactive details for a started transfer.
+ *
+ * Built from the session returned by `POST /anchors/sessions/:id/complete`
+ * after the wallet signs the anchor's SEP-10 challenge. The modal renders the
+ * anchor-hosted transaction URL and any customer/KYC fields the anchor
+ * requires before the transfer can settle.
+ */
+export interface AnchorInteractiveInfo {
+  /** The underlying SEP-24 session (source of truth for status). */
+  session: AnchorSession;
+  /** Anchor-hosted transfer/KYC URL, or `null` when not issued / not https. */
+  interactiveUrl: string | null;
+  /** Preferred presentation mode for the interactive URL. */
+  mode: AnchorInteractiveMode;
+  /** Customer/KYC fields the anchor reports as required, if any. */
+  customerFields: string[];
 }
 
 // ---------------------------------------------------------------------------

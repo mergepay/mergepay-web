@@ -33,10 +33,19 @@ import { toast } from "sonner";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge, statusTone } from "@/components/ui/badge";
+import {
+  AnchorTransferFields,
+  EMPTY_ANCHOR_TRANSFER_VALUES,
+  type AnchorTransferValues,
+} from "@/components/anchors/AnchorTransferFields";
 import { useAnchorInfo, anchorSupportsAsset, findAnchorForAsset } from "@/lib/anchorInfo";
 import { useAnchorSession } from "@/lib/queries";
 import { api } from "@/lib/api";
 import { signXdr, WalletError } from "@/lib/stellar";
+import {
+  anchorTransferFieldErrors,
+  buildAnchorTransferPayload,
+} from "@/lib/validations/anchor";
 import { SETTLEMENT_ASSETS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { AnchorSession, AnchorSessionKind } from "@/lib/types";
@@ -83,6 +92,9 @@ export function Sep24Modal({
   const [starting, setStarting] = useState(false);
   const [startedSession, setStartedSession] = useState<AnchorSession | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [transfer, setTransfer] = useState<AnchorTransferValues>(
+    EMPTY_ANCHOR_TRANSFER_VALUES
+  );
 
   const { anchors, isLoading, isError, refetch } = useAnchorInfo(assetCode);
   const matchingAnchors = useMemo(
@@ -93,6 +105,24 @@ export function Sep24Modal({
     matchingAnchors,
     assetCode,
     selectedAnchor
+  );
+
+  // Validated with the same schema that guards the API payload, so the
+  // Start button and the request can never disagree about what is valid.
+  const transferErrors = useMemo(
+    () =>
+      anchorTransferFieldErrors({
+        kind,
+        assetCode,
+        anchorName: chosenAnchor?.name ?? "",
+        amount: transfer.amount,
+        destination: transfer.destination,
+        memo: transfer.memo,
+      }),
+    [kind, assetCode, chosenAnchor, transfer]
+  );
+  const transferInvalid = Boolean(
+    transferErrors.amount || transferErrors.destination || transferErrors.memo
   );
 
   // Poll the session while the anchor page is open so status badges and the
@@ -112,13 +142,20 @@ export function Sep24Modal({
     setStartedSession(null);
     setStarting(false);
     setSelectedAnchor(null);
+    setTransfer(EMPTY_ANCHOR_TRANSFER_VALUES);
   }, [open]);
 
   async function handleStart() {
-    if (!chosenAnchor || starting) return;
+    if (!chosenAnchor || starting || transferInvalid) return;
     setStarting(true);
     try {
-      const payload = { assetCode, anchorName: chosenAnchor.name };
+      const payload = buildAnchorTransferPayload({
+        assetCode,
+        anchorName: chosenAnchor.name,
+        amount: transfer.amount,
+        destination: transfer.destination,
+        memo: transfer.memo,
+      });
       const start =
         kind === "deposit"
           ? await api.anchorDeposit(payload)
@@ -316,6 +353,17 @@ export function Sep24Modal({
           </div>
         )}
 
+        {/* Optional prefill — validated before the session is created (#490) */}
+        {!session && (
+          <AnchorTransferFields
+            kind={kind}
+            assetCode={assetCode}
+            values={transfer}
+            errors={transferErrors}
+            onChange={setTransfer}
+          />
+        )}
+
         {/* Interactive step */}
         {session && (
           <div className="space-y-3">
@@ -377,7 +425,7 @@ export function Sep24Modal({
           ) : (
             <Button
               onClick={() => void handleStart()}
-              disabled={!chosenAnchor || starting}
+              disabled={!chosenAnchor || starting || transferInvalid}
               loading={starting}
             >
               {starting ? (

@@ -284,6 +284,49 @@ describe("Sep24Modal (#366)", () => {
     ).toBeInTheDocument();
   });
 
+  it("gates the start button on the validated transfer prefill (#490)", async () => {
+    renderModal();
+    await screen.findByText("TestAnchor");
+
+    const start = screen.getByRole("button", { name: /start deposit/i });
+    const amount = screen.getByLabelText(/^amount/i);
+    const destination = screen.getByLabelText(/^destination account/i);
+
+    // Blank fields are valid: the anchor collects whatever is missing.
+    await waitFor(() => expect(start).toBeEnabled());
+
+    // An amount the anchor would reject is reported inline and blocks submit.
+    fireEvent.change(amount, { target: { value: "0" } });
+    expect(screen.getByText(/greater than zero/i)).toBeInTheDocument();
+    expect(start).toBeDisabled();
+
+    // So is a destination that is not a checksum-valid Stellar account.
+    fireEvent.change(amount, { target: { value: "25" } });
+    fireEvent.change(destination, { target: { value: "not-a-key" } });
+    expect(
+      screen.getByText(/valid 56-character Stellar public key/i)
+    ).toBeInTheDocument();
+    expect(start).toBeDisabled();
+
+    // Once the prefill is valid, the request carries it to the anchor.
+    fireEvent.change(destination, { target: { value: "" } });
+    await waitFor(() => expect(start).toBeEnabled());
+
+    vi.mocked(api.anchorDeposit).mockImplementation(
+      () => new Promise(() => undefined)
+    );
+    fireEvent.click(start);
+
+    await waitFor(() =>
+      expect(api.anchorDeposit).toHaveBeenCalledWith({
+        assetCode: "XLM",
+        anchorName: "TestAnchor",
+        amount: "25",
+      })
+    );
+    expect(start).toBeDisabled();
+  });
+
   it("polls the session for status updates while open", async () => {
     sessionQueryMock.mockImplementation((id: string | null) =>
       id

@@ -160,3 +160,35 @@ export function filterHistoryRows(
 ): HistoryRow[] {
   return rows.filter((row) => matchesHistoryFilters(row, filters));
 }
+
+/** Chronological ordering for history items (issue #314). */
+export type HistorySortOrder = "newest" | "oldest";
+
+/**
+ * Sortable history item shape. Accepts the history page's wrapper records
+ * (`date`) as well as raw Expense/Settlement records (`createdAt`); items
+ * with neither (or an unparseable date) sort as epoch (oldest).
+ */
+export interface HistorySortableItem {
+  date?: string;
+  createdAt?: string;
+}
+
+/**
+ * Sort history items by date. Pure: returns a fresh array and never mutates
+ * the caller's list. Ties keep their original input order (stable sort) in
+ * both directions, so repeated renders don't reshuffle equal timestamps.
+ */
+export function sortHistoryRows<T extends HistorySortableItem>(
+  items: T[],
+  order: HistorySortOrder = "newest"
+): T[] {
+  const toTime = (item: T): number => {
+    const t = new Date(item.date ?? item.createdAt ?? "").getTime();
+    return Number.isNaN(t) ? 0 : t;
+  };
+  const direction = order === "newest" ? -1 : 1;
+  return [...items].sort(
+    (a, b) => direction * (toTime(a) - toTime(b))
+  );
+}

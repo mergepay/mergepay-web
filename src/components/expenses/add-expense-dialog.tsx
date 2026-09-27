@@ -12,8 +12,9 @@ import { cn } from "@/lib/utils";
 import { useCreateExpense } from "@/lib/queries";
 import { api } from "@/lib/api";
 import { handleApiError } from "@/lib/errorHandler";
-import { SETTLEMENT_ASSETS } from "@/lib/constants";
+import { SETTLEMENT_ASSETS, SETTLEMENT_MEMO_PREFIX } from "@/lib/constants";
 import { AssetSelector } from "@/components/expenses/AssetSelector";
+import { ExpenseSplitPreview } from "@/components/expenses/ExpenseSplitPreview";
 import type { GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
 import {
   AMOUNT_DECIMAL_PLACES,
@@ -32,8 +33,19 @@ import { convertCurrency, currencyRate, rateDeviationPercent, SUPPORTED_FIAT_CUR
 import { useLocalStorageDraft } from "@/lib/useLocalStorageDraft";
 import { parseExpenseDeepLink } from "@/lib/deepLink";
 import { useOfflineStore } from "@/lib/store/offlineStore";
+import { useAssetStore, isActiveAsset, type ActiveAsset } from "@/lib/asset-store";
 
 const SUPPORTED_ASSET_CODES = SETTLEMENT_ASSETS.map((a) => a.code);
+
+/**
+ * Map the persisted preference onto an asset this dialog can actually submit.
+ * Unknown or corrupt codes collapse to XLM, matching the store's own fallback.
+ */
+function supportedAssetKey(asset: ActiveAsset): string {
+  return isActiveAsset(asset) && SUPPORTED_ASSET_CODES.includes(asset.code)
+    ? asset.code
+    : SUPPORTED_ASSET_CODES[0];
+}
 
 export function AddExpenseDialog({
   open,
@@ -49,13 +61,17 @@ export function AddExpenseDialog({
   currentUserId: string;
 }) {
   const create = useCreateExpense(groupId);
+  const activeAsset = useAssetStore((s) => s.activeAsset);
+  const setActiveAsset = useAssetStore((s) => s.setActiveAsset);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [fiatCurrency, setFiatCurrency] = useState<SupportedFiatCurrency>("USD");
   const [fiatAmount, setFiatAmount] = useState("");
   const [rateOverride, setRateOverride] = useState("");
-  const [assetKey, setAssetKey] = useState("XLM");
+  // Seed from the persisted preference (#486) so a USDC choice made anywhere in
+  // the app — or in a previous session — is what this dialog opens on.
+  const [assetKey, setAssetKey] = useState(() => supportedAssetKey(activeAsset));
   const [payerUserId, setPayerUserId] = useState(currentUserId);
   const [splitType, setSplitType] = useState<SplitType>("equal");
   const [participants, setParticipants] = useState<string[]>(members.map((m) => m.userId));
@@ -114,6 +130,19 @@ export function AddExpenseDialog({
   const submitBlocked = isOffline || walletDisconnected;
 
   const pending = create.isPending || submitting;
+
+  /**
+   * Update the local field and the persisted preference together, so the
+   * currency toggle stays put across dialogs and page reloads (#486).
+   */
+  function selectAssetKey(key: string) {
+    const next = SUPPORTED_ASSET_CODES.includes(key) ? key : SUPPORTED_ASSET_CODES[0];
+    setAssetKey(next);
+    const assetDef = SETTLEMENT_ASSETS.find((a) => a.code === next);
+    if (assetDef) {
+      setActiveAsset({ code: assetDef.code, issuer: assetDef.issuer });
+    }
+  }
 
   const asset = useMemo(
     () => SETTLEMENT_ASSETS.find((a) => a.code === assetKey) ?? SETTLEMENT_ASSETS[0],
@@ -296,12 +325,41 @@ export function AddExpenseDialog({
           )}
         </div>
 
+        {/* Optional on-chain reconciliation tag. Validated on blur so the
+            user isn't scolded while still typing, but the format is enforced
+            before submit — a malformed memo produces a payment the backend
+            cannot attribute. */}
+        <div>
+          <Label htmlFor="expense-memo">Memo (optional)</Label>
+          <Input
+            id="expense-memo"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            onBlur={() => markTouched("memo")}
+            placeholder={`${SETTLEMENT_MEMO_PREFIX}dinner-1a2b`}
+            aria-describedby="expense-memo-hint"
+            aria-invalid={getError("memo") ? true : undefined}
+            className={getError("memo") ? "border-flamingo" : undefined}
+          />
+          {getError("memo") ? (
+            <p id="expense-memo-hint" className="mt-1 text-xs font-bold text-flamingo-dark" role="alert">
+              {getError("memo")}
+            </p>
+          ) : (
+            <p id="expense-memo-hint" className="mt-1 text-xs text-ink/60">
+              Reconciliation tag recorded on-chain. Format: {SETTLEMENT_MEMO_PREFIX} followed by letters,
+              numbers, hyphens, or underscores (28 bytes max).
+            </p>
+          )}
+        </div>
+
         <div>
           <Label htmlFor="expense-asset">Asset</Label>
           <Select
             id="expense-asset"
             value={assetKey}
-            onChange={(e) => setAssetKey(e.target.value)}
+            onChange={(e) => selectAssetKey(e.target.value)}
+            className={getError("assetCode") || getError("assetIssuer") ? "border-flamingo" : undefined}
           >
             {SUPPORTED_ASSET_CODES.map((code) => (
               <option key={code} value={code}>
@@ -309,6 +367,11 @@ export function AddExpenseDialog({
               </option>
             ))}
           </Select>
+          {(getError("assetCode") || getError("assetIssuer")) && (
+            <p className="mt-1 text-xs font-bold text-flamingo-dark">
+              {getError("assetCode") ?? getError("assetIssuer")}
+            </p>
+          )}
         </div>
 
         <div>
@@ -327,6 +390,21 @@ export function AddExpenseDialog({
         {getError("shares") && (
           <p className="text-xs font-bold text-flamingo-dark">{getError("shares")}</p>
         )}
+
+        <ExpenseSplitPreview
+          amount={amount}
+          assetCode={asset.code}
+          splitType={splitType}
+          participants={participants.map((id) => {
+            const member = members.find((m) => m.userId === id);
+            return {
+              userId: id,
+              displayName: member?.user.displayName ?? id,
+              avatarUrl: member?.user.avatarUrl ?? null,
+            };
+          })}
+          shares={sharesPayload}
+        />
 
         <div className="flex justify-end gap-2 pt-4">
           <Button type="button" variant="ghost" onClick={onClose}>

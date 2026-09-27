@@ -5,7 +5,7 @@ import { useCreateExpenseMutation, useSettleBalanceMutation } from "./useExpense
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import React from "react";
-import { qk } from "@/lib/queries";
+import { qk, useCreateExpense } from "@/lib/queries";
 import { useAuth } from "@/lib/auth-store";
 import type { BalancesResponse, ExpensesResponse, User } from "@/lib/types";
 
@@ -302,5 +302,85 @@ describe("optimistic updates (#375)", () => {
     expect(toast.error).toHaveBeenCalledWith(
       "Settlement failed. Balances rolled back."
     );
+  });
+});
+
+describe("useCreateExpense — Add Expense dialog path (#488)", () => {
+  let client: QueryClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuth.setState({ user: ME });
+    client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    useAuth.setState({ user: null });
+    client.clear();
+  });
+
+  it("shows the new expense in the list before the API responds", async () => {
+    client.setQueryData(qk.expenses("g1"), SEEDED_EXPENSES);
+    const gate = deferred<unknown>();
+    vi.mocked(api.createExpense).mockReturnValue(gate.promise as never);
+
+    const { result } = renderHook(() => useCreateExpense("g1"), {
+      wrapper: createWrapper(client),
+    });
+
+    act(() => {
+      result.current.mutate(NEW_EXPENSE_REQUEST);
+    });
+
+    await waitFor(() => {
+      const cache = client.getQueryData<ExpensesResponse>(qk.expenses("g1"));
+      expect(cache?.expenses[0]?.isOptimistic).toBe(true);
+    });
+
+    const cache = client.getQueryData<ExpensesResponse>(qk.expenses("g1"));
+    expect(cache?.expenses).toHaveLength(2);
+    expect(cache?.expenses[0].title).toBe("Pizza");
+    expect(cache?.expenses[1].id).toBe("exp-1");
+    expect(api.createExpense).toHaveBeenCalledWith(
+      "g1",
+      expect.objectContaining({ title: "Pizza" })
+    );
+
+    await act(async () => {
+      gate.resolve({ id: "server-1" });
+    });
+  });
+
+  it("restores the previous list and notifies through sonner when the create fails", async () => {
+    client.setQueryData(qk.expenses("g1"), SEEDED_EXPENSES);
+    const gate = deferred<unknown>();
+    vi.mocked(api.createExpense).mockReturnValue(gate.promise as never);
+
+    const { result } = renderHook(() => useCreateExpense("g1"), {
+      wrapper: createWrapper(client),
+    });
+
+    act(() => {
+      result.current.mutate(NEW_EXPENSE_REQUEST);
+    });
+
+    await waitFor(() => {
+      const cache = client.getQueryData<ExpensesResponse>(qk.expenses("g1"));
+      expect(cache?.expenses[0]?.isOptimistic).toBe(true);
+    });
+
+    await act(async () => {
+      gate.reject(new Error("dialog create failed"));
+    });
+
+    await waitFor(() => {
+      const cache = client.getQueryData<ExpensesResponse>(qk.expenses("g1"));
+      expect(cache?.expenses).toHaveLength(1);
+      expect(cache?.expenses[0].id).toBe("exp-1");
+      expect(cache?.expenses[0].isOptimistic).toBeUndefined();
+    });
+    expect(toast.error).toHaveBeenCalled();
   });
 });

@@ -55,3 +55,11 @@ export const StrKey = {
     return crc16xmodem(payload) === checksum;
   },
 };
+
+/**
+ * Standalone predicate over an ed25519 public key string. Exported for use
+ * in Zod schemas (where only a boolean answer is needed) alongside `StrKey`.
+ */
+export function isValidEd25519PublicKey(key: string): boolean {
+  return StrKey.isValidEd25519PublicKey(key);
+}

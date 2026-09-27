@@ -38,6 +38,31 @@ describe("ErrorBoundary", () => {
     expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
   });
 
+  it("offers a Return to Dashboard navigation link (#479)", () => {
+    render(
+      <ErrorBoundary>
+        <Bomb shouldThrow={true} />
+      </ErrorBoundary>
+    );
+
+    const link = screen.getByRole("link", { name: /return to dashboard/i });
+    expect(link).toHaveAttribute("href", "/dashboard");
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it("points the dashboard link at a custom href when provided", () => {
+    render(
+      <ErrorBoundary dashboardHref="/settings">
+        <Bomb shouldThrow={true} />
+      </ErrorBoundary>
+    );
+
+    expect(screen.getByRole("link", { name: /return to dashboard/i })).toHaveAttribute(
+      "href",
+      "/settings"
+    );
+  });
+
   it("resets error state when Try Again button is clicked", () => {
     let throwError = true;
 

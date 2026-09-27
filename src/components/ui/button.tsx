@@ -42,6 +42,15 @@ const sizes: Record<Size, string> = {
   icon: "h-10 w-10 rounded-xl",
 };
 
+/**
+ * The class list for a given variant/size without rendering a `<button>`.
+ * Lets an anchor (e.g. the ErrorBoundary "Return to Dashboard" escape hatch)
+ * look identical to a Button while remaining a real navigation link.
+ */
+export function buttonClassName(variant: Variant = "primary", size: Size = "md") {
+  return cn(base, variants[variant], sizes[size]);
+}
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {

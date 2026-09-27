@@ -253,24 +253,35 @@ const REJECTED_PATTERNS = [
   /request was rejected/i,
   /user closed (the )?popup/i,
   /cancelled? by user/i,
+  /permission (denied|declined)/i,
+  /access (denied|declined)/i,
+  /user (cancelled|canceled) the request/i,
 ];
 const LOCKED_PATTERNS = [
   /locked/i,
   /please unlock/i,
   /unlock (your )?(freighter|wallet)/i,
   /wallet is locked/i,
+  /extension is locked/i,
+  /freighter is locked/i,
+  /unlock to continue/i,
 ];
 const DISCONNECTED_PATTERNS = [
   /(wallet )?not connected/i,
   /no account selected/i,
   /account changed/i,
   /disconnected/i,
+  /not authorized/i,
+  /no active account/i,
+  /account not found/i,
 ];
 const NETWORK_PATTERNS = [
   /network/i,
   /passphrase/i,
   /couldn't reach/i,
   /failed to fetch/i,
+  /connection (refused|failed|timeout)/i,
+  /unreachable/i,
 ];
 
 export function classifyWalletMessage(raw: string): WalletErrorCode {
@@ -358,6 +369,9 @@ export async function getGrantedAddress(): Promise<string | null> {
     return null;
   }
 }
+
+/** Re-export getAddress for hooks that need to detect locked state. */
+export { getAddress } from "@stellar/freighter-api";
 
 /** Network the wallet is currently pointed at, or `null` if unreadable. */
 export async function getWalletNetwork(): Promise<{
@@ -461,7 +475,10 @@ export async function connectWallet(): Promise<string> {
     throw new WalletError("Wallet returned an empty response.");
   } catch (e) {
     if (typeof window !== "undefined") {
-      sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+      // Only clear session storage for actual connection loss, not user rejection
+      if (e instanceof WalletError && e.code !== "user_rejected") {
+        sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+      }
     }
     if (e instanceof WalletError) throw e;
     const msg = e instanceof Error ? e.message : String(e);
@@ -473,27 +490,45 @@ export async function connectWallet(): Promise<string> {
 /**
  * Silent auto-reconnect fallback on reload if connection state
  * was previously persisted in session storage.
+ *
+ * Returns the public key if reconnection succeeds, or an object
+ * describing why it failed (locked, disconnected, etc.) so the UI
+ * can surface a helpful message instead of silently dropping the session.
  */
-export async function autoReconnectWallet(): Promise<string | null> {
-  if (typeof window === "undefined") return null;
+export async function autoReconnectWallet(): Promise<
+  | { success: true; publicKey: string }
+  | { success: false; reason: "not_previously_connected" | "wallet_unavailable" | "locked" | "no_account" | "error"; message: string }
+> {
+  if (typeof window === "undefined") {
+    return { success: false, reason: "wallet_unavailable", message: "Wallet not available in this environment" };
+  }
   const isPreviouslyConnected = sessionStorage.getItem(WALLET_CONNECTED_SESSION_KEY) === "true";
-  if (!isPreviouslyConnected) return null;
+  if (!isPreviouslyConnected) {
+    return { success: false, reason: "not_previously_connected", message: "No previous wallet connection found" };
+  }
 
   try {
     const available = await isFreighterAvailable();
     if (!available) {
       sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
-      return null;
+      return { success: false, reason: "wallet_unavailable", message: "Freighter extension not found. Please install it and refresh." };
     }
     const address = await getGrantedAddress();
     if (address) {
       sessionStorage.setItem(WALLET_ADDRESS_SESSION_KEY, address);
-      return address;
+      return { success: true, publicKey: address };
     }
-  } catch {
-    // Fail silently
+    // Wallet is available but no account shared - could be locked or user hasn't connected
+    return { success: false, reason: "no_account", message: "Wallet is available but no account is shared. Connect your wallet to continue." };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const code = classifyWalletMessage(msg);
+    if (code === "locked") {
+      return { success: false, reason: "locked", message: "Your Freighter wallet is locked. Unlock it and try again." };
+    }
+    sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+    return { success: false, reason: "error", message: walletMessage(code) };
   }
-  return null;
 }
 
 /**
@@ -560,6 +595,71 @@ export async function signXdr(
     if (signed) return signed;
   }
   throw new WalletError("Wallet returned an empty response.");
+}
+
+/**
+ * Get detailed wallet state for UI feedback.
+ * Returns a comprehensive status object that the UI can use to show
+ * appropriate messages and recovery actions.
+ */
+export async function getWalletConnectionState(): Promise<{
+  installed: boolean;
+  locked: boolean;
+  connected: boolean;
+  publicKey: string | null;
+  network: string | null;
+  networkPassphrase: string | null;
+}> {
+  try {
+    const available = await isFreighterAvailable();
+    if (!available) {
+      return {
+        installed: false,
+        locked: false,
+        connected: false,
+        publicKey: null,
+        network: null,
+        networkPassphrase: null,
+      };
+    }
+
+    const [address, networkDetails] = await Promise.all([
+      getGrantedAddress().catch(() => null),
+      getWalletNetwork().catch(() => null),
+    ]);
+
+    // Try to detect if wallet is locked by attempting to get address
+    // If getAddress throws a locked error, the wallet is locked
+    let locked = false;
+    if (!address) {
+      try {
+        await getAddress();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (classifyWalletMessage(msg) === "locked") {
+          locked = true;
+        }
+      }
+    }
+
+    return {
+      installed: true,
+      locked,
+      connected: !!address,
+      publicKey: address,
+      network: networkDetails?.network ?? null,
+      networkPassphrase: networkDetails?.networkPassphrase ?? null,
+    };
+  } catch {
+    return {
+      installed: true,
+      locked: false,
+      connected: false,
+      publicKey: null,
+      network: null,
+      networkPassphrase: null,
+    };
+  }
 }
 
 /**
@@ -635,6 +735,40 @@ export function NotInstalledMessage(): ReactNode {
         install it
       </a>{" "}
       and refresh the page.
+    </>
+  );
+}
+
+/** User-friendly message shown when Freighter is locked. */
+export function LockedMessage(): ReactNode {
+  return (
+    <>
+      Your Freighter wallet is locked. Please unlock it in the extension and{" "}
+      <button
+        type="button"
+        className="underline hover:text-grape"
+        onClick={() => window.location.reload()}
+      >
+        try again
+      </button>
+      .
+    </>
+  );
+}
+
+/** User-friendly message shown when user rejects the connection request. */
+export function UserRejectedMessage(): ReactNode {
+  return (
+    <>
+      You cancelled the connection request.{" "}
+      <button
+        type="button"
+        className="underline hover:text-grape"
+        onClick={() => window.location.reload()}
+      >
+        Try connecting again
+      </button>
+      .
     </>
   );
 }

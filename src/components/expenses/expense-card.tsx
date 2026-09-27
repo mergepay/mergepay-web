@@ -19,6 +19,7 @@ import { useDeleteExpense } from "@/lib/queries";
 import { handleApiError } from "@/lib/errorHandler";
 import { Timestamp } from "@/components/timestamp";
 import { ExpenseReceiptModal } from "@/components/ExpenseReceiptModal";
+import { MemoBadge } from "@/components/stellar/MemoBadge";
 import type { Expense, GroupMember } from "@/lib/types";
 
 export function ExpenseCard({
@@ -152,11 +153,7 @@ export function ExpenseCard({
             <span className="font-display text-[10px] uppercase tracking-widest text-ink/50">
               Shares · {settledCount}/{expense.shares.length} settled
             </span>
-            {expense.memo && (
-              <span className="font-mono text-[10px] text-ink/40">
-                memo: {expense.memo}
-              </span>
-            )}
+            {expense.memo && <MemoBadge memo={expense.memo} compact />}
           </div>
           <div className="space-y-1.5">
             {expense.shares.map((share) => {

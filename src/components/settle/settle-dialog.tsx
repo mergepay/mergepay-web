@@ -10,6 +10,7 @@ import { Money } from "@/components/amount";
 import { AssetBadge } from "@/components/asset-badge";
 import { TxLink } from "@/components/tx-link";
 import { SettlementConfirmation } from "@/components/settle/settlement-confirmation";
+import { MemoBadge } from "@/components/stellar/MemoBadge";
 import { api, ApiRequestError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { connectWallet, signXdr, WalletError, WalletErrorCode, NotInstalledMessage } from "@/lib/stellar";
@@ -179,6 +180,7 @@ export function SettleDialog({
   const [settlementId, setSettlementId] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("review");
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [memo, setMemo] = useState<string | null>(null);
   const [error, setError] = useState<ReactNode>("");
   const [errorCode, setErrorCode] = useState<WalletErrorCode | null>(null);
   const [attempts, setAttempts] = useState(0);
@@ -233,7 +235,7 @@ export function SettleDialog({
     onClose();
     // reset after the close animation
     setTimeout(() => {
-      setStep("review"); setTxHash(null); setError(""); setErrorCode(null); setSettlementId(null); setAttempts(0); setReconnecting(false);
+      setStep("review"); setTxHash(null); setMemo(null); setError(""); setErrorCode(null); setSettlementId(null); setAttempts(0); setReconnecting(false);
     }, 200);
   }
 
@@ -257,7 +259,7 @@ export function SettleDialog({
     if (!validation.valid) { setError(validation.error ?? "Invalid payment input"); setErrorCode(null); setStep("failed"); return; }
     // Clear the previous attempt's residue so a retry never shows a stale tx
     // hash or keeps polling the settlement that already failed.
-    setError(""); setErrorCode(null); setTxHash(null); setSettlementId(null); setAttempts((n) => n + 1);
+    setError(""); setErrorCode(null); setTxHash(null); setMemo(null); setSettlementId(null); setAttempts((n) => n + 1);
     try {
       const intent = target.expenseId
         ? await api.settleExpense(target.expenseId, {
@@ -269,8 +271,10 @@ export function SettleDialog({
             amount: target.amount,
             assetCode: target.assetCode,
             assetIssuer: target.assetIssuer,
-          });
-      setStep("submitting");
+          });          setStep("submitting");
+      // Surface the MP: memo shown by the API on the intent, falling back to
+      // the confirmed record — it is what ties this payment to its expense.
+      setMemo(intent.settlement.memo ?? null);
       const signedXdr = await signXdr(intent.xdr, intent.networkPassphrase);
       const { settlement } = await confirm.mutateAsync({
         settlementId: intent.settlement.id,
@@ -278,6 +282,7 @@ export function SettleDialog({
       });
       setSettlementId(intent.settlement.id);
       setTxHash(settlement.stellarTxHash ?? null);
+      setMemo(settlement.memo ?? intent.settlement.memo ?? null);
       setStep("submitted");
       if (settlement.status === "confirmed") {
         setStep("confirmed");
@@ -359,7 +364,7 @@ export function SettleDialog({
       {step === "submitting" && <div className="flex flex-col items-center gap-3 py-4" aria-busy aria-live="polite"><Button loading variant="outline" className="pointer-events-none">Submitting to Stellar…</Button><p className="text-center text-sm text-ink/60">Approve the transaction in your Freighter wallet, and we'll record it on the ledger.</p></div>}
       {step === "submitted" && !statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-butter-pale px-4 py-5" role="status" aria-live="polite"><Loader2 className="h-7 w-7 animate-spin text-grape" /><p className="font-display text-sm uppercase tracking-tight">Waiting for confirmation</p><p className="text-center text-xs text-ink/60">Polling the network for the terminal transaction state. Keep this dialog open until the result is known.</p></div>}
       {step === "submitted" && statusQuery.pollingStalled && <div className="flex flex-col items-center gap-3 rounded-2xl border-3 border-ink bg-flamingo-pale px-4 py-5" role="alert" aria-live="polite"><AlertTriangle className="h-7 w-7" /><p className="font-display text-sm uppercase tracking-tight">Couldn't check status</p><p className="text-center text-xs text-ink/60">We lost the connection while waiting for confirmation. Your transaction may still be processing — this hasn't submitted anything new.</p><Button variant="outline" onClick={() => statusQuery.refetch()}><RefreshCcw className="h-4 w-4" /> Check status</Button></div>}
-      {step === "confirmed" && <div className="space-y-4 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border-3 border-ink bg-lime shadow-brutal"><CheckCircle2 className="h-8 w-8" /></div><div><p className="font-display text-lg uppercase tracking-tight">Settled!</p><p className="text-sm text-ink/60">Recorded on the Stellar ledger.</p></div>{txHash && <div className="flex flex-col items-center gap-1"><span className="font-display text-[10px] uppercase tracking-widest text-ink/50">Transaction</span><TxLink hash={txHash} /></div>}<Button className="w-full" onClick={close}>Done</Button></div>}
+      {step === "confirmed" && <div className="space-y-4 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border-3 border-ink bg-lime shadow-brutal"><CheckCircle2 className="h-8 w-8" /></div><div><p className="font-display text-lg uppercase tracking-tight">Settled!</p><p className="text-sm text-ink/60">Recorded on the Stellar ledger.</p></div>{txHash && <div className="flex flex-col items-center gap-1"><span className="font-display text-[10px] uppercase tracking-widest text-ink/50">Transaction</span><TxLink hash={txHash} /></div>}{memo && <div className="flex flex-col items-center gap-1"><span className="font-display text-[10px] uppercase tracking-widest text-ink/50">Memo</span><MemoBadge memo={memo} /></div>}<Button className="w-full" onClick={close}>Done</Button></div>}
       {step === "failed" && <div className="space-y-4">
         <WalletErrorBanner code={errorCode} message={error} />
         <p className="text-xs text-ink/60">
