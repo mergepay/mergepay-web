@@ -5,8 +5,15 @@ import type { Expense } from "@/lib/types";
 
 // Mock qrcode.react to avoid canvas issues in jsdom
 vi.mock("qrcode.react", () => ({
-  QRCodeCanvas: ({ value, ...props }: { value: string; [key: string]: unknown }) => (
-    <canvas data-testid="qr-code" data-value={value} {...props} />
+  QRCodeCanvas: ({ value, marginSize, bgColor, fgColor, ...props }: { value: string; marginSize?: number; bgColor?: string; fgColor?: string; [key: string]: unknown }) => (
+    <canvas
+      data-testid="qr-code"
+      data-value={value}
+      data-marginsize={marginSize}
+      data-bgcolor={bgColor}
+      data-fgcolor={fgColor}
+      {...props}
+    />
   ),
 }));
 

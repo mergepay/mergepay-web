@@ -72,7 +72,8 @@ export const expenseFormSchema = z
     amount: z
       .string()
       .min(1, "Amount is required")
-      .regex(/^\d+(?:\.\d{1,7})?$/, `${PLAIN_NUMBER} with at most 7 decimal places`),
+      .regex(/^\d+(?:\.\d{1,7})?$/, `${PLAIN_NUMBER} with at most 7 decimal places`) // strict positive decimal with up to 7 decimal places
+      .refine((val) => { const num = parseFloat(val); return !isNaN(num) && num > 0; }, "Amount must be greater than zero"),
     assetCode: z
       .string()
       .trim()

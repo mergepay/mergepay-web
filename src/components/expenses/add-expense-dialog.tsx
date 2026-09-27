@@ -348,14 +348,30 @@ export function AddExpenseDialog({
           <Label htmlFor="expense-amount">Amount</Label>
           <Input
             id="expense-amount"
+            inputMode="decimal"
+            autoComplete="off"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === "" || /^\d*\.?\d{0,7}$/.test(val)) {
+                setAmount(val);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (["e", "E", "+", "-"].includes(e.key)) {
+                e.preventDefault();
+              }
+            }}
             onBlur={() => markTouched("amount")}
             placeholder="0.00"
+            aria-invalid={getError("amount") ? true : undefined}
+            aria-describedby={getError("amount") ? "expense-amount-error" : undefined}
             className={getError("amount") ? "border-flamingo" : undefined}
           />
           {getError("amount") && (
-            <p className="mt-1 text-xs font-bold text-flamingo-dark">{getError("amount")}</p>
+            <p id="expense-amount-error" className="mt-1 text-xs font-bold text-flamingo-dark" role="alert">
+              {getError("amount")}
+            </p>
           )}
         </div>
 

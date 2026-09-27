@@ -253,8 +253,26 @@ export function SplitCalculator({
                       placeholder={mode === "custom" ? "0.00" : "0"}
                       aria-invalid={error ? true : undefined}
                       aria-describedby={error ? `${inputId}-error` : undefined}
+                      onKeyDown={(e) => {
+                        if (["e", "E", "+", "-"].includes(e.key)) {
+                          e.preventDefault();
+                        }
+                      }}
                       className={cn("py-2 pr-14 text-right font-mono", error && "border-flamingo")}
-                      {...register(mode === "custom" ? `allocations.${i}.amount` : `allocations.${i}.percent`)}
+                      {...register(mode === "custom" ? `allocations.${i}.amount` : `allocations.${i}.percent`, {
+                        onChange: (e) => {
+                          const val = e.target.value;
+                          if (mode === "custom") {
+                            if (val !== "" && !/^\d*\.?\d{0,7}$/.test(val)) {
+                              return;
+                            }
+                          } else {
+                            if (val !== "" && !/^\d*\.?\d{0,2}$/.test(val)) {
+                              return;
+                            }
+                          }
+                        },
+                      })}
                     />
                     <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-display text-[10px] uppercase tracking-widest text-ink/60">
                       {mode === "custom" ? assetCode : "%"}
