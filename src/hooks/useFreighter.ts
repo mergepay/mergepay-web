@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
+import { EXPECTED_NETWORK_LABEL } from "@/lib/constants";
 import {
   assertWalletNetwork,
   connectWallet,
@@ -9,8 +10,8 @@ import {
   WalletError,
   type WalletErrorCode,
 } from "@/lib/stellar";
-import { EXPECTED_NETWORK_LABEL } from "@/lib/constants";
 import { showWalletErrorToast } from "@/lib/walletToasts";
+
 
 export interface UseFreighterOptions {
   maxRetries?: number;
@@ -188,6 +189,7 @@ export function useFreighter(): UseFreighterResult {
   const connectWithRetry = useCallback(
     (options: UseFreighterOptions = {}): Promise<string> => {
       // A second click while the first request is pending joins it rather
+      
       // than opening another Freighter popup (and another) behind it.
       if (connectionRef.current) return connectionRef.current;
 

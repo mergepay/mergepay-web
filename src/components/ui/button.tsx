@@ -36,10 +36,10 @@ const variants: Record<Variant, string> = {
 };
 
 const sizes: Record<Size, string> = {
-  sm: "text-xs px-3 py-1.5 rounded-lg",
-  md: "text-sm px-5 py-2.5 rounded-xl",
-  lg: "text-base px-7 py-3.5 rounded-xl",
-  icon: "h-10 w-10 rounded-xl",
+  sm: "text-xs px-3 py-2 min-h-[44px] rounded-lg",
+  md: "text-sm px-5 py-2.5 min-h-[44px] rounded-xl",
+  lg: "text-base px-7 py-3.5 min-h-[44px] rounded-xl",
+  icon: "h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl",
 };
 
 /**
