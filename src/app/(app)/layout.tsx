@@ -1,19 +1,47 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AppShell } from "../../components/app-shell";
 import { AuthGuard } from "../../components/auth-guard";
 import { WalletErrorBoundary } from "../../components/wallet/WalletErrorBoundary";
 import { ErrorBoundary } from "../../components/ui/ErrorBoundary";
 import { MutationSyncIndicator } from "../../components/ui/MutationSyncIndicator";
+import { SessionTimeoutDialog } from "../../components/SessionTimeoutDialog";
 import { useSessionRestore } from "../../hooks/useSessionRestore";
+import { useIdleSession } from "../../hooks/useIdleSession";
+import { useAuth } from "../../lib/auth-store";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { restoreSession } = useSessionRestore();
+  const { forgetWallet } = useAuth();
+  const [showTimeoutDialog, setShowTimeoutDialog] = useState(false);
 
   useEffect(() => {
     restoreSession();
   }, [restoreSession]);
+
+  const handleSessionTimeout = () => {
+    forgetWallet();
+    window.location.href = "/";
+  };
+
+  const { showWarning, resetTimers } = useIdleSession(handleSessionTimeout);
+
+  const handleContinueSession = () => {
+    resetTimers();
+    setShowTimeoutDialog(false);
+  };
+
+  const handleLogout = () => {
+    forgetWallet();
+    window.location.href = "/";
+  };
+
+  useEffect(() => {
+    if (showWarning) {
+      setShowTimeoutDialog(true);
+    }
+  }, [showWarning]);
 
   return (
     <WalletErrorBoundary subject="wallet session">
@@ -33,6 +61,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <MutationSyncIndicator />
         </AuthGuard>
       </ErrorBoundary>
+      <SessionTimeoutDialog
+        open={showTimeoutDialog}
+        onContinue={handleContinueSession}
+        onLogout={handleLogout}
+      />
     </WalletErrorBoundary>
   );
 }

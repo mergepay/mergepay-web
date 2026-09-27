@@ -14,11 +14,13 @@ export interface AuthState {
   lastAuthenticatedAt: string | null;
   activeWalletPublicKey: string | null;
   restoreStatus: "idle" | "checking" | "settled";
+  sessionExpired: boolean;
   setSession: (token: string, user: User) => void;
   clear: () => void;
   forgetWallet: () => void;
   setActiveWalletPublicKey: (publicKey: string | null) => void;
   setRestoreStatus: (status: "idle" | "checking" | "settled") => void;
+  setSessionExpired: (expired: boolean) => void;
 }
 
 const SESSION_STORAGE_KEY = "mergepay.token";
@@ -33,6 +35,7 @@ export const useAuth = create<AuthState>()(
       lastAuthenticatedAt: null,
       activeWalletPublicKey: null,
       restoreStatus: "idle",
+      sessionExpired: false,
       setSession: (token: string, user: User) => {
         memoryToken = token;
         set({
@@ -40,6 +43,7 @@ export const useAuth = create<AuthState>()(
           user,
           lastAuthenticatedAt: new Date().toISOString(),
           restoreStatus: "settled",
+          sessionExpired: false,
         });
       },
       clear: () => {
@@ -48,6 +52,7 @@ export const useAuth = create<AuthState>()(
           token: null,
           user: null,
           restoreStatus: "settled",
+          sessionExpired: false,
         });
       },
       forgetWallet: () => {
@@ -58,6 +63,7 @@ export const useAuth = create<AuthState>()(
           lastAuthenticatedAt: null,
           activeWalletPublicKey: null,
           restoreStatus: "settled",
+          sessionExpired: false,
         });
       },
       setActiveWalletPublicKey: (publicKey: string | null) => {
@@ -65,6 +71,9 @@ export const useAuth = create<AuthState>()(
       },
       setRestoreStatus: (status: "idle" | "checking" | "settled") => {
         set({ restoreStatus: status });
+      },
+      setSessionExpired: (expired: boolean) => {
+        set({ sessionExpired: expired });
       },
     }),
     {
