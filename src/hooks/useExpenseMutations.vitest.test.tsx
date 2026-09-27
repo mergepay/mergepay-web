@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 import React from "react";
 import { qk } from "@/lib/queries";
+import type { ExpenseResponse } from "@/lib/types";
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -57,6 +58,99 @@ describe("useExpenseMutations Hooks (#285)", () => {
 
     expect(api.createExpense).toHaveBeenCalledWith("g1", expect.objectContaining({ title: "Lunch" }));
     expect(toast.success).toHaveBeenCalledWith("Expense created successfully");
+  });
+
+  it("updates the expense list optimistically before the network confirms (#488)", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    qc.setQueryData(qk.expenses("g1"), { expenses: [{ id: "e0", title: "Rent" }] });
+
+    let resolveCreate!: (value: ExpenseResponse) => void;
+    vi.mocked(api.createExpense).mockReturnValue(
+      new Promise<ExpenseResponse>((resolve) => {
+        resolveCreate = resolve;
+      })
+    );
+
+    const Wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useCreateExpenseMutation("g1"), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({
+        title: "Coffee",
+        amount: "10.00",
+        assetCode: "USDC",
+        splitType: "equal",
+        payerUserId: "u-1",
+        shares: [{ userId: "u-2" }],
+      });
+    });
+
+    await waitFor(() => {
+      const cache = qc.getQueryData<any>(qk.expenses("g1"));
+      expect(cache.expenses).toHaveLength(2);
+      expect(cache.expenses[0]).toMatchObject({
+        title: "Coffee",
+        amount: "10.00",
+        assetCode: "USDC",
+        isOptimistic: true,
+        pending: true,
+      });
+    });
+
+    // The request is still in flight at this point.
+    expect(api.createExpense).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveCreate({} as ExpenseResponse);
+      await Promise.resolve();
+    });
+  });
+
+  it("rolls the expense list back and surfaces a sonner error when creation fails (#488)", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    qc.setQueryData(qk.expenses("g1"), { expenses: [{ id: "e0", title: "Rent" }] });
+
+    vi.mocked(api.createExpense).mockRejectedValueOnce(new Error("Network error"));
+
+    const Wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useCreateExpenseMutation("g1"), {
+      wrapper: Wrapper,
+    });
+
+    let errorThrown: unknown;
+    await act(async () => {
+      try {
+        await result.current.mutateAsync({
+          title: "Coffee",
+          amount: "10.00",
+          assetCode: "USDC",
+          splitType: "equal",
+          payerUserId: "u-1",
+          shares: [{ userId: "u-2" }],
+        });
+      } catch (err) {
+        errorThrown = err;
+      }
+    });
+
+    expect(errorThrown).toBeDefined();
+
+    const cache = qc.getQueryData<any>(qk.expenses("g1"));
+    expect(cache.expenses).toHaveLength(1);
+    expect(cache.expenses[0].id).toBe("e0");
+    expect(toast.error).toHaveBeenCalledWith("Network error");
   });
 
   it("useSettleBalanceMutation executes createSettlement and triggers toasts", async () => {

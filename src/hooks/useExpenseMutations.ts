@@ -3,8 +3,20 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { qk, useInvalidator, expenseCacheKeys } from "@/lib/queries";
+import {
+  qk,
+  useInvalidator,
+  expenseCacheKeys,
+  calculateOptimisticBalances,
+} from "@/lib/queries";
+import {
+  buildOptimisticExpense,
+  prependOptimisticExpense,
+  restoreExpenseQueries,
+  snapshotExpenseQueries,
+} from "@/lib/expenseOptimistic";
 import { handleApiError } from "@/lib/errorHandler";
+import { useAuth } from "@/lib/auth-store";
 import type {
   CreateExpenseRequest,
   CreateSettlementRequest,
@@ -22,14 +34,53 @@ export function useCreateExpenseMutation(groupId: string) {
     mutationFn: (data: CreateExpenseRequest): Promise<ExpenseResponse> => {
       return api.createExpense(groupId, data);
     },
+    // Land the expense in the cached list (and the derived balances) before
+    // the network round-trip resolves, so the UI never waits on the server (#488).
+    onMutate: async (data: CreateExpenseRequest) => {
+      const expensesKey = qk.expenses(groupId);
+      const balancesKey = qk.balances(groupId);
+
+      await Promise.all([
+        qc.cancelQueries({ queryKey: expensesKey }),
+        qc.cancelQueries({ queryKey: balancesKey }),
+      ]);
+
+      const previousExpenses = snapshotExpenseQueries(qc, expensesKey);
+      const previousBalances = qc.getQueryData<BalancesResponse>(balancesKey);
+
+      if (previousBalances) {
+        const payerUserId =
+          data.payerUserId || useAuth.getState().user?.id || "";
+        qc.setQueryData<BalancesResponse>(balancesKey, (old) =>
+          old ? calculateOptimisticBalances(old, data, payerUserId) : old
+        );
+      }
+
+      prependOptimisticExpense(
+        qc,
+        expensesKey,
+        buildOptimisticExpense(groupId, data, useAuth.getState().user)
+      );
+
+      return { previousExpenses, previousBalances };
+    },
+    // Put every touched cache back exactly as it was, then surface the failure.
+    onError: (err, _variables, context) => {
+      if (context?.previousExpenses) {
+        restoreExpenseQueries(qc, context.previousExpenses);
+      }
+      if (context?.previousBalances) {
+        qc.setQueryData(qk.balances(groupId), context.previousBalances);
+      }
+      handleApiError(err, "Failed to create expense");
+    },
     onSuccess: () => {
+      toast.success("Expense created successfully");
+    },
+    onSettled: () => {
       invalidate(expenseCacheKeys(groupId));
       qc.invalidateQueries({ queryKey: qk.activity(groupId) });
       qc.invalidateQueries({ queryKey: qk.history });
-      toast.success("Expense created successfully");
-    },
-    onError: (err) => {
-      handleApiError(err, "Failed to create expense");
     },
   });
 }
@@ -44,11 +95,26 @@ export function useSettleBalanceMutation(groupId: string) {
     },
     onMutate: async (newSettlement) => {
       toast.success("Initiating settlement...");
-      await qc.cancelQueries({ queryKey: expenseCacheKeys(groupId) });
-      const previousQueries = qc.getQueriesData({ queryKey: expenseCacheKeys(groupId) });
+
+      // Match by the group's expense/balance *prefix* — these keys are what
+      // actually prefix `["groups", id, "expenses"]` / `["groups", id,
+      // "balances"]`. `expenseCacheKeys()` returns a mixed list of filters
+      // meant for `invalidate`, and as a `queryKey` it matches nothing.
+      const expensesKey = qk.expenses(groupId);
+      const balancesKey = qk.balances(groupId);
+
+      await Promise.all([
+        qc.cancelQueries({ queryKey: expensesKey }),
+        qc.cancelQueries({ queryKey: balancesKey }),
+      ]);
+
+      const previousQueries = [
+        ...qc.getQueriesData({ queryKey: expensesKey }),
+        ...qc.getQueriesData({ queryKey: balancesKey }),
+      ];
 
       // Optimistically update any expense pages or lists in the cache for this group
-      qc.setQueriesData({ queryKey: expenseCacheKeys(groupId) }, (old: any) => {
+      qc.setQueriesData({ queryKey: expensesKey }, (old: any) => {
         if (!old) return old;
         if (old.pages && Array.isArray(old.pages)) {
           return {
