@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useAuth, getPersistedSession } from "../lib/auth-store";
 import { useWalletStore } from "../lib/wallet-store";
 import { getAddress, isConnected } from "@stellar/freighter-api";
@@ -67,5 +67,13 @@ export function useSessionRestore() {
     void restore();
   }, [restoreStatus, forgetWallet, setRestoreStatus]);
 
-  return { restoreSession: () => setRestoreStatus("idle") };
+  // Stable across renders: the app layout calls this from an effect, and a
+  // fresh closure every render would re-arm that effect on every render —
+  // resetting a settled restore back to "idle" forever.
+  const restoreSession = useCallback(
+    () => setRestoreStatus("idle"),
+    [setRestoreStatus]
+  );
+
+  return { restoreSession };
 }

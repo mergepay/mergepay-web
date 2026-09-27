@@ -122,3 +122,44 @@ export function nextFocusIndex(
   if (shiftKey) return currentIndex === 0 ? count - 1 : null;
   return currentIndex === count - 1 ? 0 : null;
 }
+
+/**
+ * Builds the `focusin` listener that keeps keyboard focus inside an open
+ * dialog.
+ *
+ * Tab handling only constrains the next key press; focus can still leave the
+ * dialog through browser chrome, screen-reader shortcuts or programmatic
+ * `.focus()` calls, and a blind user then has no way back in. This listener
+ * catches those escapes and moves focus straight back into the dialog.
+ *
+ * @param getContainer returns the element that bounds the dialog
+ * @param getFocusable returns the focusable controls inside that element
+ * @param isActive     false while another dialog is stacked on top (or this
+ *                     one is closed), so stacked dialogs never fight over focus
+ */
+export function createFocusContainmentListener(args: {
+  getContainer: () => HTMLElement | null;
+  getFocusable: () => HTMLElement[];
+  isActive: () => boolean;
+}): (event: FocusEvent) => void {
+  return (event) => {
+    if (!args.isActive()) return;
+
+    const container = args.getContainer();
+    // Closed or unmounted dialogs hand focus back to their trigger in their
+    // own cleanup, which can run while this listener is still attached.
+    if (!container || !container.isConnected) return;
+
+    const target = event.target;
+    if (target instanceof Node && container.contains(target)) return;
+
+    const focusable = args.getFocusable();
+    const destination = focusable[0];
+    if (destination) {
+      destination.focus();
+      return;
+    }
+    // Nothing to Tab to — park focus on the dialog itself so it stays inside.
+    container.focus();
+  };
+}

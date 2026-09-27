@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -31,6 +31,7 @@ import {
   NETWORK_PASSPHRASE,
 } from "@/lib/constants";
 import { handleApiError } from "@/lib/errorHandler";
+import { showWalletErrorToast } from "@/lib/walletToasts";
 import { inviteJoinPath } from "@/lib/inviteLink";
 
 /**
@@ -91,7 +92,13 @@ export default function LoginPage() {
     };
   }, [hasFreighter]);
 
+  // Blocks a second click before React re-renders with `loading` set: each
+  // click would open its own Freighter popup (#487).
+  const connectingRef = useRef(false);
+
   async function handleConnect() {
+    if (connectingRef.current) return;
+    connectingRef.current = true;
     setLoading(true);
     try {
       const user = await login();
@@ -106,12 +113,19 @@ export default function LoginPage() {
         // the extension, which takes longer than a toast lives.
         setWalletNetwork(e.walletNetwork);
       } else if (e instanceof WalletError) {
-        // Rich message with an install link — shown instead of plain text.
-        toast.error(e.code === "not_installed" ? <NotInstalledMessage /> : e.message);
+        if (e.code === "not_installed") {
+          // Rich message with an install link — shown instead of plain text.
+          toast.error(<NotInstalledMessage />);
+        } else {
+          // A locked wallet gets its remediation line, so the failure names
+          // the step that fixes it (#487).
+          showWalletErrorToast(e.code, e.message);
+        }
       } else {
         handleApiError(e, "Could not sign in. Please try again.");
       }
     } finally {
+      connectingRef.current = false;
       setLoading(false);
     }
   }

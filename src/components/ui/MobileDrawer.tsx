@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   dialogStack,
+  createFocusContainmentListener,
   FOCUSABLE_SELECTOR,
   pickInitialFocusIndex,
   nextFocusIndex,
@@ -120,15 +121,31 @@ export function MobileDrawer({
     };
   }, [open, onClose, dismissible, getContentFocusable, getAllFocusable, drawerId]);
 
+  // Pull focus back when it escapes the drawer (#481) — Tab only constrains
+  // the next key press, not focus moved by the browser or assistive tech.
+  useEffect(() => {
+    if (!open) return;
+
+    const listener = createFocusContainmentListener({
+      getContainer: () => drawerRef.current,
+      getFocusable: getAllFocusable,
+      isActive: () => dialogStack.isTopmost(drawerId),
+    });
+    document.addEventListener("focusin", listener);
+    return () => {
+      document.removeEventListener("focusin", listener);
+    };
+  }, [open, drawerId, getAllFocusable]);
+
   // Prevent body scroll when drawer is open
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = "";
+      // Restore what was there before, not a blanket reset: a dialog opened
+      // underneath the drawer must not lose its own scroll lock.
+      document.body.style.overflow = previousOverflow;
     };
   }, [open]);
 

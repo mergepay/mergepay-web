@@ -452,12 +452,26 @@ export interface AnchorSession {
   createdAt: string;
 }
 
-export interface AnchorDepositRequest {
+/**
+ * Values a SEP-24 start request can prefill on the anchor's interactive
+ * page. All optional: an anchor collects anything that is missing itself.
+ * Validated client-side by `src/lib/validations/anchor.ts` before submission.
+ */
+export interface AnchorTransferPrefill {
+  /** Transfer amount as a plain decimal string (e.g. "12.5"). */
+  amount?: string;
+  /** Stellar account the anchor should fund (deposit) or pay out (withdrawal). */
+  destination?: string;
+  /** Text memo attached to the transfer (max 28 bytes on Stellar). */
+  memo?: string;
+}
+
+export interface AnchorDepositRequest extends AnchorTransferPrefill {
   assetCode: string;
   anchorName?: string;
 }
 
-export interface AnchorWithdrawRequest {
+export interface AnchorWithdrawRequest extends AnchorTransferPrefill {
   assetCode: string;
   anchorName?: string;
 }

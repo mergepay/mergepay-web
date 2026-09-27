@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "./button";
 import {
   dialogStack,
+  createFocusContainmentListener,
   FOCUSABLE_SELECTOR,
   pickInitialFocusIndex,
   nextFocusIndex,
@@ -43,7 +44,7 @@ export function Dialog({
   // Get focusable elements inside the dialog content (excluding title bar)
   const getFocusable = useCallback(() => {
     if (!dialogRef.current) return [];
-    const content = dialogRef.current.querySelector('[class*="pt-4"]');
+    const content = dialogRef.current.querySelector("[data-dialog-content]");
     if (!content) return [];
     return Array.from(
       content.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
@@ -97,6 +98,14 @@ export function Dialog({
       return () => {
         cancelAnimationFrame(frame);
         dialogStack.remove(dialogId);
+        // Unmounting while open (route change, parent removal) must not
+        // strand focus on a dead element — send it back to the trigger.
+        if (
+          previousActiveElement.current &&
+          typeof previousActiveElement.current.focus === "function"
+        ) {
+          previousActiveElement.current.focus();
+        }
       };
     } else {
       dialogStack.remove(dialogId);
@@ -137,6 +146,36 @@ export function Dialog({
       document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [open, onClose, dismissible, dialogId, getAllFocusable]);
+
+  // Pull focus back whenever it lands outside the dialog (#481). Tab handling
+  // only constrains the next key press; browser chrome, screen-reader
+  // shortcuts and programmatic focus can still walk straight out of the
+  // panel, which strands keyboard-only users behind the backdrop.
+  useEffect(() => {
+    if (!open) return;
+
+    const listener = createFocusContainmentListener({
+      getContainer: () => dialogRef.current,
+      getFocusable: getAllFocusable,
+      isActive: () => dialogStack.isTopmost(dialogId),
+    });
+    document.addEventListener("focusin", listener);
+    return () => {
+      document.removeEventListener("focusin", listener);
+    };
+  }, [open, dialogId, getAllFocusable]);
+
+  // Freeze the page behind the dialog while it is open and put the previous
+  // scroll position back on close, so the background cannot be scrolled out
+  // from under an open modal.
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -185,7 +224,11 @@ export function Dialog({
           </p>
         )}
 
-        <div className="pt-4">{children}</div>
+        {/* `data-dialog-content` marks the body the focus rules use — a class
+            name would silently break the trap on a style change. */}
+        <div className="pt-4" data-dialog-content>
+          {children}
+        </div>
       </div>
     </div>
   );

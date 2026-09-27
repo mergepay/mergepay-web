@@ -24,7 +24,7 @@ import { useWalletScopedCache } from "@/lib/queries";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
 import { WalletStatusPanel } from "./wallet/wallet-status";
 import { shortKey } from "@/lib/format";
-import { FOCUSABLE_SELECTOR, nextFocusIndex } from "@/lib/dialog";
+import { FOCUSABLE_SELECTOR, createFocusContainmentListener, nextFocusIndex } from "@/lib/dialog";
 
 import { HorizonHealthIndicator } from "./HorizonHealthIndicator";
 import { OfflineSyncBanner } from "./OfflineSyncBanner";
@@ -104,6 +104,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       previousFocusRef.current?.focus();
     };
   }, [mobileOpen, getDrawerFocusable]);
+
+  // Tab only constrains the next key press — also catch focus that the
+  // browser or assistive technology moves out of the nav drawer (#481).
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const listener = createFocusContainmentListener({
+      getContainer: () => drawerRef.current,
+      getFocusable: getDrawerFocusable,
+      isActive: () => true,
+    });
+    document.addEventListener("focusin", listener);
+    return () => {
+      document.removeEventListener("focusin", listener);
+    };
+  }, [mobileOpen, getDrawerFocusable]);
+
+  // Lock the page behind the nav drawer and restore the previous value.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileOpen]);
 
   // Group content must never survive a switch to a different wallet.
   useWalletScopedCache();

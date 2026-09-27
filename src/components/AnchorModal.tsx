@@ -20,8 +20,17 @@ import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AssetBadge } from "@/components/asset-badge";
+import {
+  AnchorTransferFields,
+  EMPTY_ANCHOR_TRANSFER_VALUES,
+  type AnchorTransferValues,
+} from "@/components/anchors/AnchorTransferFields";
 import { useAnchorInfo, findAnchorForAsset, anchorSupportsAsset } from "@/lib/anchorInfo";
 import { api } from "@/lib/api";
+import {
+  anchorTransferFieldErrors,
+  buildAnchorTransferPayload,
+} from "@/lib/validations/anchor";
 import type { AnchorSession, AnchorSessionKind } from "@/lib/types";
 
 export interface AnchorModalProps {
@@ -50,6 +59,9 @@ export function AnchorModal({
   const { anchors, isLoading, isError, refetch } = useAnchorInfo(assetCode);
   const [starting, setStarting] = useState(false);
   const [selectedAnchor, setSelectedAnchor] = useState<string | null>(null);
+  const [transfer, setTransfer] = useState<AnchorTransferValues>(
+    EMPTY_ANCHOR_TRANSFER_VALUES
+  );
 
   // useAnchorInfo already narrows the catalogue to anchors supporting the
   // requested asset; the memo keeps a stable reference for the picker list.
@@ -64,11 +76,35 @@ export function AnchorModal({
     [matchingAnchors, assetCode, selectedAnchor, preferredAnchorName]
   );
 
+  // The Start button and the request share one schema, so an amount or
+  // destination that would be rejected is also one that cannot be submitted.
+  const transferErrors = useMemo(
+    () =>
+      anchorTransferFieldErrors({
+        kind,
+        assetCode,
+        anchorName: chosenAnchor?.name ?? "",
+        amount: transfer.amount,
+        destination: transfer.destination,
+        memo: transfer.memo,
+      }),
+    [kind, assetCode, chosenAnchor, transfer]
+  );
+  const transferInvalid = Boolean(
+    transferErrors.amount || transferErrors.destination || transferErrors.memo
+  );
+
   async function handleStart() {
-    if (!chosenAnchor) return;
+    if (!chosenAnchor || transferInvalid) return;
     setStarting(true);
     try {
-      const payload = { assetCode, anchorName: chosenAnchor.name };
+      const payload = buildAnchorTransferPayload({
+        assetCode,
+        anchorName: chosenAnchor.name,
+        amount: transfer.amount,
+        destination: transfer.destination,
+        memo: transfer.memo,
+      });
       const response =
         kind === "deposit"
           ? await api.anchorDeposit(payload)
@@ -196,6 +232,15 @@ export function AnchorModal({
           </div>
         )}
 
+        {/* Optional prefill — validated before the session is created (#490) */}
+        <AnchorTransferFields
+          kind={kind}
+          assetCode={assetCode}
+          values={transfer}
+          errors={transferErrors}
+          onChange={setTransfer}
+        />
+
         {/* Footer actions */}
         <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={onClose} disabled={starting}>
@@ -203,7 +248,7 @@ export function AnchorModal({
           </Button>
           <Button
             onClick={() => void handleStart()}
-            disabled={!chosenAnchor || starting}
+            disabled={!chosenAnchor || starting || transferInvalid}
             loading={starting}
           >
             {starting ? (

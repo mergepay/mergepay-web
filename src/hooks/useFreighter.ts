@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   assertWalletNetwork,
@@ -10,6 +10,7 @@ import {
   type WalletErrorCode,
 } from "@/lib/stellar";
 import { EXPECTED_NETWORK_LABEL } from "@/lib/constants";
+import { showWalletErrorToast } from "@/lib/walletToasts";
 
 export interface UseFreighterOptions {
   maxRetries?: number;
@@ -37,13 +38,38 @@ function networkMismatchToastMessage(walletNetwork: string): string {
 const NON_RETRYABLE_CODES: readonly WalletErrorCode[] = [
   "user_rejected",
   "not_installed",
+  // A locked wallet stays locked until the user types their password in the
+  // extension; waiting out three retries only delays the message that says so.
+  "locked",
   "network_mismatch",
 ];
+
+/**
+ * State machine for the wallet interaction: one value rather than several
+ * booleans, so the UI can never render an impossible combination (retrying
+ * *and* idle, for example) and a connect button can disable itself for
+ * every state except `idle`.
+ *
+ * - `idle`       — nothing attempted yet, or `resetError()` cleared the last
+ *                  failure.
+ * - `connecting` — a request is pending in Freighter.
+ * - `retrying`   — a transient failure is being retried.
+ * - `connected`  — the last interaction succeeded.
+ * - `error`      — the last interaction failed; `errorCode` says why.
+ */
+export type FreighterStatus =
+  | "idle"
+  | "connecting"
+  | "retrying"
+  | "connected"
+  | "error";
 
 export interface UseFreighterResult {
   isConnecting: boolean;
   isRetrying: boolean;
   retryCount: number;
+  /** Connection state machine — drives disabled/loading connect controls. */
+  status: FreighterStatus;
   error: string | null;
   errorCode: WalletErrorCode | null;
   connectWithRetry: (options?: UseFreighterOptions) => Promise<string>;
@@ -58,16 +84,22 @@ export function useFreighter(): UseFreighterResult {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [status, setStatus] = useState<FreighterStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<WalletErrorCode | null>(null);
+  // The in-flight connection promise, shared by every caller so a second
+  // click joins the pending request instead of opening another Freighter
+  // popup behind the first one.
+  const connectionRef = useRef<Promise<string> | null>(null);
 
   const resetError = useCallback(() => {
     setError(null);
     setErrorCode(null);
+    setStatus("idle");
   }, []);
 
-  const connectWithRetry = useCallback(
-    async (options: UseFreighterOptions = {}): Promise<string> => {
+  const runConnect = useCallback(
+    async (options: UseFreighterOptions): Promise<string> => {
       const {
         maxRetries = 3,
         retryDelayMs = 1000,
@@ -75,6 +107,7 @@ export function useFreighter(): UseFreighterResult {
         validateNetwork = true,
       } = options;
       setIsConnecting(true);
+      setStatus("connecting");
       setError(null);
       setErrorCode(null);
 
@@ -83,6 +116,7 @@ export function useFreighter(): UseFreighterResult {
         try {
           if (attempt > 0) {
             setIsRetrying(true);
+            setStatus("retrying");
             setRetryCount(attempt);
             await new Promise((res) => setTimeout(res, retryDelayMs * Math.pow(1.5, attempt - 1)));
           }
@@ -96,6 +130,7 @@ export function useFreighter(): UseFreighterResult {
           setIsConnecting(false);
           setIsRetrying(false);
           setRetryCount(0);
+          setStatus("connected");
           return publicKey;
         } catch (err) {
           attempt++;
@@ -110,14 +145,16 @@ export function useFreighter(): UseFreighterResult {
             userMessage = err.message;
           }
 
-          // User cancellation, a missing extension, or a network mismatch
-          // can't be fixed by trying again — the retry loop would only burn
-          // time and hide the real problem behind a generic failure.
+          // User cancellation, a locked wallet, a missing extension, or a
+          // network mismatch can't be fixed by trying again — the retry loop
+          // would only burn time and hide the real problem behind a generic
+          // failure.
           const isNonRetryable = NON_RETRYABLE_CODES.includes(errCode);
 
           if (isNonRetryable || attempt > maxRetries) {
             setIsConnecting(false);
             setIsRetrying(false);
+            setStatus("error");
             setError(userMessage);
             setErrorCode(errCode);
 
@@ -128,7 +165,9 @@ export function useFreighter(): UseFreighterResult {
                   duration: 10_000,
                 });
               } else {
-                toast.error(userMessage);
+                // Adds the remediation line ("Please unlock Freighter and try
+                // again.") for locked and missing-extension failures.
+                showWalletErrorToast(errCode, userMessage);
               }
             }
             throw err;
@@ -138,11 +177,31 @@ export function useFreighter(): UseFreighterResult {
 
       setIsConnecting(false);
       setIsRetrying(false);
+      setStatus("error");
       const fallbackErr = new WalletError("Failed to connect after retries.", "network");
       if (showToasts) toast.error(fallbackErr.message);
       throw fallbackErr;
     },
     []
+  );
+
+  const connectWithRetry = useCallback(
+    (options: UseFreighterOptions = {}): Promise<string> => {
+      // A second click while the first request is pending joins it rather
+      // than opening another Freighter popup (and another) behind it.
+      if (connectionRef.current) return connectionRef.current;
+
+      const pending = runConnect(options);
+      connectionRef.current = pending;
+      const settle = () => {
+        if (connectionRef.current === pending) connectionRef.current = null;
+      };
+      // Handlers rather than `finally` so the derived promise never
+      // rejects unhandled; the caller still gets the original rejection.
+      void pending.then(settle, settle);
+      return pending;
+    },
+    [runConnect]
   );
 
   const executeWalletAction = useCallback(
@@ -160,6 +219,7 @@ export function useFreighter(): UseFreighterResult {
       } = options;
 
       setIsConnecting(true);
+      setStatus("connecting");
       setError(null);
       setErrorCode(null);
 
@@ -168,6 +228,7 @@ export function useFreighter(): UseFreighterResult {
         try {
           if (attempt > 0) {
             setIsRetrying(true);
+            setStatus("retrying");
             setRetryCount(attempt);
             await new Promise((res) => setTimeout(res, retryDelayMs));
           }
@@ -182,6 +243,7 @@ export function useFreighter(): UseFreighterResult {
           setIsConnecting(false);
           setIsRetrying(false);
           setRetryCount(0);
+          setStatus("connected");
 
           if (showToasts && successMessage) {
             toast.success(successMessage);
@@ -205,6 +267,7 @@ export function useFreighter(): UseFreighterResult {
           if (isNonRetryable || attempt > maxRetries) {
             setIsConnecting(false);
             setIsRetrying(false);
+            setStatus("error");
             setError(message);
             setErrorCode(errCode);
 
@@ -215,7 +278,7 @@ export function useFreighter(): UseFreighterResult {
                   duration: 10_000,
                 });
               } else {
-                toast.error(message);
+                showWalletErrorToast(errCode, message);
               }
             }
             throw err;
@@ -225,6 +288,7 @@ export function useFreighter(): UseFreighterResult {
 
       setIsConnecting(false);
       setIsRetrying(false);
+      setStatus("error");
       throw new WalletError("Operation failed after retries.", "unknown");
     },
     []
@@ -234,6 +298,7 @@ export function useFreighter(): UseFreighterResult {
     isConnecting,
     isRetrying,
     retryCount,
+    status,
     error,
     errorCode,
     connectWithRetry,
