@@ -109,6 +109,9 @@ export function LedgerPanel({ groupId }: { groupId: string }) {
                       <MemoBadge memo={entry.settlement.memo} compact />
                     )}
                     <SettlementStatusBadge status={entry.settlement.status} />
+                    {/* Show the on-chain memo alongside the tx hash so a
+                        ledger entry can be reconciled with its expense. */}
+                    <MemoBadge memo={entry.settlement.memo} />
                     {entry.settlement.stellarTxHash && (
                       <TxLink hash={entry.settlement.stellarTxHash} />
                     )}
