@@ -1,7 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildTreasuryDistribution, splitTrustlineState } from "../treasury";
-import type { TreasuryBalance } from "../types";
+import {
+  aggregateMemberContributions,
+  buildTreasuryDistribution,
+  isConfirmedTreasuryTx,
+  splitTrustlineState,
+  subtractDecimal,
+} from "../treasury";
+import type { TreasuryBalance, TreasuryTransaction } from "../types";
 
 function balance(overrides: Partial<TreasuryBalance> = {}): TreasuryBalance {
   return {
@@ -160,5 +166,124 @@ describe("splitTrustlineState", () => {
     const result = splitTrustlineState(["XLM", "USDC"], []);
     assert.deepEqual(result.funded, []);
     assert.deepEqual(result.missing, ["XLM", "USDC"]);
+  });
+});
+
+describe("subtractDecimal", () => {
+  it("subtracts without floating-point drift", () => {
+    assert.equal(subtractDecimal("0.3", "0.1"), "0.2");
+  });
+
+  it("can go negative", () => {
+    assert.equal(subtractDecimal("5", "12.5"), "-7.5");
+  });
+
+  it("normalises trailing fractional zeros", () => {
+    assert.equal(subtractDecimal("1.5000000", "1.5"), "0");
+  });
+});
+
+describe("aggregateMemberContributions", () => {
+  function tx(
+    overrides: Partial<TreasuryTransaction> = {}
+  ): TreasuryTransaction {
+    return {
+      id: "tx-1",
+      groupId: "grp-1",
+      userId: "u1",
+      user: {
+        id: "u1",
+        stellarPublicKey: "GAAA",
+        displayName: "Ada",
+        avatarUrl: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      direction: "deposit",
+      amount: "10",
+      assetCode: "XLM",
+      assetIssuer: null,
+      destination: null,
+      stellarTxHash: null,
+      status: "confirmed",
+      memo: null,
+      createdAt: "2026-01-02T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  it("nets deposits against withdrawals per asset", () => {
+    const rows = aggregateMemberContributions([
+      tx({ id: "a", amount: "10", direction: "deposit" }),
+      tx({ id: "b", amount: "4", direction: "withdrawal" }),
+    ]);
+
+    assert.equal(rows.length, 1);
+    const [ada] = rows;
+    assert.equal(ada.userName, "Ada");
+    assert.equal(ada.transactionCount, 2);
+    assert.equal(ada.assets.length, 1);
+    assert.equal(ada.assets[0].deposited, "10");
+    assert.equal(ada.assets[0].withdrawn, "4");
+    assert.equal(ada.assets[0].net, "6");
+  });
+
+  it("keeps different assets separate per member", () => {
+    const rows = aggregateMemberContributions([
+      tx({ id: "a", assetCode: "XLM", amount: "10" }),
+      tx({
+        id: "b",
+        assetCode: "USDC",
+        assetIssuer: "GISSUER",
+        amount: "25",
+      }),
+    ]);
+
+    const ada = rows[0];
+    assert.equal(ada.assets.length, 2);
+    assert.equal(
+      ada.assets.find((a) => a.assetCode === "USDC")?.net,
+      "25"
+    );
+  });
+
+  it("ignores unconfirmed and failed transactions", () => {
+    const rows = aggregateMemberContributions([
+      tx({ id: "a", amount: "10", status: "confirmed" }),
+      tx({ id: "b", amount: "99", status: "pending" }),
+      tx({ id: "c", amount: "99", status: "awaiting_signatures" }),
+      tx({ id: "d", amount: "99", status: "failed" }),
+    ]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].transactionCount, 1);
+    assert.equal(rows[0].assets[0].deposited, "10");
+  });
+
+  it("skips transactions with no author or a non-positive amount", () => {
+    const rows = aggregateMemberContributions([
+      tx({ id: "a", userId: null, user: null }),
+      tx({ id: "b", amount: "0" }),
+      tx({ id: "c", amount: "-5" }),
+    ]);
+    assert.deepEqual(rows, []);
+  });
+
+  it("orders members by activity and assets by net", () => {
+    const rows = aggregateMemberContributions([
+      tx({ id: "a", userId: "u1", user: { ...tx().user!, displayName: "Ada" }, amount: "5" }),
+      tx({ id: "b", userId: "u2", user: { ...tx().user!, id: "u2", displayName: "Bo" }, amount: "8" }),
+      tx({ id: "c", userId: "u2", user: { ...tx().user!, id: "u2", displayName: "Bo" }, amount: "1" }),
+    ]);
+    assert.equal(rows[0].userName, "Bo");
+    assert.equal(rows[1].userName, "Ada");
+  });
+
+  it("handles an empty / missing history", () => {
+    assert.deepEqual(aggregateMemberContributions([]), []);
+    assert.deepEqual(aggregateMemberContributions(undefined), []);
+  });
+
+  it("only treats confirmed as settled", () => {
+    assert.equal(isConfirmedTreasuryTx(tx({ status: "confirmed" })), true);
+    assert.equal(isConfirmedTreasuryTx(tx({ status: "submitted" })), false);
   });
 });

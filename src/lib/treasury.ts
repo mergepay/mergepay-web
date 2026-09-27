@@ -1,4 +1,4 @@
-import type { TreasuryBalance } from "./types";
+import type { TreasuryBalance, TreasuryTransaction } from "./types";
 
 /**
  * Pure aggregation helpers for the treasury widget (#392).
@@ -279,4 +279,157 @@ export function splitTrustlineState(
   }
   const missing = expected.filter((code) => !funded.has(code));
   return { funded: expected.filter((code) => funded.has(code)), missing };
+}
+
+// ---------------------------------------------------------------------------
+// Member contributions (#376)
+// ---------------------------------------------------------------------------
+
+/**
+ * Subtract two decimal strings exactly (`a - b`), returning a plain decimal
+ * string with trailing fractional zeros removed. Unlike {@link addDecimal}
+ * this understands a leading minus, so a net contribution can go negative
+ * when a member has withdrawn more than they put in.
+ */
+export function subtractDecimal(a: string, b: string): string {
+  const scaled = (value: string): bigint => {
+    const raw = (value || "0").trim();
+    const negative = raw.startsWith("-");
+    const body = negative ? raw.slice(1) : raw;
+    const [i = "0", f = ""] = body.split(".");
+    const magnitude =
+      BigInt(i || "0") * 10n ** BigInt(DECIMAL_SCALE) +
+      BigInt(f.padEnd(DECIMAL_SCALE, "0") || "0");
+    return negative ? -magnitude : magnitude;
+  };
+
+  const diff = scaled(a) - scaled(b);
+  const negative = diff < 0n;
+  const abs = negative ? -diff : diff;
+  const str = abs.toString().padStart(DECIMAL_SCALE + 1, "0");
+  const int = str.slice(0, str.length - DECIMAL_SCALE) || "0";
+  const frac = str.slice(str.length - DECIMAL_SCALE).replace(/0+$/, "");
+  const plain = frac ? `${int}.${frac}` : int;
+  return negative ? `-${plain}` : plain;
+}
+
+/** One member's net movement of a single asset through the treasury. */
+export interface MemberAssetContribution {
+  assetCode: string;
+  assetIssuer: string | null;
+  /** Confirmed deposits, as a decimal string. */
+  deposited: string;
+  /** Confirmed withdrawals, as a decimal string. */
+  withdrawn: string;
+  /** `deposited - withdrawn`; negative when they took out more than they put in. */
+  net: string;
+}
+
+/** A group member's confirmed treasury activity, aggregated per asset. */
+export interface MemberContribution {
+  userId: string;
+  userName: string;
+  avatarUrl: string | null;
+  /** Public key, for the avatar's deterministic colour. */
+  stellarPublicKey: string;
+  /** One row per asset the member moved, largest net first. */
+  assets: MemberAssetContribution[];
+  /** Confirmed transactions this member authored. */
+  transactionCount: number;
+}
+
+/**
+ * Whether a treasury transaction is settled enough to count toward totals.
+ * A deposit or withdrawal that is still pending, awaiting signatures, merely
+ * submitted, or failed is excluded so member totals never overstate funds.
+ */
+export function isConfirmedTreasuryTx(tx: TreasuryTransaction): boolean {
+  return tx?.status === "confirmed";
+}
+
+/**
+ * Aggregate a treasury's transaction history into per-member, per-asset
+ * contributions — the "who funded the shared pot" view.
+ *
+ * Only confirmed transactions with a positive amount and a known author are
+ * counted. Member rows are ordered by transaction count (most active first),
+ * then name; assets within a row by net contribution descending. Pure, so it
+ * is trivially unit-testable.
+ */
+export function aggregateMemberContributions(
+  transactions: readonly TreasuryTransaction[] = []
+): MemberContribution[] {
+  const byUser = new Map<
+    string,
+    {
+      userId: string;
+      userName: string;
+      avatarUrl: string | null;
+      stellarPublicKey: string;
+      count: number;
+      assets: Map<
+        string,
+        { code: string; issuer: string | null; deposited: string; withdrawn: string }
+      >;
+    }
+  >();
+
+  for (const tx of transactions ?? []) {
+    if (!tx || !tx.userId) continue;
+    if (!isConfirmedTreasuryTx(tx)) continue;
+    const amount = tx.amount ?? "0";
+    if (compareDecimal(amount, "0") <= 0) continue;
+
+    const entry = byUser.get(tx.userId) ?? {
+      userId: tx.userId,
+      userName: tx.user?.displayName ?? "Unknown member",
+      avatarUrl: tx.user?.avatarUrl ?? null,
+      stellarPublicKey: tx.user?.stellarPublicKey ?? tx.userId,
+      count: 0,
+      assets: new Map(),
+    };
+    entry.count += 1;
+    // Prefer a real display name / key once one shows up in the history.
+    if (tx.user?.displayName) entry.userName = tx.user.displayName;
+    if (tx.user?.stellarPublicKey) entry.stellarPublicKey = tx.user.stellarPublicKey;
+    if (tx.user?.avatarUrl) entry.avatarUrl = tx.user.avatarUrl;
+
+    const key = `${tx.assetCode}:${tx.assetIssuer ?? ""}`;
+    const asset = entry.assets.get(key) ?? {
+      code: tx.assetCode,
+      issuer: tx.assetIssuer ?? null,
+      deposited: "0",
+      withdrawn: "0",
+    };
+    if (tx.direction === "withdrawal") {
+      asset.withdrawn = addDecimal(asset.withdrawn, amount);
+    } else {
+      asset.deposited = addDecimal(asset.deposited, amount);
+    }
+    entry.assets.set(key, asset);
+    byUser.set(tx.userId, entry);
+  }
+
+  return [...byUser.values()]
+    .map((entry) => ({
+      userId: entry.userId,
+      userName: entry.userName,
+      avatarUrl: entry.avatarUrl,
+      stellarPublicKey: entry.stellarPublicKey,
+      transactionCount: entry.count,
+      assets: [...entry.assets.values()]
+        .map((a) => ({
+          assetCode: a.code,
+          assetIssuer: a.issuer,
+          deposited: a.deposited,
+          withdrawn: a.withdrawn,
+          net: subtractDecimal(a.deposited, a.withdrawn),
+        }))
+        .sort((x, y) => compareDecimal(y.net, x.net)),
+    }))
+    .sort(
+      (a, b) =>
+        b.transactionCount - a.transactionCount ||
+        a.userName.localeCompare(b.userName)
+    );
 }
