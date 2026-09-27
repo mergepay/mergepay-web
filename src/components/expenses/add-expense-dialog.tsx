@@ -257,6 +257,10 @@ export function AddExpenseDialog({
       return;
     }
 
+    if (submitBlocked) {
+      return;
+    }
+
     try {
       setSubmitting(true);
       await create.mutateAsync({

@@ -75,6 +75,16 @@ describe("expenseFormSchema — valid submissions", () => {
   });
 });
 
+describe("expenseFormSchema — amount validation & precision", () => {
+  it("rejects negative amounts", () => {
+    expect(firstMessage(parse({ amount: "-10" }))).toMatch(/plain number/);
+  });
+
+  it("rejects excessive decimal precision beyond 7 places", () => {
+    expect(firstMessage(parse({ amount: "1.12345678" }))).toMatch(/at most 7 decimal places/);
+  });
+});
+
 describe("expenseFormSchema — amount", () => {
   it("requires an amount", () => {
     expect(firstMessage(parse({ amount: "" }))).toBe("Amount is required");
@@ -184,6 +194,12 @@ describe("expenseFormSchema — description", () => {
   it("rejects control characters", () => {
     expect(parse({ description: "bad\u0000memo" }).success).toBe(false);
     expect(parse({ description: "line\nbreak" }).success).toBe(false);
+  });
+});
+
+describe("expenseFormSchema — description length", () => {
+  it("rejects descriptions exceeding 500 characters", () => {
+    expect(firstMessage(parse({ description: "A".repeat(501) }))).toMatch(/500 characters or fewer/);
   });
 });
 
