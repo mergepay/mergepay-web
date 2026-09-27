@@ -18,7 +18,7 @@ import { ExpenseCard } from "@/components/expenses/expense-card";
 import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { ExportGroupStatementButton } from "@/components/ExportGroupStatementButton";
-import { GroupExportButton } from "@/components/groups/GroupExportButton";
+import { GroupExportMenu } from "@/components/groups/GroupExportMenu";
 import { TreasuryView } from "@/components/treasury/TreasuryView";
 import { ExpenseListFilters, type ExpenseFilterState } from "@/components/expenses/expense-list-filters";
 import { ListSkeleton, GroupHeaderSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
@@ -86,14 +86,14 @@ export default function GroupDetailPage() {
       settlementsQuery.refetch();
     }}>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Link href="/dashboard">
             <Button variant="ghost" size="sm">
               <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
             </Button>
           </Link>
-          <div className="flex items-center gap-2">
-            <GroupExportButton groupId={groupId} expenses={expenses} settlements={settlements} />
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupExportMenu groupId={groupId} groupName={group?.name} expenses={expenses} settlements={settlements} />
             <ExportGroupStatementButton groupId={groupId} expenses={expenses} settlements={settlements} />
             <Button variant="outline" onClick={() => setInviteOpen(true)}>
               <Users className="h-4 w-4 mr-1" /> Invite

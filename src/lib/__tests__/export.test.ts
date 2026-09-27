@@ -16,6 +16,17 @@ import {
   matchesExportDateRange,
   matchesExportStatus,
 } from "../utils";
+import {
+  buildHistoryExportFilename,
+  buildHistoryRecords,
+  downloadTextFile,
+  expenseSettlementState,
+  formatHistoryDate,
+  hasExportableHistory,
+  historyToCsv,
+  historyToJson,
+  slugifyForFilename,
+} from "../utils/export";
 import type {
   Expense,
   ExpenseShare,
@@ -571,3 +582,173 @@ function countCsvColumns(row: string): number {
   }
   return count + 1;
 }
+
+// ---------------------------------------------------------------------------
+// Group history export — CSV / JSON (issue #355)
+// ---------------------------------------------------------------------------
+
+function historyShare(status: ShareStatus, overrides: Partial<ExpenseShare> = {}): ExpenseShare {
+  return {
+    id: `share-${status}`,
+    expenseId: "exp-1",
+    userId: "user-b",
+    user: user({ id: "user-b", displayName: "Grace" }),
+    shareAmount: "50.0000000",
+    status,
+    ...overrides,
+  };
+}
+
+/** Parse CSV text produced by `historyToCsv` (handles quoted fields). */
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  const body = text.replace(/^\uFEFF/, "");
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (quoted) {
+      if (ch === '"' && body[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\r" && body[i + 1] === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; i++; }
+    else cell += ch;
+  }
+  return rows;
+}
+
+describe("formatHistoryDate", () => {
+  it("formats instants with date-fns and an explicit UTC offset", () => {
+    assert.match(formatHistoryDate("2024-05-01T12:00:00.000Z"), /^2024-05-01 \d{2}:00:00 [+-]\d{2}:\d{2}$/);
+  });
+
+  it("keeps date-only values on their calendar day", () => {
+    assert.equal(formatHistoryDate("2024-05-01"), "2024-05-01");
+  });
+
+  it("returns an empty string for missing or invalid dates", () => {
+    assert.equal(formatHistoryDate(null), "");
+    assert.equal(formatHistoryDate("not a date"), "");
+  });
+});
+
+describe("expenseSettlementState", () => {
+  it("is pending with no shares", () => {
+    assert.equal(expenseSettlementState(expense()), "pending");
+  });
+
+  it("distinguishes settled, partially settled and pending", () => {
+    assert.equal(expenseSettlementState(expense({ shares: [historyShare("settled"), historyShare("settled")] })), "settled");
+    assert.equal(expenseSettlementState(expense({ shares: [historyShare("settled"), historyShare("pending")] })), "partially_settled");
+    assert.equal(expenseSettlementState(expense({ shares: [historyShare("pending"), historyShare("settling")] })), "pending");
+  });
+});
+
+describe("hasExportableHistory", () => {
+  it("is false only when both lists are empty", () => {
+    assert.equal(hasExportableHistory([], []), false);
+    assert.equal(hasExportableHistory([expense()], []), true);
+    assert.equal(hasExportableHistory([], [settlement()]), true);
+  });
+});
+
+describe("buildHistoryRecords", () => {
+  it("merges expenses and settlements oldest first", () => {
+    const records = buildHistoryRecords(
+      [expense({ id: "late", createdAt: "2024-05-03T00:00:00Z" })],
+      [settlement({ id: "early", createdAt: "2024-05-02T00:00:00Z" })]
+    );
+    assert.deepEqual(records.map((r) => r.id), ["early", "late"]);
+    assert.equal(records[0].description, "Ada paid Grace");
+  });
+});
+
+describe("historyToCsv", () => {
+  it("emits only the header row for an empty history", () => {
+    const rows = parseCsv(historyToCsv([], []));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0][0], "Type");
+  });
+
+  it("starts with a UTF-8 BOM and uses CRLF line endings", () => {
+    const csv = historyToCsv([expense()], []);
+    assert.equal(csv.charCodeAt(0), 0xfeff);
+    assert.ok(csv.endsWith("\r\n"));
+  });
+
+  it("serializes expenses and settlements into aligned columns", () => {
+    const rows = parseCsv(
+      historyToCsv(
+        [expense({ shares: [historyShare("settled")], memo: "MP:dinner-1" })],
+        [settlement()]
+      )
+    );
+    const [header, first, second] = rows;
+    const col = (name: string) => header.indexOf(name);
+    assert.equal(rows.length, 3);
+    assert.ok(rows.every((r) => r.length === header.length));
+    assert.equal(first[col("Type")], "expense");
+    assert.equal(first[col("Amount")], "100.0000000");
+    assert.equal(first[col("Status")], "settled");
+    assert.equal(first[col("Participants")], "Grace: 50.0000000 (settled)");
+    assert.equal(first[col("Memo")], "MP:dinner-1");
+    assert.equal(second[col("Type")], "settlement");
+    assert.equal(second[col("Stellar Tx Hash")], VALID_HASH);
+  });
+
+  it("quotes commas and neutralizes spreadsheet formulas", () => {
+    const rows = parseCsv(historyToCsv([expense({ title: "=HYPERLINK(\"x\"), lunch" })], []));
+    const description = rows[1][rows[0].indexOf("Description")];
+    assert.equal(description, "'=HYPERLINK(\"x\"), lunch");
+  });
+});
+
+describe("historyToJson", () => {
+  it("produces parseable JSON with group metadata and per-share detail", () => {
+    const json = historyToJson([expense({ shares: [historyShare("pending")] })], [settlement()], {
+      groupId: "grp-1",
+      groupName: "Lagos Trip",
+      exportedAt: new Date(2024, 4, 2, 9, 30, 0),
+    });
+    const data = JSON.parse(json);
+    assert.equal(data.schemaVersion, 1);
+    assert.deepEqual(data.group, { id: "grp-1", name: "Lagos Trip" });
+    assert.match(data.exportedAt, /^2024-05-02 09:30:00 [+-]\d{2}:\d{2}$/);
+    assert.deepEqual(data.totals, { expenses: 1, settlements: 1 });
+    assert.equal(data.expenses[0].createdAt, "2024-05-01T12:00:00.000Z");
+    assert.equal(data.expenses[0].shares[0].amount, "50.0000000");
+    assert.equal(data.expenses[0].status, "pending");
+    assert.equal(data.settlements[0].stellarTxHash, VALID_HASH);
+  });
+
+  it("handles an empty history", () => {
+    const data = JSON.parse(historyToJson([], [], { groupId: "grp-1" }));
+    assert.deepEqual(data.expenses, []);
+    assert.deepEqual(data.settlements, []);
+    assert.equal(data.group.name, null);
+  });
+});
+
+describe("buildHistoryExportFilename", () => {
+  const now = new Date(2026, 8, 27, 13, 45, 7);
+
+  it("names files with a slug and a local timestamp", () => {
+    assert.equal(buildHistoryExportFilename("Lagos Trip 2026!", "csv", now), "mergepay-lagos-trip-2026-history-20260927-134507.csv");
+    assert.equal(buildHistoryExportFilename("grp-1", "json", now), "mergepay-grp-1-history-20260927-134507.json");
+  });
+
+  it("falls back to 'group' when the name has no safe characters", () => {
+    assert.equal(slugifyForFilename("🍕🍕"), "group");
+    assert.equal(slugifyForFilename(undefined), "group");
+    assert.equal(slugifyForFilename("Café Crème"), "cafe-creme");
+  });
+});
+
+describe("downloadTextFile", () => {
+  it("is a no-op outside the browser", () => {
+    assert.equal(downloadTextFile("a,b", "x.csv", "text/csv"), false);
+  });
+});
