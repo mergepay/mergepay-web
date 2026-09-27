@@ -252,3 +252,212 @@ export function splitByCustom(
     amount: fromStroops(toStroops(s.amount)),
   }));
 }
+
+// ---------------------------------------------------------------------------
+// Split calculator (issue #353)
+//
+// Drives the live summary in `SplitCalculator`: given the expense total and
+// the raw strings a user typed for each participant, work out each share in
+// stroops, how much of the total is still unallocated, and whether the split
+// balances. Percentages are carried as integer basis points (1% = 100 bp) so
+// "33.33 + 33.33 + 33.34" is compared exactly, never as a float.
+// ---------------------------------------------------------------------------
+
+export type SplitMode = "equal" | "custom" | "percentage";
+
+/** 100% expressed in basis points. */
+export const FULL_PERCENT_BP = 10_000;
+
+export interface SplitRowInput {
+  userId: string;
+  /** Exact amount typed for `custom` mode. */
+  amount?: string;
+  /** Percentage typed for `percentage` mode (0–100, up to 2 decimals). */
+  percent?: string;
+}
+
+export type SplitBalance = "balanced" | "under" | "over" | "invalid";
+
+export interface SplitCalculationRow {
+  userId: string;
+  /** Share in stroops, `null` when this row's input is not a valid number. */
+  stroops: bigint | null;
+  /** 7-decimal share, `null` when `stroops` is `null`. */
+  amount: string | null;
+  /** Row percentage in basis points, `null` when not derivable. */
+  basisPoints: number | null;
+}
+
+export interface SplitCalculation {
+  mode: SplitMode;
+  /** Expense total in stroops, `null` while the amount is empty or invalid. */
+  totalStroops: bigint | null;
+  rows: SplitCalculationRow[];
+  allocatedStroops: bigint;
+  /** `total − allocated`: positive means under-allocated, negative over. */
+  remainingStroops: bigint;
+  /** Sum of row percentages (percentage mode only). */
+  percentTotalBp: number | null;
+  /** Indices whose input could not be parsed. */
+  invalidRows: number[];
+  balance: SplitBalance;
+}
+
+const PLAIN_AMOUNT = /^\d+(?:\.\d{1,7})?$/;
+const PLAIN_PERCENT = /^\d{1,3}(?:\.\d{1,2})?$/;
+
+/** Parse a user-typed amount into stroops; `null` for empty or malformed input. */
+export function parseAmountStroops(value: string | undefined | null): bigint | null {
+  const trimmed = (value ?? "").trim();
+  if (!PLAIN_AMOUNT.test(trimmed)) return null;
+  return toStroops(trimmed);
+}
+
+/**
+ * Parse a percentage ("33.33") into integer basis points (3333).
+ * Returns `null` for empty input, more than 2 decimals, or values above 100.
+ */
+export function parsePercentBasisPoints(value: string | undefined | null): number | null {
+  const trimmed = (value ?? "").trim();
+  if (!PLAIN_PERCENT.test(trimmed)) return null;
+  const [int, frac = ""] = trimmed.split(".");
+  const bp = Number(int) * 100 + Number(frac.padEnd(2, "0"));
+  return bp <= FULL_PERCENT_BP ? bp : null;
+}
+
+/** Render basis points as a percentage string, trailing zeros dropped (3333 → "33.33"). */
+export function formatBasisPoints(bp: number): string {
+  const sign = bp < 0 ? "-" : "";
+  const abs = Math.abs(bp);
+  const int = Math.floor(abs / 100);
+  const frac = String(abs % 100).padStart(2, "0").replace(/0+$/, "");
+  return frac ? `${sign}${int}.${frac}` : `${sign}${int}`;
+}
+
+function balanceOf(remaining: bigint): SplitBalance {
+  if (remaining === BigInt(0)) return "balanced";
+  return remaining > BigInt(0) ? "under" : "over";
+}
+
+/**
+ * Compute a live split summary.
+ *
+ *  - `equal`: largest-remainder split of the total, always balanced.
+ *  - `custom`: each typed amount is taken verbatim; the gap to the total is
+ *    reported in `remainingStroops`.
+ *  - `percentage`: rows are compared in basis points. When they add up to
+ *    exactly 100% the amounts come from the largest-remainder method, so the
+ *    shares sum to the total to the stroop. Otherwise each row is floored so
+ *    the preview still shows what the typed percentages would produce.
+ */
+export function calculateSplit(
+  mode: SplitMode,
+  totalAmount: string,
+  rows: SplitRowInput[]
+): SplitCalculation {
+  const zero = BigInt(0);
+  const totalStroops = parseAmountStroops(totalAmount);
+  const total = totalStroops ?? zero;
+  const invalidRows: number[] = [];
+  let out: SplitCalculationRow[];
+  let percentTotalBp: number | null = null;
+
+  if (mode === "equal") {
+    const shares = rows.length > 0 ? computeSharesAmounts(total, rows.map(() => 1)) : [];
+    out = rows.map((row, i) => ({
+      userId: row.userId,
+      stroops: shares[i],
+      amount: fromStroops(shares[i]),
+      basisPoints: total > zero ? Number((shares[i] * BigInt(FULL_PERCENT_BP)) / total) : null,
+    }));
+  } else if (mode === "custom") {
+    out = rows.map((row, i) => {
+      const stroops = parseAmountStroops(row.amount);
+      if (stroops === null) invalidRows.push(i);
+      return {
+        userId: row.userId,
+        stroops,
+        amount: stroops === null ? null : fromStroops(stroops),
+        basisPoints:
+          stroops !== null && total > zero
+            ? Number((stroops * BigInt(FULL_PERCENT_BP)) / total)
+            : null,
+      };
+    });
+  } else {
+    const bps = rows.map((row, i) => {
+      const bp = parsePercentBasisPoints(row.percent);
+      if (bp === null) invalidRows.push(i);
+      return bp;
+    });
+    percentTotalBp = bps.reduce<number>((sum, bp) => sum + (bp ?? 0), 0);
+    const exact =
+      percentTotalBp === FULL_PERCENT_BP && invalidRows.length === 0
+        ? computeSharesAmounts(total, bps as number[])
+        : null;
+    out = rows.map((row, i) => {
+      const bp = bps[i];
+      const stroops =
+        bp === null ? null : exact ? exact[i] : (total * BigInt(bp)) / BigInt(FULL_PERCENT_BP);
+      return {
+        userId: row.userId,
+        stroops,
+        amount: stroops === null ? null : fromStroops(stroops),
+        basisPoints: bp,
+      };
+    });
+  }
+
+  const allocatedStroops = out.reduce((sum, row) => sum + (row.stroops ?? zero), zero);
+  const remainingStroops = total - allocatedStroops;
+
+  let balance: SplitBalance;
+  if (totalStroops === null || totalStroops <= zero || rows.length === 0 || invalidRows.length > 0) {
+    balance = "invalid";
+  } else if (mode === "percentage") {
+    const gap = FULL_PERCENT_BP - (percentTotalBp ?? 0);
+    balance = gap === 0 ? "balanced" : gap > 0 ? "under" : "over";
+  } else {
+    balance = balanceOf(remainingStroops);
+  }
+
+  return {
+    mode,
+    totalStroops,
+    rows: out,
+    allocatedStroops,
+    remainingStroops,
+    percentTotalBp,
+    invalidRows,
+    balance,
+  };
+}
+
+/**
+ * Even starting values for a mode, guaranteed to balance: exact amounts via
+ * the largest-remainder split of the total, percentages via the same method
+ * over 10,000 basis points (3 people → 33.34 / 33.33 / 33.33).
+ */
+export function evenSplitValues(
+  mode: SplitMode,
+  totalAmount: string,
+  userIds: string[]
+): SplitRowInput[] {
+  if (userIds.length === 0) return [];
+  const ones = userIds.map(() => 1);
+  if (mode === "percentage") {
+    const bps = computeSharesAmounts(BigInt(FULL_PERCENT_BP), ones);
+    return userIds.map((userId, i) => ({ userId, percent: formatBasisPoints(Number(bps[i])) }));
+  }
+  const total = parseAmountStroops(totalAmount) ?? BigInt(0);
+  const shares = computeSharesAmounts(total, ones);
+  return userIds.map((userId, i) => ({
+    userId,
+    amount: mode === "custom" ? trimAmount(fromStroops(shares[i])) : undefined,
+  }));
+}
+
+/** Drop trailing fractional zeros from a 7-decimal amount ("12.5000000" → "12.5"). */
+export function trimAmount(amount: string): string {
+  return amount.includes(".") ? amount.replace(/0+$/, "").replace(/\.$/, "") : amount;
+}
