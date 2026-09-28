@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   FileDown,
@@ -30,13 +30,19 @@ import {
   type HistoryFilters,
 } from "@/lib/historyFilter";
 import { printReceipt } from "@/lib/export";
+import {
+  DEFAULT_HISTORY_VIEW,
+  readHistoryView,
+  writeHistoryView,
+  type HistoryKind,
+} from "@/lib/history-view";
 import { AuditDetails } from "@/components/GroupHistoryExport";
 import { GroupExportMenu } from "@/components/groups/GroupExportMenu";
 import { Timestamp } from "@/components/timestamp";
 
 import { Pagination } from "@/components/ui/pagination";
 
-type Filter = "all" | "expenses" | "settlements";
+type Filter = HistoryKind;
 const HISTORY_PAGE_SIZE = 10;
 
 export default function HistoryPage() {
@@ -51,9 +57,27 @@ export default function HistoryPage() {
     refetch,
   } = useInfiniteHistory();
 
-  const [filter, setFilter] = useState<Filter>("all");
-  const [filters, setFilters] = useState<HistoryFilters>({ kind: "all" });
+  const [filter, setFilter] = useState<Filter>(DEFAULT_HISTORY_VIEW.kind);
+  const [filters, setFilters] = useState<HistoryFilters>(
+    DEFAULT_HISTORY_VIEW.filters
+  );
   const [currentPage, setCurrentPage] = useState(1);
+  // The tab and the filter bar are display preferences: they are restored
+  // after mount (so server and first client render match) and written back
+  // on every change (#494).
+  const [restored, setRestored] = useState(false);
+
+  useEffect(() => {
+    const stored = readHistoryView();
+    setFilter(stored.kind);
+    setFilters(stored.filters);
+    setRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!restored) return;
+    writeHistoryView({ kind: filter, filters });
+  }, [restored, filter, filters]);
 
   // Accumulate all loaded pages into a single deduplicated set sorted
   // newest-first — mergeHistoryPages keeps stable order across refetches.

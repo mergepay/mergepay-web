@@ -1,10 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, act } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 import { Sep24Modal, isSecureAnchorUrl } from "./Sep24Modal";
 import { useAuth } from "@/lib/auth-store";
+import { useAssetStore } from "@/lib/asset-store";
 import type { AnchorInfo, AnchorSession } from "@/lib/types";
 
 const usdcIssuer = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
@@ -108,6 +109,12 @@ beforeEach(() => {
   mockedAnchorSession.mockResolvedValue({ session: makeSession() });
 });
 
+afterEach(() => {
+  act(() => {
+    useAssetStore.getState().resetActiveAsset();
+  });
+});
+
 describe("isSecureAnchorUrl", () => {
   it("accepts only https URLs", () => {
     expect(isSecureAnchorUrl("https://anchor.example.com/flow")).toBe(true);
@@ -167,12 +174,70 @@ describe("Sep24Modal (#374)", () => {
   it("lists only anchors supporting the requested asset", async () => {
     signIn();
     mockedListAnchors.mockResolvedValue({ anchors });
-    render(<Sep24Modal open kind="withdrawal" onClose={() => {}} />, {
-      wrapper: createWrapper(),
-    });
+    render(
+      <Sep24Modal open kind="withdrawal" assetCode="USDC" onClose={() => {}} />,
+      {
+        wrapper: createWrapper(),
+      }
+    );
 
     expect(await screen.findByText("TestAnchor")).toBeInTheDocument();
     expect(screen.queryByText("FiatOnRamp")).not.toBeInTheDocument();
+  });
+
+  describe("persisted currency preference (#486)", () => {
+    it("follows the stored preference instead of a hardcoded USDC default", async () => {
+      signIn();
+      // Neither configured anchor serves XLM, so an unpinned modal that still
+      // defaulted to USDC would list TestAnchor here.
+      mockedListAnchors.mockResolvedValue({ anchors });
+
+      render(<Sep24Modal open kind="deposit" onClose={() => {}} />, {
+        wrapper: createWrapper(),
+      });
+
+      const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
+      expect(alert).toHaveTextContent(/no anchors currently support/i);
+      expect(alert).toHaveTextContent("XLM");
+      expect(screen.queryByText("TestAnchor")).not.toBeInTheDocument();
+    });
+
+    it("opens on the stored preference when it is USDC", async () => {
+      signIn();
+      mockedListAnchors.mockResolvedValue({ anchors });
+      useAssetStore.getState().setActiveAsset({
+        code: "USDC",
+        issuer: usdcIssuer,
+      });
+
+      render(<Sep24Modal open kind="deposit" onClose={() => {}} />, {
+        wrapper: createWrapper(),
+      });
+
+      expect(
+        await screen.findByText("TestAnchor", {}, { timeout: 3000 })
+      ).toBeInTheDocument();
+      expect(screen.queryByText("FiatOnRamp")).not.toBeInTheDocument();
+    });
+
+    it("lets an explicit assetCode win over the stored preference", async () => {
+      signIn();
+      mockedListAnchors.mockResolvedValue({ anchors });
+      useAssetStore.getState().setActiveAsset({
+        code: "USDC",
+        issuer: usdcIssuer,
+      });
+
+      render(
+        <Sep24Modal open kind="deposit" assetCode="EURC" onClose={() => {}} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(
+        await screen.findByText("FiatOnRamp", {}, { timeout: 3000 })
+      ).toBeInTheDocument();
+      expect(screen.queryByText("TestAnchor")).not.toBeInTheDocument();
+    });
   });
 
   it("runs the full deposit flow and embeds the interactive URL", async () => {
@@ -196,6 +261,7 @@ describe("Sep24Modal (#374)", () => {
       <Sep24Modal
         open
         kind="deposit"
+        assetCode="USDC"
         onClose={() => {}}
         onSessionStarted={onSessionStarted}
       />,
@@ -240,9 +306,10 @@ describe("Sep24Modal (#374)", () => {
       }),
     });
 
-    render(<Sep24Modal open kind="withdrawal" onClose={() => {}} />, {
-      wrapper: createWrapper(),
-    });
+    render(
+      <Sep24Modal open kind="withdrawal" assetCode="USDC" onClose={() => {}} />,
+      { wrapper: createWrapper() }
+    );
 
     await screen.findByText("TestAnchor");
     screen.getByRole("button", { name: /start withdrawal/i }).click();
@@ -269,9 +336,10 @@ describe("Sep24Modal (#374)", () => {
     });
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
 
-    render(<Sep24Modal open kind="deposit" onClose={() => {}} />, {
-      wrapper: createWrapper(),
-    });
+    render(
+      <Sep24Modal open kind="deposit" assetCode="USDC" onClose={() => {}} />,
+      { wrapper: createWrapper() }
+    );
 
     await screen.findByText("TestAnchor");
     screen.getByRole("button", { name: /start deposit/i }).click();

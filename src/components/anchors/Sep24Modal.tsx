@@ -47,6 +47,7 @@ import {
   buildAnchorTransferPayload,
 } from "@/lib/validations/anchor";
 import { SETTLEMENT_ASSETS } from "@/lib/constants";
+import { useAssetStore } from "@/lib/asset-store";
 import { cn } from "@/lib/utils";
 import type { AnchorSession, AnchorSessionKind } from "@/lib/types";
 
@@ -70,7 +71,10 @@ export interface Sep24ModalProps {
   onClose: () => void;
   /** Direction the modal opens on. */
   defaultKind?: AnchorSessionKind;
-  /** Asset the modal opens on (must be one of the settlement assets). */
+  /**
+   * Asset the modal opens on (must be one of the settlement assets).
+   * Omit it to follow the user's persisted XLM/USDC preference (#486).
+   */
   defaultAssetCode?: string;
   /** Called as soon as the server creates the session, so callers can list it. */
   onSessionStarted?: (session: AnchorSession) => void;
@@ -83,11 +87,17 @@ export function Sep24Modal({
   open,
   onClose,
   defaultKind = "deposit",
-  defaultAssetCode = SETTLEMENT_ASSETS[0].code,
+  defaultAssetCode,
   onSessionStarted,
 }: Sep24ModalProps) {
+  // The persisted preference is the default for every caller that does not
+  // pin an asset, so the deposit/withdraw flow opens on the same unit the
+  // rest of the app is showing (#486).
+  const preferredAssetCode = useAssetStore((s) => s.activeAsset.code);
   const [kind, setKind] = useState<AnchorSessionKind>(defaultKind);
-  const [assetCode, setAssetCode] = useState(defaultAssetCode);
+  const [assetCode, setAssetCode] = useState(
+    defaultAssetCode ?? preferredAssetCode
+  );
   const [selectedAnchor, setSelectedAnchor] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [startedSession, setStartedSession] = useState<AnchorSession | null>(null);
@@ -135,7 +145,8 @@ export function Sep24Modal({
     : false;
 
   // Reopening always starts from a clean slate — a session started before
-  // would otherwise be resumed without its wallet signature.
+  // would otherwise be resumed without its wallet signature. The asset is
+  // re-seeded too, so a preference changed since the last visit is picked up.
   useEffect(() => {
     if (open) return;
     setSessionId(null);
@@ -143,7 +154,8 @@ export function Sep24Modal({
     setStarting(false);
     setSelectedAnchor(null);
     setTransfer(EMPTY_ANCHOR_TRANSFER_VALUES);
-  }, [open]);
+    setAssetCode(defaultAssetCode ?? preferredAssetCode);
+  }, [open, defaultAssetCode, preferredAssetCode]);
 
   async function handleStart() {
     if (!chosenAnchor || starting || transferInvalid) return;

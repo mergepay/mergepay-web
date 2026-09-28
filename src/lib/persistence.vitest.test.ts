@@ -3,6 +3,11 @@ import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   setStoredNotificationPreferences,
 } from "./storage";
+import {
+  DEFAULT_HISTORY_VIEW,
+  readHistoryView,
+  writeHistoryView,
+} from "./history-view";
 import type { User } from "./types";
 
 /**
@@ -117,6 +122,38 @@ describe("persistence behaviour (#494)", () => {
     });
   });
 
+  it("keeps the history tab and filters across a reload", () => {
+    writeHistoryView({
+      kind: "expenses",
+      filters: { kind: "expenses", assetCode: "USDC", keyword: "lunch" },
+    });
+
+    expect(localStorage.getItem("mergepay.historyView")).toContain("USDC");
+
+    // A reload re-reads the same storage, so the view comes back as it was.
+    expect(readHistoryView()).toEqual({
+      kind: "expenses",
+      filters: { kind: "expenses", assetCode: "USDC", keyword: "lunch" },
+    });
+  });
+
+  it("falls back to the default history view for unusable payloads", () => {
+    localStorage.setItem("mergepay.historyView", "{not json");
+    expect(readHistoryView()).toEqual(DEFAULT_HISTORY_VIEW);
+
+    localStorage.setItem(
+      "mergepay.historyView",
+      JSON.stringify({ kind: 42, filters: { kind: "settlements", keyword: 7 } })
+    );
+    expect(readHistoryView()).toEqual({
+      kind: "all",
+      filters: { kind: "settlements" },
+    });
+
+    localStorage.setItem("mergepay.historyView", JSON.stringify("nope"));
+    expect(readHistoryView()).toEqual(DEFAULT_HISTORY_VIEW);
+  });
+
   it("falls back to defaults when storage is unavailable", async () => {
     const original = Object.getOwnPropertyDescriptor(window, "localStorage");
     Object.defineProperty(window, "localStorage", {
@@ -152,6 +189,10 @@ describe("persistence behaviour (#494)", () => {
     setStoredNotificationPreferences({
       ...DEFAULT_NOTIFICATION_PREFERENCES,
       pushEnabled: true,
+    });
+    writeHistoryView({
+      kind: "expenses",
+      filters: { kind: "expenses", keyword: "groceries" },
     });
 
     const JWT = "super-secret-jwt-token-value";

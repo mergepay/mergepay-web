@@ -8,13 +8,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useGroups } from "@/lib/queries";
+import { orderGroupsByActive, useGroupStore } from "@/lib/group-store";
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { ListSkeleton, GroupCardSkeleton } from "@/components/ui/skeleton";
 
 export default function GroupsPage() {
   const { data, isLoading, refetch } = useGroups();
-  const groups = data?.groups ?? [];
+  // The group the user was last in is persisted, so a reload puts it back at
+  // the top of the list instead of making them hunt for it (#494).
+  const activeGroupId = useGroupStore((s) => s.selectedGroupId);
+  const groups = orderGroupsByActive(data?.groups ?? [], activeGroupId);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -76,9 +80,16 @@ export default function GroupsPage() {
                           {group.memberCount} member{group.memberCount === 1 ? "" : "s"}
                         </span>
                       </div>
-                      <h2 className="font-display text-lg uppercase tracking-tight truncate">
-                        {group.name}
-                      </h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="min-w-0 flex-1 font-display text-lg uppercase tracking-tight truncate">
+                          {group.name}
+                        </h2>
+                        {group.id === activeGroupId && (
+                          <span className="shrink-0 rounded-full border-2 border-ink bg-lime px-2 py-0.5 font-mono text-[10px] font-bold uppercase shadow-brutal-sm">
+                            Active
+                          </span>
+                        )}
+                      </div>
                       {group.description && (
                         <p className="mt-1 text-sm text-ink/70 line-clamp-2">
                           {group.description}
