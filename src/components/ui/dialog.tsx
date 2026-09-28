@@ -98,8 +98,6 @@ export function Dialog({
       return () => {
         cancelAnimationFrame(frame);
         dialogStack.remove(dialogId);
-        // Unmounting while open (route change, parent removal) must not
-        // strand focus on a dead element — send it back to the trigger.
         if (
           previousActiveElement.current &&
           typeof previousActiveElement.current.focus === "function"
