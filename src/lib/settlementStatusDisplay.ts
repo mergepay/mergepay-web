@@ -67,6 +67,15 @@ const VIEWS: Record<SettlementStatus, SettlementStatusView> = {
     canRecover: false,
     isInFlight: true,
   },
+  settling: {
+    kind: "pending",
+    label: "Settling",
+    tone: "butter",
+    detail:
+      "Settlement is being processed on-chain and waiting for confirmation.",
+    canRecover: false,
+    isInFlight: true,
+  },
   confirmed: {
     kind: "completed",
     label: "Completed",

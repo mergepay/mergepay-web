@@ -174,7 +174,6 @@ export function useSettleBalanceMutation(groupId: string) {
     },
 
     onMutate: async (newSettlement: CreateSettlementRequest) => {
-      toast.success("Initiating settlement...");
       const balancesKey = qk.balances(groupId);
 
       await Promise.all(
@@ -185,13 +184,10 @@ export function useSettleBalanceMutation(groupId: string) {
 
       const previousQueries = qc.getQueriesData({ queryKey: balancesKey });
       const previousBalances = qc.getQueryData<BalancesResponse>(balancesKey);
+      const previousActivity = qc.getQueryData<GroupActivityResponse>(qk.activity(groupId));
+      const previousExpenses = qc.getQueriesData({ queryKey: qk.expenses(groupId) });
       const payer = currentUser(me.data);
 
-      // Move the funds between the two members straight away: the signed
-      // netBalance flips the payer up by `amount` and the payee down by it,
-      // so "settle up" reads correct before the network answers. The
-      // rollback below (or the invalidation on success) replaces it with
-      // the server's number.
       if (previousBalances && payer) {
         qc.setQueryData<BalancesResponse>(balancesKey, (old) =>
           old
@@ -205,7 +201,7 @@ export function useSettleBalanceMutation(groupId: string) {
         );
       }
 
-      return { previousQueries, previousBalances };
+      return { previousQueries, previousBalances, previousActivity, previousExpenses };
     },
 
     onError: (err, _newSettlement, context) => {
@@ -217,14 +213,20 @@ export function useSettleBalanceMutation(groupId: string) {
       if (context?.previousBalances) {
         qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
-      // Log the underlying failure for diagnosis (no key material or
-      // private payloads are included) and tell the user what happened.
-      console.error("[mergepay] settlement failed, balances rolled back:", err);
-      toast.error("Settlement failed. Balances rolled back.");
+      if (context?.previousActivity) {
+        qc.setQueryData(qk.activity(groupId), context.previousActivity);
+      }
+      if (context?.previousExpenses) {
+        for (const [queryKey, queryData] of context.previousExpenses) {
+          qc.setQueryData(queryKey, queryData);
+        }
+      }
+      handleApiError(err, "Settlement failed. Balances rolled back.");
     },
 
-    onSuccess: () => {
-      toast.success("Settlement executed successfully");
+    onSuccess: (data) => {
+      const status = data?.settlement?.status ?? "executed successfully";
+      toast.success(`Settlement ${status}`);
     },
 
     onSettled: () => {
