@@ -49,6 +49,7 @@ import { useAnchorSession } from "@/lib/queries";
 import { api } from "@/lib/api";
 import { handleApiError } from "@/lib/errorHandler";
 import { useAuth } from "@/lib/auth-store";
+import { useAssetStore } from "@/lib/asset-store";
 import { signXdr, WalletError, NotInstalledMessage } from "@/lib/stellar";
 import { isTerminalAnchorStatus, mapAnchorStatusToUiState, getStateDescription } from "@/lib/anchor-state";
 import type {
@@ -64,7 +65,7 @@ export interface Sep24ModalProps {
   onClose: () => void;
   /** Direction of the SEP-24 flow. */
   kind: AnchorSessionKind;
-  /** Asset to deposit or withdraw. Defaults to USDC. */
+  /** Asset to deposit or withdraw. Defaults to the persisted preference. */
   assetCode?: string;
   /** Optional preferred anchor name (used to disambiguate). */
   preferredAnchorName?: string | null;
@@ -110,13 +111,17 @@ export function Sep24Modal({
   open,
   onClose,
   kind,
-  assetCode = "USDC",
+  assetCode: assetCodeProp,
   preferredAnchorName,
   onSessionStarted,
   onCompleted,
 }: Sep24ModalProps) {
   const token = useAuth((s) => s.token);
   const authenticated = Boolean(token);
+  // Callers that pin an asset keep it; otherwise the modal follows the
+  // user's persisted XLM/USDC preference instead of hardcoding USDC (#486).
+  const preferredAssetCode = useAssetStore((s) => s.activeAsset.code);
+  const assetCode = assetCodeProp ?? preferredAssetCode;
 
   const { anchors, isLoading, isError, refetch } = useAnchorInfo(assetCode);
   const [starting, setStarting] = useState(false);
