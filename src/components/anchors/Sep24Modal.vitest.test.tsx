@@ -1,9 +1,10 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { Sep24Modal } from "./Sep24Modal";
+import { useAssetStore } from "@/lib/asset-store";
 import type { AnchorInfo } from "@/lib/types";
 
 const { sessionQueryMock, toastMock } = vi.hoisted(() => ({
@@ -104,6 +105,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   sessionQueryMock.mockReturnValue({ data: undefined, isLoading: false, isError: false });
   vi.mocked(api.listAnchors).mockResolvedValue({ anchors: ANCHORS } as never);
+});
+
+afterEach(() => {
+  // `act` because a modal left mounted by the previous test still subscribes
+  // to the store while it is reset.
+  act(() => {
+    useAssetStore.getState().resetActiveAsset();
+  });
 });
 
 describe("Sep24Modal (#366)", () => {
@@ -350,5 +359,64 @@ describe("Sep24Modal (#366)", () => {
 
     await waitFor(() => expect(sessionQueryMock).toHaveBeenCalledWith("sess-1"));
     expect(await screen.findByText("pending external")).toBeInTheDocument();
+  });
+});
+
+describe("persisted currency preference (#486)", () => {
+  it("opens on the stored preference when the caller pins no asset", async () => {
+    act(() => {
+      useAssetStore.getState().setActiveAsset({ code: "USDC", issuer: "GISSUER" });
+    });
+
+
+    renderModal();
+
+    expect(
+      await screen.findByText("UsdcAnchor", {}, { timeout: 3000 })
+    ).toBeInTheDocument();
+    expect(screen.queryByText("TestAnchor")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "USDC" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByText(/^deposit usdc$/i)).toBeInTheDocument();
+  });
+
+  it("lets an explicit defaultAssetCode win over the stored preference", () => {
+    act(() => {
+      useAssetStore.getState().setActiveAsset({ code: "USDC", issuer: "GISSUER" });
+    });
+
+
+    renderModal({ defaultAssetCode: "XLM" });
+
+    expect(screen.getByRole("button", { name: "XLM" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByRole("button", { name: "USDC" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+  });
+
+  it("picks up a preference changed while the modal was closed", async () => {
+    const { rerender } = render(
+      <Sep24Modal open={false} onClose={() => {}} />,
+      { wrapper: createWrapper() }
+    );
+
+    act(() => {
+      useAssetStore.getState().setActiveAsset({ code: "USDC", issuer: "GISSUER" });
+    });
+    rerender(<Sep24Modal open onClose={() => {}} />);
+
+    expect(
+      await screen.findByText("UsdcAnchor", {}, { timeout: 3000 })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "USDC" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
   });
 });

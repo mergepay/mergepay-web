@@ -75,3 +75,22 @@ export const useGroupStore = create<GroupState>()(
     }
   )
 );
+
+/**
+ * Hoists the persisted active group to the front of the list so a reload
+ * lands the user back where they were (#494). Order is otherwise untouched,
+ * and an unknown or absent selection returns the input unchanged.
+ */
+export function orderGroupsByActive<T extends { id: string }>(
+  groups: T[],
+  activeGroupId: string | null | undefined
+): T[] {
+  if (!activeGroupId) return groups;
+  const activeIndex = groups.findIndex((group) => group.id === activeGroupId);
+  if (activeIndex <= 0) return groups;
+  return [
+    groups[activeIndex],
+    ...groups.slice(0, activeIndex),
+    ...groups.slice(activeIndex + 1),
+  ];
+}

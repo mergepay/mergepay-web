@@ -37,3 +37,35 @@ describe("Group store", () => {
     assert.strictEqual(useGroupStore.getState().selectedGroupId, null);
   });
 });
+
+describe("orderGroupsByActive (#494)", () => {
+  const groups = [
+    { id: "a", name: "A" },
+    { id: "b", name: "B" },
+    { id: "c", name: "C" },
+  ];
+
+  it("hoists the persisted selection to the front", async () => {
+    const { orderGroupsByActive } = await import("../group-store");
+    assert.deepStrictEqual(
+      orderGroupsByActive(groups, "c").map((g) => g.id),
+      ["c", "a", "b"]
+    );
+  });
+
+  it("keeps the order when the active group is already first", async () => {
+    const { orderGroupsByActive } = await import("../group-store");
+    assert.deepStrictEqual(
+      orderGroupsByActive(groups, "a").map((g) => g.id),
+      ["a", "b", "c"]
+    );
+  });
+
+  it("returns the input unchanged for a missing or unknown selection", async () => {
+    const { orderGroupsByActive } = await import("../group-store");
+    assert.deepStrictEqual(orderGroupsByActive(groups, null), groups);
+    assert.deepStrictEqual(orderGroupsByActive(groups, undefined), groups);
+    assert.deepStrictEqual(orderGroupsByActive(groups, "nope"), groups);
+    assert.deepStrictEqual(orderGroupsByActive([], "a"), []);
+  });
+});
