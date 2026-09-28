@@ -262,6 +262,60 @@ describe("buildSettlementPaymentXdr + inspectSettlementXdr (real SDK)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Time bounds (regression guard for the settlement-modal XDR flake)
+// ---------------------------------------------------------------------------
+
+describe("buildSettlementPaymentXdr time bounds", () => {
+  const source = Keypair.random().publicKey();
+  const destination = Keypair.random().publicKey();
+
+  const build = () =>
+    buildSettlementPaymentXdr({
+      source: { publicKey: source, sequence: "1" },
+      destination,
+      amount: "10",
+      assetCode: "XLM",
+      assetIssuer: null,
+      memo: "rent-0526",
+      networkPassphrase: Networks.TESTNET,
+    });
+
+  /** `TransactionBuilder.setTimeout()` reads `Date.now()`, so pin it. */
+  function withFrozenClock<T>(ms: number, fn: () => T): T {
+    const original = Date.now;
+    Date.now = () => ms;
+    try {
+      return fn();
+    } finally {
+      Date.now = original;
+    }
+  }
+
+  it("is byte-identical while the clock is frozen", () => {
+    const at = 1_760_000_000_000;
+    const [first, second] = withFrozenClock(at, () => [build(), build()]);
+    assert.equal(first, second);
+  });
+
+  it("stamps the envelope with now + timeoutSeconds, so a later build differs", () => {
+    const at = 1_760_000_000_000;
+    const first = withFrozenClock(at, build);
+    const second = withFrozenClock(at + 1000, build);
+
+    // Only the time bound moves — which is why a test must compare against an
+    // envelope it captured, never one it rebuilds at assertion time.
+    assert.notEqual(first, second);
+
+    // `src/types/declarations.d.ts` shims TransactionBuilder without fromXDR.
+    const { fromXDR } = StellarSdk.TransactionBuilder as unknown as {
+      fromXDR(xdr: string, networkPassphrase: string): { timeBounds?: { minTime: string; maxTime: string } };
+    };
+    const decoded = fromXDR(first, Networks.TESTNET);
+    assert.equal(Number(decoded.timeBounds?.maxTime), at / 1000 + 300);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Verification
 // ---------------------------------------------------------------------------
 
