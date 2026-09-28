@@ -9,7 +9,8 @@ type Tone =
   | "aqua"
   | "butter"
   | "ink"
-  | "paper";
+  | "paper"
+  | "pending";
 
 const tones: Record<Tone, string> = {
   grape: "bg-grape-pale text-grape-dark",
@@ -20,6 +21,7 @@ const tones: Record<Tone, string> = {
   butter: "bg-butter-pale text-ink",
   ink: "bg-ink text-lime",
   paper: "bg-paper text-ink",
+  pending: "bg-butter-pale text-butter-dark",
 };
 
 export function Badge({

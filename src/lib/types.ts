@@ -19,7 +19,7 @@ export type StellarNetwork = "testnet" | "public";
 export type Role = "admin" | "member" | "viewer";
 export type SplitType = "equal" | "custom" | "percentage";
 export type ShareStatus = "pending" | "settling" | "settled";
-export type SettlementStatus = "pending" | "submitted" | "confirmed" | "failed";
+export type SettlementStatus = "pending" | "submitted" | "settling" | "confirmed" | "failed";
 export type TreasuryDirection = "deposit" | "withdrawal";
 export type TreasuryTxStatus =
   | "pending"
@@ -603,6 +603,7 @@ export interface GroupActivityEvent {
   assetCode?: string;
   timestamp: string;
   isOptimistic?: boolean;
+  status?: SettlementStatus;
   metadata?: Record<string, unknown>;
 }
 
