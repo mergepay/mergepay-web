@@ -1,0 +1,1 @@
+Fixed issues 510, 508, 507
