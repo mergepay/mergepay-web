@@ -193,3 +193,26 @@ function logApiError(error: unknown, message: string): void {
   // eslint-disable-next-line no-console
   console.error("[mergepay] API error", meta);
 }
+
+/**
+ * Log an error an error boundary caught while rendering.
+ *
+ * Deliberately narrower than the raw `console.error(error, componentStack)` it
+ * replaces: a crashed wallet or group subtree can carry a public key, an XDR
+ * payload or a component tree full of account data, and none of that belongs in
+ * the console of a production browser. Same contract as `logApiError` — silent
+ * in production, and only scalar, developer-useful fields are kept.
+ */
+export function logRenderError(
+  error: unknown,
+  detail?: { componentStack?: string | null }
+): void {
+  if (process.env.NODE_ENV === "production") return;
+  const meta: Record<string, unknown> =
+    error instanceof Error
+      ? { name: error.name, message: error.message }
+      : { message: String(error) };
+  if (detail?.componentStack) meta.componentStack = detail.componentStack;
+  // eslint-disable-next-line no-console
+  console.error("[mergepay] render error", meta);
+}
