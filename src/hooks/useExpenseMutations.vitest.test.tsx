@@ -75,7 +75,11 @@ describe("useExpenseMutations Hooks (#285)", () => {
   });
 
   it("useSettleBalanceMutation executes createSettlement and triggers toasts", async () => {
-    const mockSettlement = { id: "s1", amount: "10.00" };
+    const mockSettlement = { 
+      settlement: { id: "s1", amount: "10.00", status: "confirmed" },
+      xdr: "AAAA...",
+      networkPassphrase: "Test SDF Network"
+    };
     vi.mocked(api.createSettlement).mockResolvedValue(mockSettlement as any);
 
     const { result } = renderHook(() => useSettleBalanceMutation("g1"), {
@@ -91,7 +95,7 @@ describe("useExpenseMutations Hooks (#285)", () => {
     });
 
     expect(api.createSettlement).toHaveBeenCalledWith("g1", expect.objectContaining({ toUserId: "u2" }));
-    expect(toast.success).toHaveBeenCalledWith("Settlement executed successfully");
+    expect(toast.success).toHaveBeenCalledWith("Settlement confirmed");
   });
 
   it("useSettleBalanceMutation performs optimistic update and rolls back on error with sonner toast", async () => {
@@ -127,7 +131,7 @@ describe("useExpenseMutations Hooks (#285)", () => {
     });
 
     expect(errorThrown).toBeDefined();
-    expect(toast.error).toHaveBeenCalledWith("Settlement failed. Balances rolled back.");
+    expect(toast.error).toHaveBeenCalledWith("Network error");
 
     // Verify balances rolled back to previous state
     const balances: any = qc.getQueryData(qk.balances("g1"));
@@ -291,7 +295,7 @@ describe("optimistic updates (#375)", () => {
     });
 
     await act(async () => {
-      gate.reject(new Error("network down"));
+      gate.reject(new Error("network down settlement test"));
     });
 
     await waitFor(() => {
@@ -300,7 +304,7 @@ describe("optimistic updates (#375)", () => {
       expect(balances?.balances[1].net).toBe("-10");
     });
     expect(toast.error).toHaveBeenCalledWith(
-      "Settlement failed. Balances rolled back."
+      "network down settlement test"
     );
   });
 });
