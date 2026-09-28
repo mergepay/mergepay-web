@@ -22,6 +22,11 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
+  isBlockedDecimalKey,
+  isTypableAmount,
+  isTypablePercent,
+} from "@/lib/expenseValidation";
+import {
   calculateSplit,
   evenSplitValues,
   formatBasisPoints,
@@ -254,7 +259,7 @@ export function SplitCalculator({
                       aria-invalid={error ? true : undefined}
                       aria-describedby={error ? `${inputId}-error` : undefined}
                       onKeyDown={(e) => {
-                        if (["e", "E", "+", "-"].includes(e.key)) {
+                        if (isBlockedDecimalKey(e.key)) {
                           e.preventDefault();
                         }
                       }}
@@ -263,11 +268,11 @@ export function SplitCalculator({
                         onChange: (e) => {
                           const val = e.target.value;
                           if (mode === "custom") {
-                            if (val !== "" && !/^\d*\.?\d{0,7}$/.test(val)) {
+                            if (!isTypableAmount(val)) {
                               return;
                             }
                           } else {
-                            if (val !== "" && !/^\d*\.?\d{0,2}$/.test(val)) {
+                            if (!isTypablePercent(val)) {
                               return;
                             }
                           }

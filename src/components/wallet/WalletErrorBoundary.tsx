@@ -3,6 +3,7 @@
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
 import { ShieldAlert, RefreshCcw, ExternalLink, WifiOff, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { logRenderError } from "@/lib/errorHandler";
 import { FREIGHTER_INSTALL_URL, WalletError, WalletLockedError, WalletNotInstalledError, UserRejectedError, WalletDisconnectedError, WalletNetworkError } from "@/lib/stellar";
 
 interface Props {
@@ -35,10 +36,9 @@ export class WalletErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log error safely without leaking key material or private state
-    const safeName = error.name || "WalletError";
-    const safeMsg = error.message || "Unknown wallet error";
-    console.error(`[WalletErrorBoundary] Caught wallet error (${safeName}):`, safeMsg, errorInfo.componentStack);
+    // Structured and production-silent: a wallet failure stack can name an
+    // account, a signing payload, or the extension's internal state.
+    logRenderError(error, { componentStack: errorInfo.componentStack });
   }
 
   private handleReset = () => {

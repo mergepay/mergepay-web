@@ -4,6 +4,7 @@ import React, { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, LayoutDashboard, RefreshCw } from "lucide-react";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { logRenderError } from "@/lib/errorHandler";
 
 interface Props {
   children: ReactNode;
@@ -37,8 +38,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("[ErrorBoundary] caught an error:", error);
-    console.error("[ErrorBoundary] component stack:", errorInfo.componentStack);
+    // Structured and production-silent — the component stack of a crashed
+    // group view is full of account data that has no business in a browser
+    // console. Callers that need the raw error can subscribe via `onError`.
+    logRenderError(error, { componentStack: errorInfo.componentStack });
     this.props.onError?.(error, errorInfo);
   }
 

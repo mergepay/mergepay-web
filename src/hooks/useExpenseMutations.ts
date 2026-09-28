@@ -228,8 +228,9 @@ export function useSettleBalanceMutation(groupId: string) {
     },
 
     onSettled: () => {
+      // `expenseCacheKeys` already covers balances and ledger; invalidating
+      // balances again here would only double the refetch on success.
       invalidate(expenseCacheKeys(groupId));
-      qc.invalidateQueries({ queryKey: qk.balances(groupId) });
       qc.invalidateQueries({ queryKey: qk.activity(groupId) });
       qc.invalidateQueries({ queryKey: qk.history });
     },

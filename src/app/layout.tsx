@@ -3,6 +3,7 @@ import { Archivo_Black, Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { NetworkStatusComponent } from "@/components/network-status";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 
 const display = Archivo_Black({
@@ -48,7 +49,13 @@ export default function RootLayout({
         className={`${display.variable} ${body.variable} ${mono.variable} font-body`}
       >
         <NetworkStatusComponent />
-        <Providers>{children}</Providers>
+        <Providers>
+          {/* Route-level boundaries live inside the `(app)` group, which leaves
+              the sign-in and landing pages uncovered. This catches a crash in
+              any of them before it reaches `global-error.tsx` and takes the
+              whole document with it. */}
+          <ErrorBoundary dashboardHref="/">{children}</ErrorBoundary>
+        </Providers>
       </body>
 
     </html>

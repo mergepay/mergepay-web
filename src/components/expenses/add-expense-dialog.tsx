@@ -21,8 +21,11 @@ import {
   AMOUNT_DECIMAL_PLACES,
   MAX_TITLE_LENGTH,
   PERCENT_DECIMAL_PLACES,
+  amountFieldError,
   formatAmountUnits,
   formatDecimalUnits,
+  isBlockedDecimalKey,
+  isTypableAmount,
   parseDecimalUnits,
   splitEqualUnits,
   validateExpenseForm,
@@ -205,9 +208,21 @@ export function AddExpenseDialog({
     return typeof parsed === "bigint" && parsed > 0n ? parsed : null;
   }, [amount]);
   const marketRate = currencyRate(fiatCurrency);
-  const effectiveRate = rateOverride.trim() ? Number(rateOverride) : marketRate;
-  const convertedAmount = convertCurrency(fiatAmount, fiatCurrency, effectiveRate);
-  const rateWarning = rateOverride.trim() && rateDeviationPercent(effectiveRate, marketRate) > 10;
+  // The converter previews an amount, so it holds both of its fields to the
+  // same rules the amount field does. An unusable manual rate falls back to the
+  // market rate rather than pushing NaN through the preview, and an unusable
+  // local amount produces no preview at all — `Number()` would otherwise accept
+  // exponent notation and negatives that no Stellar payment can carry.
+  const fiatError = amountFieldError(fiatAmount);
+  const rateError = amountFieldError(rateOverride);
+  const hasRateOverride = rateOverride.trim() !== "" && !rateError;
+  const effectiveRate = hasRateOverride ? Number(rateOverride) : marketRate;
+  const convertedAmount = fiatError ? null : convertCurrency(fiatAmount, fiatCurrency, effectiveRate);
+  // A converted zero has nowhere to go: applying it would only move the
+  // invalid value into the amount field.
+  const canApply = convertedAmount !== null && Number(convertedAmount) > 0;
+  const rateWarning =
+    hasRateOverride && rateDeviationPercent(effectiveRate, marketRate) > 10;
 
   // Use Zod schema validation
   const validationResult = useMemo(() => {
@@ -336,14 +351,58 @@ export function AddExpenseDialog({
         <div className="rounded-xl border-2 border-ink bg-butter p-3 shadow-brutal-sm">
           <p className="font-display text-xs font-bold uppercase tracking-wide">Currency converter</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <Input aria-label="Foreign currency amount" type="number" min="0" step="any" value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value)} placeholder="Local amount" />
+            <div className="min-w-0">
+              <Input
+                aria-label="Foreign currency amount"
+                inputMode="decimal"
+                autoComplete="off"
+                value={fiatAmount}
+                onChange={(e) => {
+                  if (isTypableAmount(e.target.value)) setFiatAmount(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (isBlockedDecimalKey(e.key)) e.preventDefault();
+                }}
+                placeholder="Local amount"
+                aria-invalid={fiatError ? true : undefined}
+                aria-describedby={fiatError ? "fiat-amount-error" : undefined}
+                className={fiatError ? "border-flamingo" : undefined}
+              />
+              {fiatError && (
+                <p id="fiat-amount-error" className="mt-1 text-xs font-bold text-flamingo-dark" role="alert">
+                  {fiatError}
+                </p>
+              )}
+            </div>
             <Select aria-label="Foreign currency" value={fiatCurrency} onChange={(e) => setFiatCurrency(e.target.value as SupportedFiatCurrency)}>
               {SUPPORTED_FIAT_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}
             </Select>
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <Input aria-label="Manual conversion rate" type="number" min="0" step="any" value={rateOverride} onChange={(e) => setRateOverride(e.target.value)} placeholder={`Rate (${marketRate})`} />
-            <Button type="button" variant="secondary" disabled={!convertedAmount} onClick={() => convertedAmount && setAmount(convertedAmount)}>Apply</Button>
+          <div className="mt-2 flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <Input
+                aria-label="Manual conversion rate"
+                inputMode="decimal"
+                autoComplete="off"
+                value={rateOverride}
+                onChange={(e) => {
+                  if (isTypableAmount(e.target.value)) setRateOverride(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (isBlockedDecimalKey(e.key)) e.preventDefault();
+                }}
+                placeholder={`Rate (${marketRate})`}
+                aria-invalid={rateError ? true : undefined}
+                aria-describedby={rateError ? "conversion-rate-error" : undefined}
+                className={rateError ? "border-flamingo" : undefined}
+              />
+              {rateError && (
+                <p id="conversion-rate-error" className="mt-1 text-xs font-bold text-flamingo-dark" role="alert">
+                  {rateError}
+                </p>
+              )}
+            </div>
+            <Button type="button" variant="secondary" disabled={!canApply} onClick={() => convertedAmount && setAmount(convertedAmount)}>Apply</Button>
           </div>
           <p className="mt-2 text-xs" aria-live="polite">{convertedAmount ? `${fiatAmount || "0"} ${fiatCurrency} ≈ ${convertedAmount} ${assetKey} (rate ${effectiveRate})` : "Enter an amount to preview the conversion."}</p>
           {rateWarning && <p className="mt-1 text-xs font-bold text-flamingo" role="alert">Manual rate differs from the indicative rate by more than 10%.</p>}
@@ -356,13 +415,12 @@ export function AddExpenseDialog({
             autoComplete="off"
             value={amount}
             onChange={(e) => {
-              const val = e.target.value;
-              if (val === "" || /^\d*\.?\d{0,7}$/.test(val)) {
-                setAmount(val);
+              if (isTypableAmount(e.target.value)) {
+                setAmount(e.target.value);
               }
             }}
             onKeyDown={(e) => {
-              if (["e", "E", "+", "-"].includes(e.key)) {
+              if (isBlockedDecimalKey(e.key)) {
                 e.preventDefault();
               }
             }}

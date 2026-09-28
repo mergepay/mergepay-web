@@ -60,11 +60,28 @@ export const qk = {
   treasury: (groupId: string) => ["groups", groupId, "treasury"] as const,
   treasuryHistory: (groupId: string) =>
     ["groups", groupId, "treasury", "history"] as const,
+  /**
+   * Prefix for the cross-group treasury aggregate. The live key appends the
+   * sorted group ids, so a treasury balance mutation invalidates this prefix
+   * and every id variant with it.
+   */
+  treasuryAggregate: ["treasury", "aggregate"] as const,
   anchors: ["anchors"] as const,
   anchorSessions: ["anchors", "sessions"] as const,
   history: ["history"] as const,
   invite: (code: string) => ["invites", code] as const,
 };
+
+/**
+ * Freshness window for data that only moves when *we* change it: the group
+ * list, a group's roster, and treasury balances. Every mutation that can alter
+ * one of them invalidates its key (see `expenseCacheKeys` / `groupCacheKeys`),
+ * so the cache can be served for a full minute without risking a stale render
+ * — and a burst of tab-focus or mount events stops turning into one HTTP call
+ * per open group. Data a counterparty can move underneath us (the "settle up"
+ * balances) deliberately stays at `staleTime: 0`.
+ */
+const MUTATION_DRIVEN_STALE_TIME_MS = 60_000;
 
 /** Polling parameters for settlement status while pending/submitted. */
 export const SETTLEMENT_POLL_INTERVAL_MS = 3_000;
@@ -141,6 +158,10 @@ export function useGroups() {
     queryKey: qk.groups,
     queryFn: api.listGroups,
     enabled: useSessionEnabled(),
+    // Rows carry `memberCount`, `yourNet` and *your* role; the create/join/
+    // leave/role mutations below all invalidate this key exactly, so reads can
+    // be served from cache for a minute.
+    staleTime: MUTATION_DRIVEN_STALE_TIME_MS,
   });
 }
 
@@ -149,6 +170,9 @@ export function useGroup(id: string) {
     queryKey: qk.group(id),
     queryFn: () => api.getGroup(id),
     enabled: useSessionEnabled() && Boolean(id),
+    // The roster only changes through this client's own member mutations,
+    // which invalidate the group prefix.
+    staleTime: MUTATION_DRIVEN_STALE_TIME_MS,
   });
 }
 
@@ -282,6 +306,10 @@ export function useTreasuryInfo(groupId: string, enabled: boolean) {
     queryKey: qk.treasury(groupId),
     queryFn: () => api.treasuryInfo(groupId),
     enabled,
+    // Deposits and withdrawals invalidate this key (see `useTreasuryDeposit` /
+    // `useTreasuryWithdraw`), so the cached balance is never the one the user
+    // last acted on.
+    staleTime: MUTATION_DRIVEN_STALE_TIME_MS,
   });
 }
 
@@ -290,6 +318,7 @@ export function useTreasuryHistory(groupId: string, enabled: boolean) {
     queryKey: qk.treasuryHistory(groupId),
     queryFn: () => api.treasuryHistory(groupId),
     enabled,
+    staleTime: MUTATION_DRIVEN_STALE_TIME_MS,
   });
 }
 
@@ -315,7 +344,9 @@ export function useTreasuryAggregate(
   const ids = enabled.map((g) => g.id).sort();
 
   const query = useQuery({
-    queryKey: ["treasury", "aggregate", ids],
+    // Prefix lives in `qk` so treasury mutations can invalidate every cached
+    // id variant along with it.
+    queryKey: [...qk.treasuryAggregate, ids],
     queryFn: async (): Promise<TreasuryAggregate> => {
       const results = await Promise.allSettled(
         enabled.map((g) => api.treasuryInfo(g.id))
@@ -329,6 +360,10 @@ export function useTreasuryAggregate(
       return aggregateTreasury(sources);
     },
     enabled: sessionEnabled && enabled.length > 0,
+    // This queryFn is one HTTP call per treasury-enabled group, so letting it
+    // go stale on every mount/focus is the most expensive default in the app.
+    // Deposits and withdrawals invalidate the prefix instead.
+    staleTime: MUTATION_DRIVEN_STALE_TIME_MS,
   });
 
   return {
@@ -549,11 +584,36 @@ export function expenseCacheKeys(groupId: string): InvalidationTarget[] {
   ];
 }
 
+/**
+ * The queries a change to one group's own state can invalidate: that group's
+ * subtree plus the group list row.
+ *
+ * `qk.group(groupId)` is a prefix, so the single entry reaches the group's
+ * expenses, balances, ledger, activity and treasury caches — all of which
+ * render the roster, and a member leaving changes who appears in the
+ * simplified settlement suggestions. The list is matched exactly: its rows
+ * carry `memberCount`, `yourNet` and *your* role, and `["groups"]` is
+ * otherwise a prefix of every other group's cached data.
+ */
+export function groupCacheKeys(groupId: string): InvalidationTarget[] {
+  return [qk.group(groupId), { queryKey: qk.groups, exact: true }];
+}
+
+/**
+ * The caches holding treasury money: the group's own balance and history, plus
+ * the dashboard aggregate the same deposit moves.
+ */
+function treasuryCacheKeys(groupId: string): InvalidationTarget[] {
+  return [qk.treasury(groupId), qk.treasuryHistory(groupId), qk.treasuryAggregate];
+}
+
 export function useCreateGroup() {
   const invalidate = useInvalidator();
   return useMutation({
     mutationFn: (data: CreateGroupRequest) => api.createGroup(data),
-    onSuccess: () => invalidate([qk.groups]),
+    // Exact, everywhere the list is invalidated: `["groups"]` is a prefix of
+    // every per-group key, so a loose match refetches all a user's groups.
+    onSuccess: () => invalidate([{ queryKey: qk.groups, exact: true }]),
   });
 }
 
@@ -561,7 +621,7 @@ export function useJoinGroup() {
   const invalidate = useInvalidator();
   return useMutation({
     mutationFn: (code: string) => api.joinGroup(code),
-    onSuccess: () => invalidate([qk.groups]),
+    onSuccess: () => invalidate([{ queryKey: qk.groups, exact: true }]),
   });
 }
 
@@ -569,7 +629,7 @@ export function useLeaveGroup(groupId: string) {
   const invalidate = useInvalidator();
   return useMutation({
     mutationFn: () => api.leaveGroup(groupId),
-    onSuccess: () => invalidate([qk.groups]),
+    onSuccess: () => invalidate([{ queryKey: qk.groups, exact: true }]),
   });
 }
 
@@ -577,7 +637,7 @@ export function useArchiveGroup(groupId: string) {
   const invalidate = useInvalidator();
   return useMutation({
     mutationFn: () => api.archiveGroup(groupId),
-    onSuccess: () => invalidate([qk.groups, qk.group(groupId)]),
+    onSuccess: () => invalidate(groupCacheKeys(groupId)),
   });
 }
 
@@ -586,7 +646,7 @@ export function useUpdateMemberRole(groupId: string) {
   return useMutation({
     mutationFn: ({ memberId, role }: { memberId: string; role: Role }) =>
       api.updateMemberRole(groupId, memberId, role),
-    onSuccess: () => invalidate([qk.group(groupId)]),
+    onSuccess: () => invalidate(groupCacheKeys(groupId)),
   });
 }
 
@@ -594,7 +654,7 @@ export function useRemoveMember(groupId: string) {
   const invalidate = useInvalidator();
   return useMutation({
     mutationFn: (memberId: string) => api.removeMember(groupId, memberId),
-    onSuccess: () => invalidate([qk.group(groupId), qk.groups]),
+    onSuccess: () => invalidate(groupCacheKeys(groupId)),
   });
 }
 
@@ -861,13 +921,7 @@ export function useConfirmSettlement(groupId: string) {
       // Seed the polled cache so the dialog reflects "submitted" without
       // forcing an immediate refetch before its first interval tick.
       qc.setQueryData(qk.settlement(vars.settlementId), _data.settlement);
-      invalidate([
-        qk.expenses(groupId),
-        qk.balances(groupId),
-        qk.ledger(groupId),
-        qk.groups,
-        qk.history,
-      ]);
+      invalidate([...expenseCacheKeys(groupId), qk.history]);
     },
   });
 }
@@ -877,14 +931,18 @@ export function useEnableTreasury(groupId: string) {
   return useMutation({
     mutationFn: (data: EnableTreasuryRequest) =>
       api.enableTreasury(groupId, data),
-    onSuccess: () => invalidate([qk.group(groupId), qk.groups]),
+    onSuccess: () => invalidate(groupCacheKeys(groupId)),
   });
 }
 
 export function useTreasuryDeposit(groupId: string) {
+  const invalidate = useInvalidator();
   return useMutation({
     mutationFn: (data: TreasuryDepositRequest) =>
       api.treasuryDeposit(groupId, data),
+    // Mirrors withdrawal: without this the panel keeps showing the
+    // pre-deposit balance until the stale window happens to expire.
+    onSuccess: () => invalidate(treasuryCacheKeys(groupId)),
   });
 }
 
@@ -893,8 +951,7 @@ export function useTreasuryWithdraw(groupId: string) {
   return useMutation({
     mutationFn: (data: TreasuryWithdrawRequest) =>
       api.treasuryWithdraw(groupId, data),
-    onSuccess: () =>
-      invalidate([qk.treasury(groupId), qk.treasuryHistory(groupId)]),
+    onSuccess: () => invalidate(treasuryCacheKeys(groupId)),
   });
 }
 

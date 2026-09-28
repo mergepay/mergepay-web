@@ -15,6 +15,22 @@ function print(value: bigint): string {
 
 /** Reduce member net balances to a deterministic minimum greedy payment set. */
 export function simplifyDebts(members: MemberBalance[]): SimplifiedPath[] {
+  // Nets only offset within one asset: a USDC credit is not payable in XLM, so
+  // simplifying across assets would suggest a transfer that cannot settle and
+  // label it with whichever asset the debtor happened to hold. Group first,
+  // keeping each member's original order inside their own bucket.
+  const byAsset = new Map<string, MemberBalance[]>();
+  for (const member of members) {
+    const bucket = byAsset.get(member.assetCode);
+    if (bucket) bucket.push(member);
+    else byAsset.set(member.assetCode, [member]);
+  }
+  const out: SimplifiedPath[] = [];
+  for (const bucket of byAsset.values()) out.push(...simplifyAsset(bucket));
+  return out;
+}
+
+function simplifyAsset(members: MemberBalance[]): SimplifiedPath[] {
   const creditors = members.filter((m) => parse(m.net) > 0n).map((m) => ({ ...m, value: parse(m.net) }));
   const debtors = members.filter((m) => parse(m.net) < 0n).map((m) => ({ ...m, value: -parse(m.net) }));
   const out: SimplifiedPath[] = []; let c = 0; let d = 0;
