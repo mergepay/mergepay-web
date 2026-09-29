@@ -20,6 +20,7 @@ import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { ExportGroupStatementButton } from "@/components/ExportGroupStatementButton";
 import { GroupExportMenu } from "@/components/groups/GroupExportMenu";
 import { TreasuryView } from "@/components/treasury/TreasuryView";
+import { MultiPayerOverview } from "@/components/groups/MultiPayerOverview";
 import { ExpenseListFilters, type ExpenseFilterState } from "@/components/expenses/expense-list-filters";
 import { filterExpenses } from "@/lib/expenseFilters";
 import { ListSkeleton, GroupHeaderSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
@@ -210,6 +211,7 @@ export default function GroupDetailPage() {
           </div>
 
           <div className="space-y-6">
+            <MultiPayerOverview expenses={expenses} />
             <ErrorBoundary>
               <BalancesPanel
                 groupId={groupId}

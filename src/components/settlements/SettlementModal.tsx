@@ -262,7 +262,11 @@ export function SettlementModal({ open, onClose, groupId, target, onSettled, tim
       setSettlementId(intent.settlement.id);
       setSubmitted(true);
       const { settlement } = await withDeadline(
-        confirm.mutateAsync({ settlementId: intent.settlement.id, data: { signedXdr } }),
+        confirm.mutateAsync({
+          settlementId: intent.settlement.id,
+          data: { signedXdr },
+          optimisticTransfer: intent.settlement,
+        }),
         limits.submit,
         signal,
         "The network is taking longer than usual. Your payment may still go through — check its status before trying again."

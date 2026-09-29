@@ -139,6 +139,36 @@ describe("describeSubmissionFailure", () => {
     assert.match(failure.message, /explorer/i);
   });
 
+  it("names a reserve shortfall instead of a generic rejection", () => {
+    // An under-funded account gets `op_low_reserve` back from Horizon, which is
+    // not a sentence a user can act on — and it arrives with a hash, so this
+    // has to win over the "open it in the explorer" branch below it.
+    const failure = describeSubmissionFailure(
+      new Error("Transaction failed with op_low_reserve"),
+      HASH
+    );
+    assert.equal(failure.title, "Insufficient XLM reserve");
+    assert.match(failure.message, /0\.5 XLM/);
+    assert.equal(failure.recovery, "retry");
+    assert.equal(failure.txHash, HASH);
+    // The reviewed copy is the point, so the caller must not translate the
+    // failure into a generic wallet message.
+    assert.equal(failure.code, null);
+  });
+
+  it("recognises the reserve message the trustline helper already rewrote", () => {
+    const failure = describeSubmissionFailure(
+      Object.assign(
+        new Error(
+          "Insufficient XLM reserve. Adding a trustline requires an additional 0.5 XLM available in your wallet."
+        ),
+        { code: "unknown" }
+      ),
+      HASH
+    );
+    assert.equal(failure.title, "Insufficient XLM reserve");
+  });
+
   it("reports a connectivity failure as a retry, not a broken transaction", () => {
     assert.equal(
       describeSubmissionFailure(

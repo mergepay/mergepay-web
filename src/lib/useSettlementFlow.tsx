@@ -117,7 +117,8 @@ export function useSettlementFlow(groupId: string) {
   // Polling — only enabled once the user has submitted (settlementId is set)
   const statusQuery = useSettlementStatus(
     settlementId,
-    step === "submitted"
+    step === "submitted",
+    groupId
   );
 
   // Watch the polling status for terminal-state transitions.

@@ -152,7 +152,16 @@ describe("SettlementModal", () => {
     expect(await screen.findByText("Settled!")).toBeInTheDocument();
     expect(api.createSettlement).toHaveBeenCalledWith("g1", { toUserId: "user-2", amount: "10", assetCode: "XLM", assetIssuer: null });
     expect(signXdr).toHaveBeenCalledWith(capturedIntent.xdr, NETWORK_PASSPHRASE);
-    expect(mutateAsync).toHaveBeenCalledWith({ settlementId: "stl-1", data: { signedXdr: capturedIntent.xdr } });
+    expect(mutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      settlementId: "stl-1",
+      data: { signedXdr: capturedIntent.xdr },
+      optimisticTransfer: expect.objectContaining({
+        fromUserId: "user-1",
+        toUserId: "user-2",
+        amount: "10.0000000",
+        assetCode: "XLM",
+      }),
+    }));
     expect(screen.getByTestId("memo-badge")).toHaveTextContent("rent-0526");
     expect(screen.getByTestId("memo-badge")).toHaveAttribute("data-severity", "none");
     expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({ status: "confirmed" }));
@@ -180,7 +189,16 @@ describe("SettlementModal", () => {
 
     expect(await screen.findByText("Settled!")).toBeInTheDocument();
     expect(signXdr).toHaveBeenCalledWith(capturedIntent.xdr, NETWORK_PASSPHRASE);
-    expect(mutateAsync).toHaveBeenCalledWith({ settlementId: "stl-1", data: { signedXdr: capturedIntent.xdr } });
+    expect(mutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      settlementId: "stl-1",
+      data: { signedXdr: capturedIntent.xdr },
+      optimisticTransfer: expect.objectContaining({
+        fromUserId: "user-1",
+        toUserId: "user-2",
+        amount: "10.0000000",
+        assetCode: "XLM",
+      }),
+    }));
   });
 
   it("handles the user rejecting the signature", async () => {

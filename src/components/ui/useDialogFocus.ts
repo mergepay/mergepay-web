@@ -5,6 +5,7 @@ import {
   FOCUSABLE_SELECTOR,
   createFocusContainmentListener,
   dialogStack,
+  isPrimaryAction,
   nextFocusIndex,
   pickInitialFocusIndex,
   shouldCloseOnEscape,
@@ -112,10 +113,7 @@ export function useDialogFocus({
         const index = pickInitialFocusIndex(
           body.map((el) => ({
             autofocus: el.hasAttribute("data-autofocus"),
-            primary:
-              el.hasAttribute("data-primary-action") ||
-              el.hasAttribute("data-primary") ||
-              el.getAttribute("type") === "submit",
+            primary: isPrimaryAction(el),
             inBody: true,
           }))
         );

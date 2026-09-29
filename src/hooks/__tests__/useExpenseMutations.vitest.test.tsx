@@ -4,8 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { useSettleBalanceMutation, useCreateExpenseMutation, useDeleteExpenseMutation } from "../useExpenseMutations";
 import { api } from "@/lib/api";
-import { qk } from "@/lib/queries";
-import type { User, BalancesResponse, GroupActivityResponse, SettlementIntentResponse } from "@/lib/types";
+import { qk, useConfirmSettlement } from "@/lib/queries";
+import type { User, BalancesResponse, GroupActivityResponse, SettlementIntentResponse, SettlementResponse } from "@/lib/types";
 import * as sonner from "sonner";
 
 vi.mock("@/lib/api", () => ({
@@ -13,6 +13,7 @@ vi.mock("@/lib/api", () => ({
     createSettlement: vi.fn(),
     createExpense: vi.fn(),
     deleteExpense: vi.fn(),
+    confirmSettlement: vi.fn(),
     getBalances: vi.fn(),
     getGroupActivity: vi.fn(),
     getGroup: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("sonner", () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   },
 }));
 
@@ -178,6 +180,84 @@ describe("useSettleBalanceMutation — optimistic settlement", () => {
     await waitFor(() => {
       expect(vi.mocked(api.createSettlement)).toHaveBeenCalledWith("grp-1", { toUserId: "user-b", amount: "5.0000000", assetCode: "XLM" });
     });
+  });
+});
+
+describe("useConfirmSettlement — optimistic balance feedback", () => {
+  let client: QueryClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    client.setQueryData(qk.balances("grp-1"), makeBalances([
+      { userId: "user-a", net: "-10" },
+      { userId: "user-b", net: "10" },
+    ]));
+  });
+
+  afterEach(() => {
+    client.clear();
+  });
+
+  it("keeps the optimistic balance while submitted and rolls it back on error", async () => {
+    const gate = deferred<SettlementResponse>();
+    vi.mocked(api.confirmSettlement).mockReturnValue(gate.promise);
+    const { result } = renderHook(() => useConfirmSettlement("grp-1"), {
+      wrapper: createWrapper(client),
+    });
+    const variables = {
+      settlementId: "s-1",
+      data: { signedXdr: "signed-xdr" },
+      optimisticTransfer: {
+        fromUserId: "user-a",
+        toUserId: "user-b",
+        amount: "10.0000000",
+        assetCode: "XLM",
+      },
+    };
+
+    const mutation = result.current.mutateAsync(variables);
+    await waitFor(() => {
+      const balances = client.getQueryData<BalancesResponse>(qk.balances("grp-1"));
+      expect(balances?.balances.map((row) => row.net)).toEqual(["0", "0"]);
+    });
+
+    gate.resolve({
+      settlement: {
+        id: "s-1",
+        groupId: "grp-1",
+        fromUserId: "user-a",
+        from: ALICE,
+        toUserId: "user-b",
+        to: { ...ALICE, id: "user-b", displayName: "Bob" },
+        amount: "10.0000000",
+        assetCode: "XLM",
+        assetIssuer: null,
+        stellarTxHash: null,
+        status: "submitted",
+        memo: null,
+        expenseId: null,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    await act(async () => { await mutation; });
+
+    expect(client.getQueryData<BalancesResponse>(qk.balances("grp-1"))?.balances.map((row) => row.net)).toEqual(["0", "0"]);
+    expect(sonner.toast.info).toHaveBeenCalledWith("Settlement submitted; waiting for Stellar confirmation");
+
+    client.setQueryData(qk.balances("grp-1"), makeBalances([
+      { userId: "user-a", net: "-10" },
+      { userId: "user-b", net: "10" },
+    ]));
+    vi.mocked(api.confirmSettlement).mockRejectedValueOnce(new Error("API unavailable"));
+    await act(async () => {
+      await result.current.mutateAsync(variables).catch(() => undefined);
+    });
+
+    expect(client.getQueryData<BalancesResponse>(qk.balances("grp-1"))?.balances.map((row) => row.net)).toEqual(["-10", "10"]);
+    expect(sonner.toast.error).toHaveBeenCalledWith("Settlement submission failed. Balances were restored.");
   });
 });
 

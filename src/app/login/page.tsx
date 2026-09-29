@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -59,6 +59,21 @@ function postLoginTarget(): string {
 export default function LoginPage() {
   const router = useRouter();
   const { token, restoring, login, isLoading: authLoading } = useAuth();
+  /**
+   * Where this sign-in leads, read once.
+   *
+   * Two paths redirect on authentication — the effect below for a session
+   * that appears from storage or another tab, and `handleConnect` for the
+   * click — and the parked invite is single-use: whichever reads it first
+   * consumes it. Resolved lazily into a ref, both paths agree; read twice,
+   * the second got `/dashboard` and an invitee who signed in was dumped
+   * away from the link they followed.
+   */
+  const targetRef = useRef<string | null>(null);
+  const loginTarget = useCallback(() => {
+    if (targetRef.current === null) targetRef.current = postLoginTarget();
+    return targetRef.current;
+  }, []);
   // The wallet's own active account, tracked independently of the
   // session, so the screen names the key the user is about to sign with.
   const activeWalletPublicKey = useAuthStore((s) => s.activeWalletPublicKey);
@@ -69,8 +84,8 @@ export default function LoginPage() {
   const [walletNetwork, setWalletNetwork] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!restoring && token) router.replace(postLoginTarget());
-  }, [restoring, token, router]);
+    if (!restoring && token) router.replace(loginTarget());
+  }, [restoring, token, router, loginTarget]);
 
   useEffect(() => {
     isFreighterAvailable().then(setHasFreighter);
@@ -105,7 +120,7 @@ export default function LoginPage() {
       if (user) {
         setWalletNetwork(null);
         toast.success("Signed in with Stellar");
-        router.replace(postLoginTarget());
+        router.replace(loginTarget());
       }
     } catch (e) {
       if (e instanceof NetworkMismatchError) {

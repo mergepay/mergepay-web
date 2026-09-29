@@ -181,10 +181,46 @@ export function useWallet(options: UseWalletOptions = {}): UseWalletReturn {
 
     void initialize();
 
+    // Listen for external wallet changes (disconnections, account switches)
+    let watcher: WatchWalletChanges | null = null;
+    try {
+      watcher = new WatchWalletChanges(15_000);
+      watcher.watch(async (params) => {
+        if (!mountedRef.current) return;
+        const newAddress = params?.address;
+        const hasError = params?.error;
+
+        if (hasError || !newAddress) {
+          setConnected(false);
+          setActiveWalletPublicKey(null);
+          if (showToasts) {
+            toast.error("Wallet disconnected from Freighter.");
+          }
+          return;
+        }
+
+        if (newAddress !== prevAddressRef.current) {
+          prevAddressRef.current = newAddress;
+          setConnected(true);
+          setActiveWalletPublicKey(newAddress);
+          if (showToasts) {
+            toast.info(`Freighter account switched to ${truncateAddress(newAddress)}`);
+          }
+        }
+      });
+    } catch {
+      // WatchWalletChanges not supported or failed to initialize
+    }
+
     return () => {
       mountedRef.current = false;
+      try {
+        watcher?.stop();
+      } catch {
+        // ignore
+      }
     };
-  }, [autoReconnect, refresh, setActiveWalletPublicKey, setConnected]);
+  }, [autoReconnect, refresh, setActiveWalletPublicKey, setConnected, showToasts]);
 
   // Watcher for account changes and disconnect events from Freighter
   useEffect(() => {

@@ -258,6 +258,27 @@ export function describeSubmissionFailure(
     };
   }
 
+  // A trustline costs 0.5 XLM of available reserve, and Horizon reports the
+  // shortfall as `op_low_reserve` on an otherwise opaque failed transaction.
+  // "The network refused this transaction" would leave the user guessing, so
+  // name the missing funds instead, with the copy `stellar/trustlines.ts`
+  // already uses. `code` stays null: this is the network talking, not
+  // Freighter, and the callers translate wallet codes over our message.
+  if (
+    /op_low_reserve|insufficient (xlm )?reserve|insufficient balance|tx_insufficient_balance|low reserve/i.test(
+      message
+    )
+  ) {
+    return {
+      title: "Insufficient XLM reserve",
+      message:
+        "Insufficient XLM reserve. Adding a trustline requires an additional 0.5 XLM available in your wallet.",
+      recovery: "retry",
+      code: null,
+      txHash,
+    };
+  }
+
   if (recovery === "retry" && txHash) {
     // Something was submitted but the network refused it: show the hash so the
     // user can read the exact failure rather than our guess at it.

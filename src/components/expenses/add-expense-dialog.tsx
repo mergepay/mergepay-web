@@ -31,6 +31,7 @@ import {
   validateExpenseForm,
 } from "@/lib/expenseValidation";
 import { expenseFormSchema } from "@/lib/validations/expense";
+import { expenseCreationSchema } from "@/lib/validation";
 import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 import { convertCurrency, currencyRate, rateDeviationPercent, SUPPORTED_FIAT_CURRENCIES, type SupportedFiatCurrency } from "@/lib/currency";
@@ -316,7 +317,11 @@ export function AddExpenseDialog({
       return;
     }
 
-    const payload: CreateExpenseRequest = {
+    // Final runtime gate on the exact payload about to be dispatched (#315):
+    // a malformed amount, an invalid asset code, or a split that does not add
+    // up is rejected here — with a descriptive message — before mergepay-api
+    // ever sees the request.
+    const payload = expenseCreationSchema.safeParse({
       title: title.trim(),
       description: description.trim() || undefined,
       amount,
@@ -327,12 +332,16 @@ export function AddExpenseDialog({
       payerUserId,
       memo: memo.trim() || undefined,
       receiptUrl,
-    };
+    });
+    if (!payload.success) {
+      toast.error(payload.error.issues[0]?.message ?? "Please fix the errors before submitting");
+      return;
+    }
 
     // Offline: persist the draft in the queue; the sync runner posts it (with
     // its idempotency key) the moment the connection returns.
     if (isOffline) {
-      useOfflineStore.getState().enqueue(groupId, payload);
+      useOfflineStore.getState().enqueue(groupId, payload.data);
       clearDraft();
       reset();
       toast.success(
@@ -345,7 +354,7 @@ export function AddExpenseDialog({
     try {
       setSubmitting(true);
       await create.mutateAsync({
-        ...payload,
+        ...payload.data,
         // Makes the bounded retries in `useCreateExpense` (and a manual retry
         // after a timeout) safe: the server deduplicates them into one row.
         idempotencyKey: createIdempotencyKey(),

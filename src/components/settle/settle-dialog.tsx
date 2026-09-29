@@ -185,7 +185,7 @@ export function SettleDialog({
   const [errorCode, setErrorCode] = useState<WalletErrorCode | null>(null);
   const [attempts, setAttempts] = useState(0);
   const [reconnecting, setReconnecting] = useState(false);
-  const statusQuery = useSettlementStatus(settlementId, step === "submitted");
+  const statusQuery = useSettlementStatus(settlementId, step === "submitted", groupId);
   const transactionInFlight = step === "submitting" || step === "submitted";
   // The settle target lives in props and is never mutated here, so a failed
   // attempt leaves the amount, asset, and recipient intact for the retry.
@@ -279,6 +279,7 @@ export function SettleDialog({
       const { settlement } = await confirm.mutateAsync({
         settlementId: intent.settlement.id,
         data: { signedXdr },
+        optimisticTransfer: intent.settlement,
       });
       setSettlementId(intent.settlement.id);
       setTxHash(settlement.stellarTxHash ?? null);

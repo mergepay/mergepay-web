@@ -108,6 +108,20 @@ export function pickInitialFocusIndex(candidates: FocusCandidate[]): number {
 }
 
 /**
+ * Whether a control is the dialog's primary action, as the app marks them.
+ *
+ * `data-primary-action` and `data-primary` are explicit; a native submit
+ * button is the implicit case, since that is what Enter activates.
+ */
+export function isPrimaryAction(element: Element): boolean {
+  return (
+    element.hasAttribute("data-primary-action") ||
+    element.hasAttribute("data-primary") ||
+    element.getAttribute("type") === "submit"
+  );
+}
+
+/**
  * Where Tab should move focus to keep it inside the dialog.
  *
  * @param count        number of focusable controls in the dialog

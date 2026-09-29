@@ -46,7 +46,12 @@ import {
   createOptimisticExpenseEvent,
   calculateOptimisticActivityList,
 } from "./activity";
-import { buildOptimisticExpense, insertOptimisticExpense, removeOptimisticExpense } from "./optimistic";
+import {
+  applyOptimisticSettlement,
+  buildOptimisticExpense,
+  insertOptimisticExpense,
+  removeOptimisticExpense,
+} from "./optimistic";
 
 export const qk = {
   me: ["me"] as const,
@@ -491,9 +496,15 @@ export function accumulateLedgerPages(
  * property, so we track consecutive poll failures locally in a ref and
  * pass the value into the (unit-testable) `settlementPollInterval` helper.
  */
-export function useSettlementStatus(settlementId: string | null, enabled = true) {
+export function useSettlementStatus(
+  settlementId: string | null,
+  enabled = true,
+  groupId?: string
+) {
   const failureCount = useRef(0);
+  const terminalSettlementId = useRef<string | null>(null);
   const [pollingStalled, setPollingStalled] = useState(false);
+  const invalidate = useInvalidator();
 
   const query = useQuery({
     queryKey: settlementId ? qk.settlement(settlementId) : ["settlement", "_"],
@@ -514,6 +525,23 @@ export function useSettlementStatus(settlementId: string | null, enabled = true)
     retry: false,
     staleTime: 0,
   });
+
+  useEffect(() => {
+    if (
+      !groupId ||
+      !settlementId ||
+      (query.data?.status !== "confirmed" && query.data?.status !== "failed") ||
+      terminalSettlementId.current === settlementId
+    ) {
+      return;
+    }
+    terminalSettlementId.current = settlementId;
+    void invalidate([
+      ...expenseCacheKeys(groupId),
+      qk.activity(groupId),
+      qk.history,
+    ]);
+  }, [groupId, settlementId, query.data?.status, invalidate]);
 
   // Track consecutive failed poll cycles so the polling callback can
   // eventually return `false` once the cap is exceeded. `errorUpdatedAt`
@@ -944,7 +972,6 @@ export function useCreateSettlement(groupId: string) {
 }
 
 export function useConfirmSettlement(groupId: string) {
-  const invalidate = useInvalidator();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -953,12 +980,40 @@ export function useConfirmSettlement(groupId: string) {
     }: {
       settlementId: string;
       data: ConfirmSettlementRequest;
+      optimisticTransfer?: {
+        fromUserId: string;
+        toUserId: string;
+        amount: string;
+        assetCode: string;
+      };
     }) => api.confirmSettlement(settlementId, data),
+    onMutate: async ({ optimisticTransfer }) => {
+      const balancesKey = qk.balances(groupId);
+      await qc.cancelQueries({ queryKey: balancesKey });
+      const previousBalances = qc.getQueryData<BalancesResponse>(balancesKey);
+
+      if (previousBalances && optimisticTransfer) {
+        qc.setQueryData<BalancesResponse>(balancesKey, (old) =>
+          old ? applyOptimisticSettlement(old, optimisticTransfer) : old
+        );
+      }
+
+      return { previousBalances };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousBalances) {
+        qc.setQueryData(qk.balances(groupId), context.previousBalances);
+      }
+      toast.error("Settlement submission failed. Balances were restored.");
+    },
     onSuccess: (_data, vars) => {
       // Seed the polled cache so the dialog reflects "submitted" without
-      // forcing an immediate refetch before its first interval tick.
+      // forcing an immediate refetch before its first interval tick. Keep the
+      // optimistic balance until the status poll reaches a terminal state.
       qc.setQueryData(qk.settlement(vars.settlementId), _data.settlement);
-      invalidate([...expenseCacheKeys(groupId), qk.history]);
+      if (_data.settlement.status !== "confirmed" && _data.settlement.status !== "failed") {
+        toast.info("Settlement submitted; waiting for Stellar confirmation");
+      }
     },
   });
 }

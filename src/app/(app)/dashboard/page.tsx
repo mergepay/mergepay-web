@@ -16,7 +16,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
-import { Sep24Modal } from "@/components/anchor/Sep24Modal";
+import { Sep24Modal } from "@/components/anchors/Sep24Modal";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import type { AnchorSessionKind, Group } from "@/lib/types";
@@ -152,7 +152,7 @@ export default function DashboardPage() {
         <JoinGroupDialog open={joinOpen} onClose={() => setJoinOpen(false)} />
         <Sep24Modal
           open={rampOpen}
-          kind={rampKind}
+          defaultKind={rampKind}
           onClose={() => setRampOpen(false)}
         />
       </div>
