@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -24,7 +24,7 @@ import { useWalletScopedCache } from "@/lib/queries";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
 import { WalletStatusPanel } from "./wallet/wallet-status";
 import { shortKey } from "@/lib/format";
-import { FOCUSABLE_SELECTOR, createFocusContainmentListener, nextFocusIndex } from "@/lib/dialog";
+import { useDialogFocus } from "./ui/useDialogFocus";
 
 import { HorizonHealthIndicator } from "./HorizonHealthIndicator";
 import { OfflineSyncBanner } from "./OfflineSyncBanner";
@@ -53,87 +53,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
 
-  const getDrawerFocusable = useCallback(
-    () =>
-      drawerRef.current
-        ? Array.from(
-            drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-          ).filter((el) => el.tabIndex !== -1)
-        : [],
-    []
-  );
-
-  // Trap focus inside mobile drawer and handle Escape to close.
-  useEffect(() => {
-    if (!mobileOpen) return;
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setMobileOpen(false);
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const focusable = getDrawerFocusable();
-      if (focusable.length === 0) return;
-      const active = document.activeElement as HTMLElement | null;
-      const target = nextFocusIndex(
-        focusable.length,
-        active ? focusable.indexOf(active) : -1,
-        e.shiftKey
-      );
-      if (target === null) return;
-      e.preventDefault();
-      focusable[target]?.focus();
-    }
-
-    window.addEventListener("keydown", handleKeyDown, true);
-
-    // Focus the first focusable element in the drawer after mount.
-    const frame = requestAnimationFrame(() => {
-      const focusable = getDrawerFocusable();
-      if (focusable.length > 0) focusable[0]?.focus();
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("keydown", handleKeyDown, true);
-      // Restore focus to the trigger when the drawer closes.
-      previousFocusRef.current?.focus();
-    };
-  }, [mobileOpen, getDrawerFocusable]);
-
-  // Tab only constrains the next key press — also catch focus that the
-  // browser or assistive technology moves out of the nav drawer (#481).
-  useEffect(() => {
-    if (!mobileOpen) return;
-
-    const listener = createFocusContainmentListener({
-      getContainer: () => drawerRef.current,
-      getFocusable: getDrawerFocusable,
-      isActive: () => true,
-    });
-    document.addEventListener("focusin", listener);
-    return () => {
-      document.removeEventListener("focusin", listener);
-    };
-  }, [mobileOpen, getDrawerFocusable]);
-
-  // Lock the page behind the nav drawer and restore the previous value.
-  useEffect(() => {
-    if (!mobileOpen) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [mobileOpen]);
+  // Escape, Tab trapping, focus containment and the page scroll lock while the
+  // nav drawer is open — the same contract the dialog primitive gives, so a
+  // dialog opened over the drawer owns Escape and focus instead of both
+  // surfaces reacting to the same key press.
+  useDialogFocus({
+    open: mobileOpen,
+    onClose: () => setMobileOpen(false),
+    panelRef: drawerRef,
+  });
 
   useEffect(() => {
     function handleGlobalKeyDown(e: KeyboardEvent) {
@@ -253,19 +182,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* mobile drawer */}
       {mobileOpen && (
-        <div
-          className="fixed inset-0 z-50 lg:hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Navigation menu"
-        >
+        <div className="fixed inset-0 z-50 lg:hidden">
           <div
             className="absolute inset-0 bg-ink/60"
             onClick={() => setMobileOpen(false)}
+            aria-hidden="true"
           />
           <div
             ref={drawerRef}
-            className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation menu"
+            // The dialog is where focus lands, so it has to be focusable.
+            tabIndex={-1}
+            className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper outline-none"
           >
             <button
               onClick={() => setMobileOpen(false)}

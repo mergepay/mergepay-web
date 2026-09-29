@@ -1,17 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useId, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  dialogStack,
-  createFocusContainmentListener,
-  FOCUSABLE_SELECTOR,
-  pickInitialFocusIndex,
-  nextFocusIndex,
-  shouldCloseOnEscape,
-} from "@/lib/dialog";
+import { useDialogFocus } from "./useDialogFocus";
 
 export interface MobileDrawerProps {
   open: boolean;
@@ -35,119 +28,10 @@ export function MobileDrawer({
   dismissible = true,
 }: MobileDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const drawerId = "mobile-drawer"; // Fixed ID for stack tracking
+  const contentRef = useRef<HTMLDivElement>(null);
+  const generatedTitleId = useId();
 
-  // Get focusable elements inside the drawer content (excluding header)
-  const getContentFocusable = useCallback(() => {
-    if (!drawerRef.current) return [];
-    const content = drawerRef.current.querySelector('[class*="flex-1"]');
-    if (!content) return [];
-    return Array.from(
-      content.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-    ).filter((el) => el.tabIndex !== -1);
-  }, []);
-
-  // Get all focusable elements (including header) for focus trapping
-  const getAllFocusable = useCallback(() => {
-    if (!drawerRef.current) return [];
-    return Array.from(
-      drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-    ).filter((el) => el.tabIndex !== -1);
-  }, []);
-
-  // Trap focus and handle Escape
-  useEffect(() => {
-    if (!open) return;
-
-    // Register this drawer in the dialog stack
-    dialogStack.push(drawerId);
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (shouldCloseOnEscape({ key: e.key, dismissible, isTopmost: dialogStack.isTopmost(drawerId) })) {
-        e.stopPropagation();
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const focusable = getAllFocusable();
-      if (focusable.length === 0) return;
-      const active = document.activeElement as HTMLElement | null;
-      const currentIndex = active ? focusable.indexOf(active) : -1;
-      const target = nextFocusIndex(focusable.length, currentIndex, e.shiftKey);
-      if (target === null) return;
-      e.preventDefault();
-      focusable[target]?.focus();
-    }
-
-    window.addEventListener("keydown", handleKeyDown, true);
-
-    const frame = requestAnimationFrame(() => {
-      const focusable = getContentFocusable();
-      if (focusable.length === 0) {
-        // Fallback to all focusable if no content focusable
-        const allFocusable = getAllFocusable();
-        if (allFocusable.length === 0) return;
-
-        const candidates = allFocusable.map((el) => ({
-          autofocus: el.hasAttribute("data-autofocus"),
-          inBody: !el.closest('[class*="border-b"], [class*="border-r"], [class*="border-l"]'),
-        }));
-
-        const initialIndex = pickInitialFocusIndex(candidates);
-        allFocusable[initialIndex]?.focus();
-        return;
-      }
-
-      // Build candidates for initial focus selection - all in content are "in body"
-      const candidates = focusable.map((el) => ({
-        autofocus: el.hasAttribute("data-autofocus"),
-        inBody: true,
-      }));
-
-      const initialIndex = pickInitialFocusIndex(candidates);
-      focusable[initialIndex]?.focus();
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("keydown", handleKeyDown, true);
-      dialogStack.remove(drawerId);
-      previousFocusRef.current?.focus();
-    };
-  }, [open, onClose, dismissible, getContentFocusable, getAllFocusable, drawerId]);
-
-  // Pull focus back when it escapes the drawer (#481) — Tab only constrains
-  // the next key press, not focus moved by the browser or assistive tech.
-  useEffect(() => {
-    if (!open) return;
-
-    const listener = createFocusContainmentListener({
-      getContainer: () => drawerRef.current,
-      getFocusable: getAllFocusable,
-      isActive: () => dialogStack.isTopmost(drawerId),
-    });
-    document.addEventListener("focusin", listener);
-    return () => {
-      document.removeEventListener("focusin", listener);
-    };
-  }, [open, drawerId, getAllFocusable]);
-
-  // Prevent body scroll when drawer is open
-  useEffect(() => {
-    if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      // Restore what was there before, not a blanket reset: a dialog opened
-      // underneath the drawer must not lose its own scroll lock.
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [open]);
+  useDialogFocus({ open, onClose, panelRef: drawerRef, contentRef, dismissible });
 
   const slideVariants = {
     bottom: {
@@ -173,17 +57,15 @@ export function MobileDrawer({
     right: "inset-y-0 right-0 w-72 border-l-3",
   };
 
-  const titleId = title ? `drawer-title-${drawerId}` : undefined;
+  // A titled drawer labels its dialog; an untitled one keeps its close button
+  // as the only accessible name source and stays unnamed rather than pointing
+  // aria-labelledby at an <h2> that is not rendered.
+  const titleId = title ? generatedTitleId : undefined;
 
   return (
     <AnimatePresence>
       {open && (
-        <div
-          className="fixed inset-0 z-50"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-        >
+        <div className="fixed inset-0 z-50">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -201,13 +83,19 @@ export function MobileDrawer({
           {/* Drawer */}
           <motion.div
             ref={drawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            // Focus is parked here when there is nothing to Tab to; a div
+            // without tabIndex cannot receive it and the trap silently misses.
+            tabIndex={-1}
             variants={slideVariants[side]}
             initial="initial"
             animate="animate"
             exit="exit"
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className={cn(
-              "absolute flex flex-col border-3 border-ink bg-paper shadow-brutal-lg",
+              "absolute flex flex-col border-3 border-ink bg-paper shadow-brutal-lg outline-none",
               positionClasses[side],
               className
             )}
@@ -232,8 +120,11 @@ export function MobileDrawer({
               </div>
             )}
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4">{children}</div>
+            {/* Content — the ref marks the body initial focus prefers, so the
+                rule does not depend on this div's classes. */}
+            <div className="flex-1 overflow-y-auto p-4" ref={contentRef}>
+              {children}
+            </div>
           </motion.div>
         </div>
       )}

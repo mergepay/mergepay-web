@@ -1,18 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { createPortal } from "react-dom";
 import { Download, ExternalLink, Maximize2, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import {
-  createFocusContainmentListener,
-  dialogStack,
-  shouldCloseOnEscape,
-} from "@/lib/dialog";
-
-/** Stack slot for the lightbox, so a dialog underneath yields Escape. */
-const PREVIEW_ID = "receipt-preview";
+import { useDialogFocus } from "./useDialogFocus";
 
 /**
  * Neobrutalist lightbox for viewing an attached receipt.
@@ -33,79 +26,11 @@ export function ReceiptPreview({
   title?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
 
-  // Escape + focus containment + vertical overflow guard while open.
-  useEffect(() => {
-    if (!open) return;
-
-    // Join the dialog stack so a dialog underneath yields Escape and focus.
-    dialogStack.push(PREVIEW_ID);
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const previousFocus =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    panelRef.current?.focus();
-
-    function getFocusable(): HTMLElement[] {
-      return Array.from(
-        panelRef.current?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), a[href]'
-        ) ?? []
-      );
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (
-          !shouldCloseOnEscape({
-            key: e.key,
-            dismissible: true,
-            isTopmost: dialogStack.isTopmost(PREVIEW_ID),
-          })
-        ) {
-          return;
-        }
-        e.preventDefault();
-        closeRef.current();
-      } else if (e.key === "Tab") {
-        // Keep focus inside the lightbox.
-        const focusable = getFocusable();
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    }
-
-    // Tab only constrains the next key press — also catch focus that the
-    // browser or assistive technology moves out of the lightbox (#481).
-    const containment = createFocusContainmentListener({
-      getContainer: () => panelRef.current,
-      getFocusable,
-      isActive: () => dialogStack.isTopmost(PREVIEW_ID),
-    });
-
-    window.addEventListener("keydown", onKeyDown);
-    document.addEventListener("focusin", containment);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("focusin", containment);
-      dialogStack.remove(PREVIEW_ID);
-      document.body.style.overflow = previousOverflow;
-      previousFocus?.focus();
-    };
-  }, [open]);
+  // Escape, focus containment and the vertical overflow guard all come from
+  // the shared dialog behaviour: the lightbox stacks over the expense dialog,
+  // so only the topmost surface may react to Escape.
+  useDialogFocus({ open, onClose, panelRef });
 
   if (typeof document === "undefined" || !open) return null;
 
@@ -113,7 +38,7 @@ export function ReceiptPreview({
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/80 p-4"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) closeRef.current();
+        if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
@@ -131,7 +56,7 @@ export function ReceiptPreview({
           </span>
           <button
             type="button"
-            onClick={closeRef.current}
+            onClick={onClose}
             aria-label={`Close ${title}`}
             className="border-2 border-ink rounded-lg bg-cream p-1.5 shadow-brutal-sm hover:bg-flamingo transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
           >

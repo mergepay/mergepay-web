@@ -110,6 +110,21 @@ export function AddExpenseDialog({
     }
   }, [draft, isRestored]);
 
+  // The dialog mounts with the page, before the group's members have loaded, so
+  // `participants` starts empty on a cold load and every expense is then
+  // rejected as "select at least one participant". Adopt the roster as soon as
+  // it arrives. Both guards matter: returning the current array keeps a
+  // draft-restored selection from being overwritten, and ignoring an empty
+  // roster keeps this from looping — the group page passes a fresh `?? []`
+  // array on every render while the query is pending, and a fresh array is a
+  // state change.
+  useEffect(() => {
+    if (members.length === 0) return;
+    setParticipants((current) =>
+      current.length === 0 ? members.map((m) => m.userId) : current
+    );
+  }, [members]);
+
   useEffect(() => {
     if (title || amount || description || memo) {
       saveDraft({

@@ -37,6 +37,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
+import { TxProgress, TxStatusPanel } from "@/components/ui/tx-progress";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { Money } from "@/components/amount";
@@ -307,7 +308,12 @@ export function SettlementModal({ open, onClose, groupId, target, onSettled, tim
       dismissible={!locked}
     >
       <div className="space-y-5">
-        <StepProgress activeIndex={progressIndex} errored={step === "error"} />
+        <TxProgress
+          steps={PROGRESS}
+          completed={progressIndex}
+          errored={step === "error"}
+          label="Settlement progress"
+        />
 
         <AnimatePresence mode="wait" initial={false}>
           <motion.div key={step} {...motionProps} transition={{ duration: reduceMotion ? 0 : 0.18, ease: "easeOut" }}>
@@ -335,7 +341,7 @@ export function SettlementModal({ open, onClose, groupId, target, onSettled, tim
             )}
 
             {step === "sign" && (
-              <StatusPanel
+              <TxStatusPanel
                 tone="grape"
                 icon={signPhase === "wallet" ? <Wallet className="h-7 w-7" /> : <Loader2 className="h-7 w-7 animate-spin" />}
                 title={signPhase === "preparing" ? "Preparing payment" : signPhase === "verifying" ? "Verifying payment" : "Check your wallet"}
@@ -358,7 +364,7 @@ export function SettlementModal({ open, onClose, groupId, target, onSettled, tim
             )}
 
             {step === "submitting" && (
-              <StatusPanel
+              <TxStatusPanel
                 tone="butter"
                 icon={<Loader2 className="h-7 w-7 animate-spin" />}
                 title={submitPhase === "sending" ? "Submitting to Stellar" : "Waiting for confirmation"}
@@ -454,35 +460,6 @@ export function SettlementModal({ open, onClose, groupId, target, onSettled, tim
 // Presentational pieces
 // ---------------------------------------------------------------------------
 
-function StepProgress({ activeIndex, errored }: { activeIndex: number; errored: boolean }) {
-  return (
-    <ol className="grid grid-cols-4 gap-1.5" aria-label="Settlement progress">
-      {PROGRESS.map((p, i) => {
-        const done = i < activeIndex;
-        const current = i === activeIndex;
-        return (
-          <li key={p.id} aria-current={current ? "step" : undefined} className="min-w-0">
-            <div
-              className={cn(
-                "h-2 rounded-full border-2 border-ink transition-colors",
-                done ? "bg-ink" : current ? (errored ? "bg-flamingo" : "bg-lime") : "bg-cream"
-              )}
-            />
-            <span
-              className={cn(
-                "mt-1 block truncate font-display text-[10px] uppercase tracking-widest",
-                current ? "text-ink" : "text-ink/50"
-              )}
-            >
-              {p.label}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
 function RecipientCard({ target }: { target: SettleTarget }) {
   return (
     <div className="rounded-2xl border-3 border-ink bg-paper p-4 shadow-brutal-sm">
@@ -509,41 +486,6 @@ function Bullet({ icon, children }: { icon: ReactNode; children: ReactNode }) {
       </span>
       <span>{children}</span>
     </li>
-  );
-}
-
-function StatusPanel({
-  tone,
-  icon,
-  title,
-  body,
-  footer,
-  live = false,
-}: {
-  tone: "grape" | "butter";
-  icon: ReactNode;
-  title: string;
-  body: string;
-  footer?: ReactNode;
-  live?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex flex-col items-center gap-3 rounded-2xl border-3 border-ink px-4 py-6 text-center shadow-brutal-sm",
-        tone === "grape" ? "bg-grape-pale" : "bg-butter-pale"
-      )}
-      role="status"
-      aria-live="polite"
-      aria-busy={live || undefined}
-    >
-      <span className="text-grape" aria-hidden="true">
-        {icon}
-      </span>
-      <p className="font-display text-sm uppercase tracking-tight">{title}</p>
-      <p className="max-w-xs text-xs text-ink/70">{body}</p>
-      {footer && <div className="flex flex-col items-center gap-2">{footer}</div>}
-    </div>
   );
 }
 

@@ -32,6 +32,7 @@ import {
   type TrustlineAsset,
 } from "./trustline";
 import type { User } from "./types";
+import type { WalletBuildPhase } from "./walletSubmission";
 import type { WalletProbe } from "./walletReadiness";
 import type { WalletSnapshot } from "./walletSession";
 
@@ -120,14 +121,23 @@ export async function submitSignedXdr(signedXdr: string): Promise<string> {
  * Throws a `WalletError` (with a stable code) when the user rejects the
  * signature or the wallet is locked/unavailable — callers should surface
  * `e.code` and `e.message` rather than the raw provider string.
+ *
+ * `onPhase` is optional and called *before* each leg, so a caller can show
+ * which of the three the user is waiting on (#545). Callers that don't pass it
+ * get exactly the behaviour they had before. It reports the legs this function
+ * owns; the network confirmation that follows is the caller's own poll.
  */
 export async function addTrustline(
   publicKey: string,
   assetCode: string,
-  issuer: string
+  issuer: string,
+  onPhase?: (phase: WalletBuildPhase) => void
 ): Promise<{ txHash: string }> {
+  onPhase?.("preparing");
   const xdr = await prepareTrustlineXdr(publicKey, assetCode, issuer);
+  onPhase?.("signing");
   const signedXdr = await signXdr(xdr, NETWORK_PASSPHRASE);
+  onPhase?.("submitting");
   const txHash = await submitSignedXdr(signedXdr);
   return { txHash };
 }
