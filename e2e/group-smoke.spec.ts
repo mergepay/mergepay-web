@@ -594,32 +594,6 @@ async function mockFreighter(page: Page, publicKey: string): Promise<void> {
 }
 
 /**
- * Persist a signed-in session before the app boots, so `AuthGuard` renders the
- * page instead of redirecting and `useSessionRestore` has nothing to resolve.
- */
-async function seedAuthSession(page: Page, user: FakeUser): Promise<void> {
-  await page.addInitScript((account) => {
-    try {
-      sessionStorage.setItem(
-        "mergepay.token",
-        JSON.stringify({
-          state: {
-            token: "e2e-session-token",
-            user: account,
-            lastAuthenticatedAt: new Date().toISOString(),
-            activeWalletPublicKey: account.stellarPublicKey,
-            restoreStatus: "settled",
-          },
-          version: 0,
-        })
-      );
-    } catch {
-      // storage disabled — the guard falls back to the sign-in screen
-    }
-  }, user);
-}
-
-/**
  * Answer Horizon so the trustline banner resolves offline.
  *
  * The banner reads the connected account's balances from Horizon on mount. Left
@@ -661,7 +635,6 @@ async function mountJourney(
   user: FakeUser
 ): Promise<void> {
   await mockFreighter(page, user.stellarPublicKey);
-  await seedAuthSession(page, user);
   await mockHorizon(page);
   await page.route("**/api/**", api.handle(user));
   // The dialogs gate their submit buttons on connectivity, and intercepting
@@ -672,6 +645,20 @@ async function mountJourney(
       configurable: true,
     });
   });
+}
+
+/**
+ * Sign in through the mocked wallet and land on the dashboard.
+ *
+ * PR #543 made the bearer token memory-only (never reaches Web Storage), so
+ * any hand-seeded session blob is ignored by the auth store's custom `merge`.
+ * The only way to hold a live session across the test is to drive the real
+ * connect → challenge → sign → verify flow — exactly what a user does anyway.
+ */
+async function signIn(page: Page): Promise<void> {
+  await page.goto("/login");
+  await page.getByTestId("login-connect").click();
+  await expect(page).toHaveURL(/\/dashboard$/);
 }
 
 // ---------------------------------------------------------------------------
@@ -705,8 +692,16 @@ test.describe("group smoke journey", () => {
 
     const errors = watchForErrors(page);
 
+    // Sign in as Alice through the real login flow (token is memory-only —
+    // page.goto would drop it, so every subsequent navigation must be
+    // client-side via sidebar links or card clicks).
+    await signIn(page);
+
     // ── 1. Create the group ────────────────────────────────────────────────
-    await page.goto("/groups");
+    // Client-side navigation only: page.goto("/groups") reloads the document
+    // and drops the in-memory token, bouncing Alice back to /login.
+    await page.locator("aside").getByRole("link", { name: "Groups" }).click();
+    await expect(page).toHaveURL(/\/groups$/);
     await expect(
       page.getByRole("heading", { name: /your groups/i })
     ).toBeVisible();
@@ -776,7 +771,13 @@ test.describe("group smoke journey", () => {
     const visitorErrors = watchForErrors(visitorPage);
     await mountJourney(visitorPage, api, BOB);
 
+    // The join page redirects unauthenticated visitors to /login, parking the
+    // invite code in sessionStorage.pendingInvite. After login the login page
+    // reads that value and navigates back to /join/${code} client-side.
     await visitorPage.goto(`/join/${invite.code}`);
+    await expect(visitorPage).toHaveURL(/\/login/);
+    await visitorPage.getByTestId("login-connect").click();
+    await expect(visitorPage).toHaveURL(new RegExp(`/join/${invite.code}`));
     await expect(
       visitorPage.getByRole("heading", { name: /^join group$/i })
     ).toBeVisible();
@@ -801,11 +802,15 @@ test.describe("group smoke journey", () => {
     await visitor.close();
 
     // ── 4. The group now has two members ───────────────────────────────────
-    await page.goto("/groups");
+    // Client-side navigation via the sidebar keeps Alice's in-memory token alive.
+    await page.locator("aside").getByRole("link", { name: "Groups" }).click();
+    await expect(page).toHaveURL(/\/groups$/);
     await expect(page.getByText(/2 members/i)).toBeVisible();
 
     // ── 5. One expense, split across both of them ──────────────────────────
-    await page.goto(`/groups/${groupId}`);
+    // Navigate to the group detail by clicking the card (client-side).
+    await page.getByTestId("group-card").click();
+    await expect(page).toHaveURL(new RegExp(`/groups/${groupId}(\\?[^#]*)?$`));
     await page.getByRole("button", { name: /add expense/i }).click();
     const expenseDialog = page.getByRole("dialog", { name: /add expense/i });
     await expenseDialog.getByLabel(/^title$/i).fill(EXPENSE_TITLE);
