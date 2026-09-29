@@ -77,6 +77,8 @@ export function shouldCloseOnEscape(args: {
 export interface FocusCandidate {
   /** Carries an explicit `data-autofocus` marker. */
   autofocus?: boolean;
+  /** Primary action within the dialog (e.g. submit button, primary CTA). */
+  primary?: boolean;
   /** Lives in the dialog body rather than the title bar. */
   inBody?: boolean;
 }
@@ -84,9 +86,9 @@ export interface FocusCandidate {
 /**
  * Index of the control that should receive focus when a dialog opens.
  *
- * Preference order: an explicitly marked control, then the first control in
- * the body (the first form field, rather than the close button), then anything
- * focusable at all. Returns -1 when the dialog has no focusable content, in
+ * Preference order: an explicitly marked control, then a primary action,
+ * then the first control in the body (the first form field, rather than the close button),
+ * then anything focusable at all. Returns -1 when the dialog has no focusable content, in
  * which case the caller focuses the panel itself so focus still enters the
  * dialog.
  */
@@ -95,6 +97,9 @@ export function pickInitialFocusIndex(candidates: FocusCandidate[]): number {
 
   const explicit = candidates.findIndex((c) => c.autofocus);
   if (explicit !== -1) return explicit;
+
+  const primary = candidates.findIndex((c) => c.primary);
+  if (primary !== -1) return primary;
 
   const firstInBody = candidates.findIndex((c) => c.inBody);
   if (firstInBody !== -1) return firstInBody;

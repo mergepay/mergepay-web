@@ -39,11 +39,19 @@ export function TrustlineBanner({ className }: { className?: string }) {
       toast.success(`${code} trustline confirmed on-chain.`);
       refresh();
     } catch (e) {
-      toast.error(
-        e instanceof WalletError
-          ? walletMessage(e.code)
-          : "Could not add the trustline. Please try again."
-      );
+      const msg = e instanceof Error ? e.message : String(e);
+      if (
+        msg.toLowerCase().includes("reserve") ||
+        msg.toLowerCase().includes("op_low_reserve")
+      ) {
+        toast.error(
+          "Insufficient XLM reserve. Adding a trustline requires an additional 0.5 XLM available in your wallet."
+        );
+      } else if (e instanceof WalletError) {
+        toast.error(walletMessage(e.code));
+      } else {
+        toast.error(msg || "Could not add the trustline. Please try again.");
+      }
     } finally {
       setPending(null);
     }

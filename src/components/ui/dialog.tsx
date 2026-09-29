@@ -78,6 +78,10 @@ export function Dialog({
           }
           const candidates = allFocusable.map((el) => ({
             autofocus: el.hasAttribute("data-autofocus"),
+            primary:
+              el.hasAttribute("data-primary-action") ||
+              el.hasAttribute("data-primary") ||
+              el.getAttribute("type") === "submit",
             inBody: !el.closest('[class*="border-b"]'),
           }));
           const initialIndex = pickInitialFocusIndex(candidates);
@@ -88,6 +92,10 @@ export function Dialog({
         // Build candidates for initial focus selection
         const candidates = focusable.map((el) => ({
           autofocus: el.hasAttribute("data-autofocus"),
+          primary:
+            el.hasAttribute("data-primary-action") ||
+            el.hasAttribute("data-primary") ||
+            el.getAttribute("type") === "submit",
           inBody: true, // All in content are considered "in body"
         }));
 
