@@ -110,7 +110,14 @@ export function useDialogFocus({
       const body = contentFocusable();
       if (body.length > 0) {
         const index = pickInitialFocusIndex(
-          body.map((el) => ({ autofocus: el.hasAttribute("data-autofocus"), inBody: true }))
+          body.map((el) => ({
+            autofocus: el.hasAttribute("data-autofocus"),
+            primary:
+              el.hasAttribute("data-primary-action") ||
+              el.hasAttribute("data-primary") ||
+              el.getAttribute("type") === "submit",
+            inBody: true,
+          }))
         );
         (body[index] ?? panelRef.current)?.focus();
         return;
