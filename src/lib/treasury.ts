@@ -1,4 +1,4 @@
-import type { TreasuryBalance, TreasuryTransaction } from "./types";
+import type { TreasuryBalance, TrustlineAsset, TreasuryTransaction } from "./types";
 
 /**
  * Pure aggregation helpers for the treasury widget (#392).
@@ -345,6 +345,83 @@ export interface MemberContribution {
  */
 export function isConfirmedTreasuryTx(tx: TreasuryTransaction): boolean {
   return tx?.status === "confirmed";
+}
+
+// ---------------------------------------------------------------------------
+// Wallet-side multi-asset trustline summary (#344)
+// ---------------------------------------------------------------------------
+
+/**
+ * One configured asset's wallet-side row: its balance, conversion rates, and
+ * whether the account can actually hold it.
+ */
+export interface WalletAssetSummary {
+  /** Asset code, e.g. `"XLM"` or `"USDC"`. */
+  assetCode: string;
+  /** Issuer public key, or `null` for native XLM. */
+  assetIssuer: string | null;
+  /** Balance as a decimal string exactly as Horizon reported it. */
+  balance: string;
+  /** Direct fiat price of one unit (XLM→USD, USDC→USD), when known. */
+  fiatRate: number | null;
+  /** Cross-asset rate: how much of `otherAssetCode` one unit converts to. */
+  crossRate: number | null;
+  /** The other configured asset this row converts into. */
+  otherAssetCode: string | null;
+  /** `true` once the account holds an active trustline for the asset. */
+  hasTrustline: boolean;
+}
+
+/**
+ * Build the wallet-side per-asset rows the treasury balance widget renders.
+ *
+ * Two conversion figures ride along with each asset: its direct fiat price
+ * (`fiatRate`) and the cross rate into the *other* configured asset
+ * (`crossRate`, e.g. 1 XLM → `N` USDC derived from the shared fiat feed).
+ * Both are `null` when the feed has not answered, so the widget renders no
+ * estimate rather than a guessed one. Rows keep the caller's order.
+ *
+ * Pure and dependency-free so it is trivially unit-testable.
+ */
+export function buildWalletAssetSummaries(
+  assets: readonly TrustlineAsset[] | null | undefined,
+  fiatRates: Record<string, number | null | undefined> = {}
+): WalletAssetSummary[] {
+  const rows = (assets ?? []).map((asset) => ({
+    assetCode: asset.code,
+    assetIssuer: asset.issuer ?? null,
+    balance: asset.balance ?? "0",
+    hasTrustline: asset.hasTrustline !== false,
+  }));
+
+  return rows.map((row) => {
+    const fiatRate = fiatRates[row.assetCode];
+    const other = rows.find((candidate) => candidate.assetCode !== row.assetCode);
+    const otherRate = other ? fiatRates[other.assetCode] : undefined;
+
+    // 1 unit of this asset → `fiatRate / otherRate` units of the other.
+    const crossRate =
+      typeof fiatRate === "number" &&
+      Number.isFinite(fiatRate) &&
+      fiatRate > 0 &&
+      typeof otherRate === "number" &&
+      Number.isFinite(otherRate) &&
+      otherRate > 0
+        ? fiatRate / otherRate
+        : null;
+
+    return {
+      ...row,
+      // A zero or non-finite price is "the feed has no answer", not "free" —
+      // displaying $0.00 for a holding would read as a real valuation.
+      fiatRate:
+        typeof fiatRate === "number" && Number.isFinite(fiatRate) && fiatRate > 0
+          ? fiatRate
+          : null,
+      crossRate,
+      otherAssetCode: other ? other.assetCode : null,
+    };
+  });
 }
 
 /**

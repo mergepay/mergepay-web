@@ -19,6 +19,7 @@ import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
 import { Sep24Modal } from "@/components/anchors/Sep24Modal";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
+import { TreasuryBalanceWidget } from "@/components/treasury/TreasuryBalanceWidget";
 import type { AnchorSessionKind, Group } from "@/lib/types";
 
 export default function DashboardPage() {
@@ -58,6 +59,11 @@ export default function DashboardPage() {
             </Button>
           </div>
         </div>
+
+        {/* Treasury Mode balances & trustlines (#344) */}
+        <ErrorBoundary>
+          <TreasuryBalanceWidget />
+        </ErrorBoundary>
 
         {/* SEP-24 fiat on/off-ramp (#374) */}
         <Card className="border-3 border-ink bg-lime-pale p-4 sm:p-5 max-w-full overflow-hidden">
