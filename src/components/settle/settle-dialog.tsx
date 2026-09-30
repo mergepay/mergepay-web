@@ -18,6 +18,10 @@ import { useWalletStatus } from "@/hooks/useWalletStatus";
 import { WalletPrerequisiteNotice } from "@/components/wallet/wallet-status";
 import { useConfirmSettlement, useSettlementStatus } from "@/lib/queries";
 import { validateSettlementInput } from "@/lib/paymentValidation";
+import {
+  createSettlementFormSchema,
+  fieldErrorsFrom,
+} from "@/lib/validators";
 import { recoveryActionFor, retryLabelFor } from "@/lib/settlementRetry";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 import type { SettlementStep, SettleTarget } from "@/lib/useSettlementFlow";
@@ -251,6 +255,20 @@ export function SettleDialog({
     const memoCheck = verifyTransactionMemo(activeMemo, originalShortCode ?? undefined);
     if (!memoCheck.isValid) {
       setError(memoCheck.message);
+      setErrorCode(null);
+      setStep("failed");
+      return;
+    }
+    // Runtime gate (#339): the settlement input must satisfy the shared Zod
+    // schema before the hand-rolled validator — same rules, one source.
+    const schemaCheck = createSettlementFormSchema.safeParse({
+      toUserId: target.to.id,
+      amount: target.amount,
+      assetCode: target.assetCode,
+      assetIssuer: target.assetIssuer,
+    });
+    if (!schemaCheck.success) {
+      setError(Object.values(fieldErrorsFrom(schemaCheck))[0] ?? "Invalid payment input");
       setErrorCode(null);
       setStep("failed");
       return;

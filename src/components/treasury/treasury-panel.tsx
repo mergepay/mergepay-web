@@ -23,7 +23,7 @@ import { PubkeyChip, TxLink } from "@/components/tx-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar } from "@/components/ui/avatar";
-import { StrKey } from "@/lib/strkey";
+import { cn } from "@/lib/utils";
 import {
   useEnableTreasury,
   useTreasuryDeposit,
@@ -39,9 +39,15 @@ import {
   NotInstalledMessage,
 } from "@/lib/stellar";
 import { SETTLEMENT_ASSETS, STABLE_ASSET } from "@/lib/constants";
+import {
+  enableTreasuryFormSchema,
+  treasuryDepositFormSchema,
+  treasuryWithdrawFormSchema,
+  fieldErrorsFrom,
+} from "@/lib/validators";
 import { fullDate } from "@/lib/format";
 import { Timestamp } from "@/components/timestamp";
-import { validateAmount, normalizeAmount, exceedsBalance } from "@/lib/money";
+import { normalizeAmount, exceedsBalance } from "@/lib/money";
 import { useWalletDisconnected } from "@/lib/wallet-store";
 import type { Group, GroupDetail } from "@/lib/types";
 
@@ -363,18 +369,24 @@ function EnableTreasuryDialog({
   const enable = useEnableTreasury(groupId);
   const [publicKey, setPublicKey] = useState("");
   const [requiredSigners, setRequiredSigners] = useState("1");
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!StrKey.isValidEd25519PublicKey(publicKey.trim())) {
-      toast.error("Enter a valid Stellar public key (starts with G).");
+    // Runtime gate (#339): a malformed key or threshold is rejected here —
+    // with inline messages — instead of a toast-only dead end.
+    const parsed = enableTreasuryFormSchema.safeParse({
+      publicKey,
+      requiredSigners: Number(requiredSigners),
+    });
+    if (!parsed.success) {
+      setErrors(fieldErrorsFrom(parsed));
+      toast.error("Please fix the errors before submitting");
       return;
     }
+    setErrors({});
     try {
-      await enable.mutateAsync({
-        publicKey: publicKey.trim(),
-        requiredSigners: Number(requiredSigners) || 1,
-      });
+      await enable.mutateAsync(parsed.data);
       toast.success("Treasury enabled");
       onClose();
     } catch (e) {
@@ -397,9 +409,16 @@ function EnableTreasuryDialog({
             value={publicKey}
             onChange={(e) => setPublicKey(e.target.value)}
             placeholder="G…"
-            className="font-mono text-xs"
+            className={cn("font-mono text-xs", errors.publicKey && "border-flamingo")}
             autoFocus
+            aria-invalid={errors.publicKey ? true : undefined}
+            aria-describedby={errors.publicKey ? "t-pk-error" : undefined}
           />
+          {errors.publicKey && (
+            <p id="t-pk-error" role="alert" className="mt-1 text-xs font-bold text-flamingo">
+              {errors.publicKey}
+            </p>
+          )}
         </div>
         <div>
           <Label htmlFor="t-sig">Required signers for withdrawals</Label>
@@ -424,6 +443,11 @@ function EnableTreasuryDialog({
           <FieldHint>
             Set signer weights & thresholds on the account in your wallet to match.
           </FieldHint>
+          {errors.requiredSigners && (
+            <p role="alert" className="mt-1 text-xs font-bold text-flamingo">
+              {errors.requiredSigners}
+            </p>
+          )}
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -451,24 +475,30 @@ function DepositDialog({
   const [amount, setAmount] = useState("");
   const [assetKey, setAssetKey] = useState("XLM");
   const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const walletDisconnected = useWalletDisconnected();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    // Validate and normalise: catches exponential notation, >7 dp, zero, negative.
-    const amountError = validateAmount(amount);
-    if (amountError) {
-      toast.error(amountError);
+    const asset = SETTLEMENT_ASSETS.find((a) => a.code === assetKey)!;
+    // Runtime gate (#339): amount/issuer validated by the shared Zod schema;
+    // the amount is then normalised to a canonical decimal string.
+    const parsed = treasuryDepositFormSchema.safeParse({
+      amount,
+      assetCode: asset.code,
+      assetIssuer: asset.issuer,
+    });
+    if (!parsed.success) {
+      setErrors(fieldErrorsFrom(parsed));
+      toast.error("Please fix the errors before submitting");
       return;
     }
-    const normalised = normalizeAmount(amount);
-    const asset = SETTLEMENT_ASSETS.find((a) => a.code === assetKey)!;
+    setErrors({});
     setBusy(true);
     try {
       const intent = await deposit.mutateAsync({
-        amount: normalised,
-        assetCode: asset.code,
-        assetIssuer: asset.issuer,
+        ...parsed.data,
+        amount: normalizeAmount(parsed.data.amount),
       });
       await signAndConfirmTreasuryTx(
         intent.treasuryTransaction.id,
@@ -500,7 +530,15 @@ function DepositDialog({
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.0000000"
               autoFocus
+              aria-invalid={errors.amount ? true : undefined}
+              aria-describedby={errors.amount ? "d-amt-error" : undefined}
+              className={errors.amount ? "border-flamingo" : undefined}
             />
+            {errors.amount && (
+              <p id="d-amt-error" role="alert" className="mt-1 text-xs font-bold text-flamingo">
+                {errors.amount}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="d-asset">Asset</Label>
@@ -542,21 +580,27 @@ function WithdrawDialog({
   const [assetKey, setAssetKey] = useState("XLM");
   const [destination, setDestination] = useState("");
   const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const walletDisconnected = useWalletDisconnected();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!StrKey.isValidEd25519PublicKey(destination.trim())) {
-      toast.error("Enter a valid destination public key.");
+    const asset = SETTLEMENT_ASSETS.find((a) => a.code === assetKey)!;
+    // Runtime gate (#339): amount, issuer and destination validated by the
+    // shared Zod schema before the balance guard and transaction build.
+    const parsed = treasuryWithdrawFormSchema.safeParse({
+      amount,
+      assetCode: asset.code,
+      assetIssuer: asset.issuer,
+      destination,
+    });
+    if (!parsed.success) {
+      setErrors(fieldErrorsFrom(parsed));
+      toast.error("Please fix the errors before submitting");
       return;
     }
-    // Validate and normalise: catches exponential notation, >7 dp, zero, negative.
-    const amountError = validateAmount(amount);
-    if (amountError) {
-      toast.error(amountError);
-      return;
-    }
-    const normalised = normalizeAmount(amount);
+    setErrors({});
+    const normalised = normalizeAmount(parsed.data.amount);
     // Client-side balance guard — blocks signing before an opaque Horizon failure.
     const treasuryBalance = balances.find((b) => b.assetCode === assetKey);
     if (!treasuryBalance || exceedsBalance(normalised, treasuryBalance.balance)) {
@@ -566,14 +610,11 @@ function WithdrawDialog({
       );
       return;
     }
-    const asset = SETTLEMENT_ASSETS.find((a) => a.code === assetKey)!;
     setBusy(true);
     try {
       const intent = await withdraw.mutateAsync({
+        ...parsed.data,
         amount: normalised,
-        assetCode: asset.code,
-        assetIssuer: asset.issuer,
-        destination: destination.trim(),
       });
       // Build & sign with the treasury account in the wallet.
       await signAndConfirmTreasuryTx(
@@ -611,7 +652,15 @@ function WithdrawDialog({
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.0000000"
               autoFocus
+              aria-invalid={errors.amount ? true : undefined}
+              aria-describedby={errors.amount ? "w-amt-error" : undefined}
+              className={errors.amount ? "border-flamingo" : undefined}
             />
+            {errors.amount && (
+              <p id="w-amt-error" role="alert" className="mt-1 text-xs font-bold text-flamingo">
+                {errors.amount}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="w-asset">Asset</Label>
@@ -628,8 +677,15 @@ function WithdrawDialog({
             value={destination}
             onChange={(e) => setDestination(e.target.value)}
             placeholder="G…"
-            className="font-mono text-xs"
+            className={cn("font-mono text-xs", errors.destination && "border-flamingo")}
+            aria-invalid={errors.destination ? true : undefined}
+            aria-describedby={errors.destination ? "w-dest-error" : undefined}
           />
+          {errors.destination && (
+            <p id="w-dest-error" role="alert" className="mt-1 text-xs font-bold text-flamingo">
+              {errors.destination}
+            </p>
+          )}
         </div>
         <FieldHint>
           Withdrawals are signed from the treasury account. Multisig groups need
