@@ -23,6 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, KeyRound, Link2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog } from "@/components/ui/dialog";
+import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, FieldHint } from "@/components/ui/input";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -193,6 +194,14 @@ export function InviteMemberModal({
         </div>
       ) : (
         <div className="space-y-5">
+          {shareUrl && (
+            <div className="flex justify-center mb-4">
+              <div className="rounded-2xl border-3 border-ink bg-white p-4 shadow-brutal">
+                <QRCodeSVG value={shareUrl} size={160} fgColor="#18130E" />
+              </div>
+            </div>
+          )}
+
           <div>
             <Label>Invite code</Label>
             <div className="flex items-center gap-2">
