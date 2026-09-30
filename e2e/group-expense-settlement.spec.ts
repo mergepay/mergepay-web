@@ -528,6 +528,70 @@ test.describe("Group expense and settlement flow", () => {
       await expect(submitBtn).not.toBeDisabled();
     });
 
+    // The complete journey keeps the API stateful: the expense and resulting
+    // balances only become visible after the create request succeeds. This
+    // catches a regression where the form submits but the group view never
+    // reflects the newly recorded split.
+    test("creates a group, records a shared expense, and refreshes balances", async ({ page }) => {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, "onLine", { get: () => true, configurable: true });
+      });
+      await mountGroupDetailMocks(page, { expenseList: [] });
+
+      let expenseCreated = false;
+      await page.route(`**/api/groups/${GROUP_ID}/expenses`, async (route: Route) => {
+        if (route.request().method() === "POST") {
+          expenseCreated = true;
+          await route.fulfill({
+            status: 201,
+            contentType: "application/json",
+            body: JSON.stringify({ expense: MOCK_EXPENSE }),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ expenses: expenseCreated ? [MOCK_EXPENSE] : [] }),
+        });
+      });
+      await page.route(`**/api/groups/${GROUP_ID}/balances`, (route: Route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(
+            expenseCreated
+              ? MOCK_BALANCES
+              : { balances: [], suggestions: [] }
+          ),
+        })
+      );
+
+      await openGroupDetail(page);
+      await expect(page.getByText(/no expenses yet/i)).toBeVisible();
+
+      await page.getByRole("button", { name: /add expense/i }).click();
+      const dialog = page.getByRole("dialog", { name: /add expense/i });
+      await dialog.getByLabel(/^title$/i).fill("E2E Dinner");
+      await dialog.getByLabel(/^amount$/i).fill("100");
+      await expect(dialog.getByTestId("split-row-user-1")).toContainText("Alice Stellar");
+      await expect(dialog.getByTestId("split-row-user-2")).toContainText("Bob Testnet");
+
+      const [response] = await Promise.all([
+        page.waitForResponse(
+          (r) => r.url().includes(`/api/groups/${GROUP_ID}/expenses`) && r.request().method() === "POST"
+        ),
+        dialog.getByTestId("add-expense-confirm").click(),
+      ]);
+      expect(response.status()).toBe(201);
+
+      await expect(
+        page.getByRole("button", { name: /expand expense e2e dinner/i })
+      ).toBeVisible();
+      await expect(page.getByRole("heading", { name: /^net balances$/i })).toBeVisible();
+      await expect(page.getByText(/50\.0/).filter({ visible: true }).first()).toBeVisible();
+    });
+
     // 5. Balances panel — correct net positions and settlement suggestion
     test("balances panel renders correct net positions", async ({ page }) => {
       const errors = trackPageErrors(page);
