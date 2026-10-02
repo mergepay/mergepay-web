@@ -40,7 +40,7 @@ export default function DashboardPage() {
 
   return (
     <ErrorBoundary onReset={() => refetch()}>
-      <div className="space-y-6 max-w-full overflow-x-hidden px-1 sm:px-0">
+<div className="space-y-6 max-w-full box-border overflow-x-hidden px-1 sm:px-0">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="font-display text-2xl uppercase tracking-tight">
@@ -66,7 +66,7 @@ export default function DashboardPage() {
         </ErrorBoundary>
 
         {/* SEP-24 fiat on/off-ramp (#374) */}
-        <Card className="border-3 border-ink bg-lime-pale p-4 sm:p-5 max-w-full overflow-hidden">
+<Card className="border-3 border-ink bg-lime-pale p-4 sm:p-5 max-w-full box-border overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-ink bg-tangerine">
