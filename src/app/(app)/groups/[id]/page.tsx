@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useGroup, useExpenses, useBalances, useSettlements } from "@/lib/queries";
 import { useGroupStore } from "@/lib/group-store";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { GroupErrorBoundary } from "@/components/groups/GroupErrorBoundary";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Plus, Users, Receipt, ArrowLeft, SearchX } from "lucide-react";
@@ -74,7 +75,7 @@ export default function GroupDetailPage() {
   const visibleExpenses = filteredExpenses.slice((page - 1) * filters.pageSize, page * filters.pageSize);
 
   return (
-    <ErrorBoundary onReset={() => {
+    <GroupErrorBoundary onReset={() => {
       groupQuery.refetch();
       expensesQuery.refetch();
       balancesQuery.refetch();
@@ -251,6 +252,6 @@ export default function GroupDetailPage() {
           groupName={group?.name}
         />
       </div>
-    </ErrorBoundary>
+    </GroupErrorBoundary>
   );
 }

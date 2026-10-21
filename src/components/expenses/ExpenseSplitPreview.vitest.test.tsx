@@ -50,6 +50,29 @@ describe("ExpenseSplitPreview (#383)", () => {
     expect(row("u1")).toHaveTextContent(/rounding/i);
   });
 
+  it("allocates prime stroop totals to the earliest participants in the preview", () => {
+    renderPreview({
+      amount: "0.0000013",
+      participants: [
+        ...PARTICIPANTS,
+        { userId: "u4", displayName: "Dana" },
+        { userId: "u5", displayName: "Efe" },
+      ],
+    });
+
+    for (const id of ["u1", "u2", "u3"]) {
+      expect(row(id)).toHaveTextContent("0.0000003");
+      expect(row(id)).toHaveAttribute("data-remainder", "true");
+    }
+    for (const id of ["u4", "u5"]) {
+      expect(row(id)).toHaveTextContent("0.0000002");
+      expect(row(id)).toHaveAttribute("data-remainder", "false");
+    }
+    expect(screen.getByTestId("split-total-status")).toHaveTextContent(
+      /total exactly to the expense amount/i
+    );
+  });
+
   it("renders percentage splits with exact totals", () => {
     renderPreview({
       splitType: "percentage",

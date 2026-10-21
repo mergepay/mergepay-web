@@ -54,13 +54,15 @@ export function Navbar() {
           </Link>
         </nav>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Button
             variant="ghost"
             size="sm"
-            className="md:hidden p-2"
+            className="md:hidden min-h-11 min-w-11 p-2"
             onClick={() => setMobileMenuOpen(true)}
             aria-label="Open navigation menu"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-nav-drawer"
           >
             <Menu className="h-6 w-6" />
           </Button>

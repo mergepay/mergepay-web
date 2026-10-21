@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { AlertTriangle, RotateCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { AlertTriangle, LayoutDashboard, RotateCcw, RefreshCw } from "lucide-react";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { logRenderError } from "@/lib/errorHandler";
 
-export default function ErrorBoundary({
+/** Next.js App Router fallback for errors within the authenticated route group. */
+export default function AppError({
   error,
   reset,
 }: {
@@ -12,28 +14,56 @@ export default function ErrorBoundary({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("Authenticated segment error caught:", error);
+    logRenderError(error, {
+      componentStack: error.digest ? `digest ${error.digest}` : null,
+    });
   }, [error]);
 
   return (
-    <div className="flex min-h-[50vh] flex-col items-center justify-center px-4 text-center">
-      <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl border-3 border-ink bg-flamingo shadow-brutal text-ink">
-        <AlertTriangle className="h-10 w-10" />
-      </div>
-      <h2 className="font-display text-2xl uppercase tracking-tight text-ink md:text-3xl">
-        Something went wrong!
-      </h2>
-      <p className="mx-auto mt-3 max-w-md font-body text-sm font-semibold text-ink/60">
-        {error.message || "An unexpected error occurred in the application."}
-      </p>
-      <div className="mt-8 flex justify-center gap-4">
-        <Button onClick={() => reset()} variant="secondary">
-          <RotateCcw className="h-4 w-4" /> Try again
-        </Button>
-        <Button onClick={() => window.location.reload()} variant="outline">
-          Reload page
-        </Button>
-      </div>
-    </div>
+    <main className="flex min-h-[60vh] items-center justify-center p-4">
+      <section
+        role="alert"
+        className="w-full max-w-lg space-y-5 rounded-2xl border-3 border-ink bg-flamingo-pale p-6 shadow-brutal sm:p-8"
+      >
+        <div className="flex items-center gap-4">
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border-3 border-ink bg-flamingo shadow-brutal-sm">
+            <AlertTriangle className="h-7 w-7 text-ink" aria-hidden="true" />
+          </span>
+          <div>
+            <h1 className="font-display text-2xl uppercase tracking-tight text-ink">
+              Something went wrong
+            </h1>
+            <p className="mt-1 text-sm font-semibold text-ink/70">
+              We couldn't load this page. Try again or return to your dashboard.
+            </p>
+          </div>
+        </div>
+
+        {process.env.NODE_ENV !== "production" ? (
+          <p className="max-h-32 overflow-auto rounded-xl border-2 border-ink bg-white p-3 font-mono text-xs text-ink/80">
+            {error.message}
+          </p>
+        ) : error.digest ? (
+          <p className="rounded-xl border-2 border-ink bg-white p-3 font-mono text-xs text-ink/80">
+            Error reference: {error.digest}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap gap-3">
+          <Button type="button" variant="primary" onClick={reset}>
+            <RotateCcw className="mr-2 h-4 w-4" aria-hidden="true" />
+            Try again
+          </Button>
+          <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            Reload page
+          </Button>
+          <a href="/dashboard" className={buttonClassName("outline", "md")}>
+            <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden="true" />
+            Dashboard
+          </a>
+        </div>
+      </section>
+    </main>
   );
 }

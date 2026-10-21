@@ -105,4 +105,55 @@ describe("Dialog Primitive Accessibility & Focus Trapping", () => {
     expect(innerClose).toHaveBeenCalledOnce();
     expect(outerClose).not.toHaveBeenCalled();
   });
+  it("returns focus to the keyboard trigger after Escape dismisses the dialog", async () => {
+    function Example() {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Open expense</button>
+          <Dialog open={open} onClose={() => setOpen(false)} title="Add expense">
+            <button type="button">Save expense</button>
+          </Dialog>
+        </>
+      );
+    }
+    render(<Example />);
+    const trigger = screen.getByRole("button", { name: "Open expense" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save expense" })).toHaveFocus());
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps focus on the topmost dialog when two dialogs are open", async () => {
+    render(
+      <>
+        <Dialog open onClose={() => {}} title="Lower"><button type="button">Lower action</button></Dialog>
+        <Dialog open onClose={() => {}} title="Upper"><button type="button">Upper action</button></Dialog>
+      </>
+    );
+    const upper = screen.getByRole("button", { name: "Upper action" });
+    await waitFor(() => expect(upper).toHaveFocus());
+    const event = fireEvent.keyDown(upper, { key: "Tab" });
+    expect(event).toBe(false);
+    expect(screen.getByRole("button", { name: "Close Upper" })).toHaveFocus();
+  });
+
+  it("does not move focus to hidden controls inside a dialog", async () => {
+    render(
+      <Dialog open onClose={() => {}} title="Visible controls">
+        <div hidden><button type="button">Hidden control</button></div>
+        <button type="button">Visible action</button>
+      </Dialog>
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Visible action" })).toHaveFocus());
+    const close = screen.getByRole("button", { name: "Close Visible controls" });
+    close.focus();
+    // Close is the first Tab stop; Shift+Tab wraps to the last visible control.
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(screen.getByRole("button", { name: "Visible action" })).toHaveFocus();
+  });
+
 });

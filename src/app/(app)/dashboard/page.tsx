@@ -21,6 +21,7 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { TreasuryBalanceWidget } from "@/components/treasury/TreasuryBalanceWidget";
 import type { AnchorSessionKind, Group } from "@/lib/types";
+import { GroupListSkeleton } from "@/components/groups/GroupListSkeleton";
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -96,8 +97,8 @@ export default function DashboardPage() {
         <ErrorBoundary>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {isLoading && (
-              <div className="col-span-full py-12 text-center text-sm text-ink/60">
-                Loading your groups...
+              <div className="col-span-full">
+                <GroupListSkeleton count={3} />
               </div>
             )}
             {error && (

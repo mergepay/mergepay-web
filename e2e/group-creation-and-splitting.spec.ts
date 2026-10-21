@@ -725,4 +725,22 @@ test.describe("group creation and expense splitting", () => {
     ]);
     expect(JSON.stringify(persisted)).not.toContain("e2e-signature");
   });
+
+  test("surfaces inline validation on too-short group name before allowing creation", async ({
+    page,
+  }) => {
+    await setUpFakeApp(page);
+    await signIn(page);
+
+    await page.getByRole("button", { name: /new group/i }).first().click();
+    const dialog = page.getByRole("dialog", { name: "New group" });
+    const nameInput = dialog.getByLabel("Group name");
+    await nameInput.fill("A");
+    await nameInput.blur();
+
+    await expect(nameInput).toHaveAttribute("aria-invalid", "true");
+    await expect(dialog.locator("#g-name-error")).toContainText(
+      "Group name must be at least 2 characters"
+    );
+  });
 });

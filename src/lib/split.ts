@@ -216,14 +216,39 @@ export function roundRobinRemainder(
   }
 }
 
+/**
+ * Allocate an integer total evenly, assigning each indivisible leftover unit
+ * to participants in input order. Using BigInt keeps cents and stroops exact
+ * even when the total is larger than Number.MAX_SAFE_INTEGER.
+ */
+export function allocateEqualRemainder(total: bigint, participantCount: number): bigint[] {
+  if (typeof total !== "bigint" || total < 0n) {
+    throw new Error("allocateEqualRemainder: total must be a non-negative bigint");
+  }
+  if (!Number.isSafeInteger(participantCount) || participantCount < 0) {
+    throw new Error("allocateEqualRemainder: participantCount must be a non-negative safe integer");
+  }
+  if (participantCount === 0) {
+    if (total !== 0n) throw new Error("allocateEqualRemainder: cannot allocate a positive total to nobody");
+    return [];
+  }
+
+  const count = BigInt(participantCount);
+  const base = total / count;
+  const remainder = Number(total % count);
+  return Array.from({ length: participantCount }, (_, index) =>
+    base + (index < remainder ? 1n : 0n)
+  );
+}
+
 /** Convenience split functions utilizing computeSharesAmounts */
 export function splitEqual(
   amount: string,
   participants: string[]
 ): Array<{ userId: string; amount: string }> {
+  if (participants.length === 0) return [];
   const stroops = toStroops(amount);
-  const weights = participants.map(() => 1);
-  const shares = computeSharesAmounts(stroops, weights);
+  const shares = allocateEqualRemainder(stroops, participants.length);
   return participants.map((userId, i) => ({
     userId,
     amount: fromStroops(shares[i]),
@@ -363,7 +388,7 @@ export function calculateSplit(
   let percentTotalBp: number | null = null;
 
   if (mode === "equal") {
-    const shares = rows.length > 0 ? computeSharesAmounts(total, rows.map(() => 1)) : [];
+    const shares = rows.length > 0 ? allocateEqualRemainder(total, rows.length) : [];
     out = rows.map((row, i) => ({
       userId: row.userId,
       stroops: shares[i],
@@ -450,7 +475,7 @@ export function evenSplitValues(
     return userIds.map((userId, i) => ({ userId, percent: formatBasisPoints(Number(bps[i])) }));
   }
   const total = parseAmountStroops(totalAmount) ?? BigInt(0);
-  const shares = computeSharesAmounts(total, ones);
+  const shares = allocateEqualRemainder(total, userIds.length);
   return userIds.map((userId, i) => ({
     userId,
     amount: mode === "custom" ? trimAmount(fromStroops(shares[i])) : undefined,

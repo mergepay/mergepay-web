@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AssetBadge } from "@/components/asset-badge";
 import { Money } from "@/components/amount";
+import { formatStellarAssetAmount } from "@/lib/currency";
 import { PubkeyChip, TxLink } from "@/components/tx-link";
 import { Timestamp } from "@/components/timestamp";
 import {
@@ -74,7 +75,7 @@ export function TreasuryDashboard({ groupId: propGroupId, className }: TreasuryD
       setSigningTxId(tx.id);
       // Initiate signing flow via Freighter
       await signAndConfirmTreasuryTx(tx.id, (tx as unknown as { xdr?: string }).xdr ?? "", NETWORK_PASSPHRASE);
-      toast.success(`Treasury payout of ${tx.amount} ${tx.assetCode} signed successfully!`);
+      toast.success(`Treasury payout of ${formatStellarAssetAmount(tx.amount, tx).text} signed successfully!`);
       await history.refetch();
       await info.refetch();
     } catch (err: unknown) {
@@ -169,7 +170,7 @@ export function TreasuryDashboard({ groupId: propGroupId, className }: TreasuryD
                       <span className="font-bold text-sm">{b.assetCode}</span>
                     </div>
                     <span className="font-mono font-bold text-sm">
-                      <Money value={b.balance} assetCode={b.assetCode} />
+                      <Money value={b.balance} assetCode={b.assetCode} assetIssuer={b.assetIssuer} />
                     </span>
                   </div>
                 ))
@@ -260,7 +261,7 @@ export function TreasuryDashboard({ groupId: propGroupId, className }: TreasuryD
                       <div className="flex items-baseline gap-2">
                         <span className="font-display text-xl uppercase">
                           {tx.direction === "deposit" ? "+" : "-"}
-                          {tx.amount} {tx.assetCode}
+                          {formatStellarAssetAmount(tx.amount, tx).text}
                         </span>
                       </div>
 

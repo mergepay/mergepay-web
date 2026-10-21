@@ -90,7 +90,7 @@ describe("TreasuryDashboard Component", () => {
     expect(screen.getByText("Treasury Dashboard")).toBeInTheDocument();
     expect(screen.getByText("Threshold: 2 of 3 Signatures")).toBeInTheDocument();
     expect(screen.getByText("Approval Queue (1)")).toBeInTheDocument();
-    expect(screen.getByText("-100.0000000 USDC")).toBeInTheDocument();
+    expect(screen.getByText("-100.00 USDC")).toBeInTheDocument();
     expect(screen.getByText("1 of 2 collected")).toBeInTheDocument();
     expect(screen.getByTestId("approve-btn-tx-pending-1")).toBeInTheDocument();
   });

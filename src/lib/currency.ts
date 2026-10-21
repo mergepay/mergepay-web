@@ -308,6 +308,29 @@ export function formatAssetAmountText(
   return formatAssetAmount(value, assetCode, options).text;
 }
 
+
+/** Asset identity as represented by expense and treasury API payloads. */
+export interface StellarAssetIdentity {
+  assetCode: string | null | undefined;
+  assetIssuer?: string | null;
+}
+
+/**
+ * Format a native or issued Stellar asset without losing issuer identity.
+ * Existing callers can continue using formatAssetAmount for code-only views.
+ * Issuer is retained in the returned value for transaction detail views;
+ * the readable amount displays the asset code without a long public key.
+ */
+export function formatStellarAssetAmount(
+  value: string | number | null | undefined,
+  asset: StellarAssetIdentity,
+  options: FormatAmountOptions = {}
+): FormattedAmount & { issuer: string | null } {
+  const formatted = formatAssetAmount(value, asset.assetCode, options);
+  const issuer = formatted.asset === "XLM" ? null : asset.assetIssuer?.trim() || null;
+  return { ...formatted, issuer };
+}
+
 export const SUPPORTED_FIAT_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "ARS", "PHP"] as const;
 export type SupportedFiatCurrency = (typeof SUPPORTED_FIAT_CURRENCIES)[number];
 

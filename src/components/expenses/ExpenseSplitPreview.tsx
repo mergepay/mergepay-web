@@ -26,7 +26,7 @@ import { Money } from "@/components/amount";
 import { FiatInline } from "@/components/FiatEquivalent";
 import { cn } from "@/lib/utils";
 import { initials } from "@/lib/format";
-import { computeSharesAmounts, fromStroops, toStroops } from "@/lib/split";
+import { allocateEqualRemainder, computeSharesAmounts, fromStroops, toStroops } from "@/lib/split";
 import type { ExpenseShareInput, SplitType } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -159,9 +159,11 @@ export function computeSplitPreview(
     const positive = weights.some((weight) => weight > 0);
     // `computeSharesAmounts` rejects an all-zero weight vector; fall back to a
     // zero allocation so the preview can still render a helpful message.
-    allocated = positive
-      ? computeSharesAmounts(amountStroops, weights)
-      : participants.map(() => BigInt(0));
+    allocated = splitType === "equal"
+      ? allocateEqualRemainder(amountStroops, participants.length)
+      : positive
+        ? computeSharesAmounts(amountStroops, weights)
+        : participants.map(() => BigInt(0));
   }
 
   const flags = remainderFlags(amountStroops, weights, allocated);

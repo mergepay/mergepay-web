@@ -21,6 +21,7 @@ import { SettlementStatusDetail } from "@/components/settle/settlement-status";
 import { Tabs } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
+import { ExpenseListSkeleton } from "@/components/expenses/ExpenseListSkeleton";
 import { useInfiniteHistory, accumulateHistoryPages } from "@/lib/queries";
 import {
   toHistoryRow,
@@ -178,7 +179,7 @@ export default function HistoryPage() {
       {hasData && <HistoryFilterBar value={filters} onChange={setFilters} />}
 
       {isPending ? (
-        <ListSkeleton rows={5} />
+        <ExpenseListSkeleton count={5} />
       ) : isError ? (
         <EmptyState
           icon={<HistoryIcon className="h-7 w-7 text-red-500" />}

@@ -139,7 +139,7 @@ export function ExpenseCard({
             </p>
           </div>
           <div className="text-right">
-            <Money value={expense.amount} assetCode={expense.assetCode} />
+            <Money value={expense.amount} assetCode={expense.assetCode} assetIssuer={expense.assetIssuer} />
             <div className="mt-1 flex items-center justify-end gap-1.5">
               <AssetBadge code={expense.assetCode} />
               <FiatEquivalent amount={expense.amount} assetCode={expense.assetCode} />
@@ -177,7 +177,7 @@ export function ExpenseCard({
                     </span>
                   </span>
                   <span className="flex items-center gap-2">
-                    <Money value={share.shareAmount} assetCode={expense.assetCode} />
+                    <Money value={share.shareAmount} assetCode={expense.assetCode} assetIssuer={expense.assetIssuer} />
                     <FiatInline amount={share.shareAmount} assetCode={expense.assetCode} />
                     <Badge tone={statusTone(share.status)}>{share.status}</Badge>
                   </span>

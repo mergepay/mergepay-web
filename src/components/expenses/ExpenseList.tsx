@@ -45,7 +45,7 @@ function DefaultExpenseRow({ expense }: { expense: Expense }) {
           <p className="text-xs text-ink/60">{formatTimestamp(expense.createdAt)}</p>
         </div>
         <div className="shrink-0 text-right font-mono font-bold">
-          <Money value={expense.amount} assetCode={expense.assetCode} />
+          <Money value={expense.amount} assetCode={expense.assetCode} assetIssuer={expense.assetIssuer} />
         </div>
       </CardContent>
     </Card>

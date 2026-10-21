@@ -60,7 +60,11 @@ export function useDialogFocus({
   const listFocusable = useCallback((root: HTMLElement | null) => {
     if (!root) return [];
     return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-      (el) => el.tabIndex !== -1
+      (el) =>
+        el.tabIndex !== -1 &&
+        !el.matches("[hidden], [inert], [aria-hidden='true']") &&
+        !el.closest("[hidden], [inert], [aria-hidden='true']") &&
+        window.getComputedStyle(el).visibility !== "hidden"
     );
   }, []);
 
@@ -91,7 +95,7 @@ export function useDialogFocus({
         return;
       }
 
-      if (e.key !== "Tab") return;
+      if (!dialogStack.isTopmost(slotId) || e.key !== "Tab") return;
       const focusable = panelFocusable();
       const active = document.activeElement as HTMLElement | null;
       const target = nextFocusIndex(
@@ -99,7 +103,13 @@ export function useDialogFocus({
         active ? focusable.indexOf(active) : -1,
         e.shiftKey
       );
-      if (target === null) return;
+      if (target === null) {
+        if (focusable.length === 0) {
+          e.preventDefault();
+          panelRef.current?.focus();
+        }
+        return;
+      }
       e.preventDefault();
       focusable[target]?.focus();
     }
