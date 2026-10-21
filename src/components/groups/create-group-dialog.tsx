@@ -105,6 +105,13 @@ export function CreateGroupDialog({
             id="g-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            onBlur={() => {
+              const parsed = createGroupFormSchema.shape.description.safeParse(description);
+              setErrors((prev) => ({
+                ...prev,
+                description: parsed.success ? "" : parsed.error.issues[0].message,
+              }));
+            }}
             placeholder="What is this circle for?"
             maxLength={280}
             aria-invalid={descriptionError() ? true : undefined}
