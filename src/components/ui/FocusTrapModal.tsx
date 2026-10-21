@@ -50,6 +50,7 @@ export function FocusTrapModal({
         ref={modalRef}
         role="dialog"
         aria-modal="true"
+        aria-label={title ? undefined : "Dialog"}
         aria-labelledby={title ? titleId : undefined}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
