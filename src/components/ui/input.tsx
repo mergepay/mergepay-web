@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 const fieldBase =
   "w-full bg-white border-3 border-ink rounded-xl px-4 py-2.5 font-body text-ink placeholder:text-ink/40 " +
   "shadow-brutal-sm focus:shadow-brutal focus:-translate-x-px focus:-translate-y-px " +
-  "focus:outline-none transition-all duration-100 disabled:opacity-50 disabled:bg-paper";
+  "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40 " +
+  "transition-all duration-100 disabled:opacity-50 disabled:bg-paper";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   ({ className, ...props }, ref) => (

@@ -4,8 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dialog } from "./dialog";
 import { MobileDrawer } from "./MobileDrawer";
 import { ReceiptPreview } from "./receipt-preview";
+import { FocusTrapModal } from "./FocusTrapModal";
 import { MobileNavDrawer } from "../layout/MobileNavDrawer";
 import { dialogStack } from "@/lib/dialog";
+import { Button } from "./button";
+import { Tabs } from "./tabs";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
@@ -131,6 +134,65 @@ describe("modal panels can hold focus (#546)", () => {
       <ReceiptPreview open onClose={() => {}} url="https://x.test/r.png" title="Lunch" />
     );
     expect(screen.getByRole("dialog", { name: "Lunch" })).toBeInTheDocument();
+  });
+
+  it("gives FocusTrapModal dialog semantics and traps focus", async () => {
+    const onClose = vi.fn();
+    render(
+      <FocusTrapModal onClose={onClose}>
+        <button type="button">First</button>
+        <button type="button">Last</button>
+      </FocusTrapModal>
+    );
+
+    const modal = screen.getByRole("dialog", { name: "Dialog" });
+    const first = screen.getByRole("button", { name: "First" });
+    const last = screen.getByRole("button", { name: "Last" });
+    expect(modal).toHaveAttribute("aria-modal", "true");
+    await focusHasSettled(first);
+
+    last.focus();
+    pressTab();
+    expect(first).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+describe("keyboard accessibility for buttons and tabs", () => {
+  it("exposes loading state and a visible keyboard focus style on buttons", () => {
+    render(<Button loading>Saving</Button>);
+    const button = screen.getByRole("button", { name: "Saving" });
+
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toHaveClass("focus-visible:ring-4");
+    expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("moves tab focus with arrow keys and wraps around", () => {
+    render(
+      <Tabs
+        tabs={[
+          { id: "overview", label: "Overview" },
+          { id: "activity", label: "Activity" },
+        ]}
+        active="overview"
+        onChange={() => {}}
+      />
+    );
+
+    const overview = screen.getByRole("tab", { name: "Overview" });
+    const activity = screen.getByRole("tab", { name: "Activity" });
+    expect(overview).toHaveAttribute("tabindex", "0");
+    expect(activity).toHaveAttribute("tabindex", "-1");
+
+    overview.focus();
+    fireEvent.keyDown(overview, { key: "ArrowRight" });
+    expect(activity).toHaveFocus();
+    fireEvent.keyDown(activity, { key: "ArrowRight" });
+    expect(overview).toHaveFocus();
   });
 });
 
