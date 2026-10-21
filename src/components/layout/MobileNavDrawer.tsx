@@ -26,6 +26,7 @@ export function MobileNavDrawer({ open, onClose }: MobileNavDrawerProps) {
     { href: "/groups", label: "Groups" },
     { href: "/history", label: "History" },
     { href: "/anchors", label: "Anchors" },
+    { href: "/settings", label: "Settings" },
   ];
 
   return (
@@ -46,7 +47,8 @@ export function MobileNavDrawer({ open, onClose }: MobileNavDrawerProps) {
             animate={{ x: 0 }}
             exit={{ x: "-100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed top-0 left-0 bottom-0 w-72 bg-paper border-r-3 border-ink z-50 md:hidden outline-none"
+            id="mobile-nav-drawer"
+            className="fixed top-0 left-0 bottom-0 w-72 max-w-[85vw] bg-paper border-r-3 border-ink z-50 md:hidden outline-none"
             role="dialog"
             aria-modal="true"
             aria-label="Navigation menu"
@@ -58,7 +60,7 @@ export function MobileNavDrawer({ open, onClose }: MobileNavDrawerProps) {
               </span>
               <button
                 onClick={onClose}
-                className="p-2 hover:bg-ink/10 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
+                className="min-h-11 min-w-11 flex items-center justify-center p-2 hover:bg-ink/10 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
                 aria-label="Close navigation"
               >
                 <X className="h-6 w-6" />
