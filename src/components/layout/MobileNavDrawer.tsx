@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { usePathname } from "next/navigation";
@@ -20,6 +20,22 @@ export function MobileNavDrawer({ open, onClose }: MobileNavDrawerProps) {
   // hamburger behind the backdrop, Tab walked straight out to the page the
   // drawer was covering, and closing left focus on a now-unmounted element.
   useDialogFocus({ open, onClose, panelRef });
+
+  // Close on route change (#619). The link onClicks below cover the happy
+  // path, but a back/forward navigation, a deep link or any programmatic
+  // redirect changes the page underneath without ever firing them, leaving
+  // the drawer covering a route it was never opened for. The latest `open`
+  // and `onClose` are read through refs so this effect belongs to
+  // `pathname` alone: with `open` as a dependency it would close the drawer
+  // the moment it opened.
+  const openRef = useRef(open);
+  openRef.current = open;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (openRef.current) onCloseRef.current();
+  }, [pathname]);
 
   const navItems = [
     { href: "/dashboard", label: "Dashboard" },

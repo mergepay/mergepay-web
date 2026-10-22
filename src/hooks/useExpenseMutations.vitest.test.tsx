@@ -7,7 +7,12 @@ import { toast } from "sonner";
 import React from "react";
 import { qk, useCreateExpense } from "@/lib/queries";
 import { useAuth } from "@/lib/auth-store";
-import type { BalancesResponse, ExpensesResponse, User } from "@/lib/types";
+import type {
+  BalancesResponse,
+  ExpensesResponse,
+  GroupActivityResponse,
+  User,
+} from "@/lib/types";
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -479,5 +484,124 @@ describe("useCreateExpense — onSuccess toast (#488)", () => {
     });
 
     expect(toast.error).toHaveBeenCalled();
+  });
+});
+
+describe("useCreateExpenseMutation — balances & activity cache transitions (#335)", () => {
+  let client: QueryClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuth.setState({ user: ME });
+    client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    useAuth.setState({ user: null });
+    client.clear();
+  });
+
+  /** Seed every cache the create mutation writes to optimistically. */
+  function seedCreateCaches() {
+    client.setQueryData(qk.expenses("g1"), SEEDED_EXPENSES);
+    client.setQueryData(qk.balances("g1"), SEEDED_BALANCES);
+    client.setQueryData<GroupActivityResponse>(qk.activity("g1"), {
+      activities: [],
+    });
+  }
+
+  const nets = () =>
+    client
+      .getQueryData<BalancesResponse>(qk.balances("g1"))
+      ?.balances.map((b) => b.net);
+
+  const activity = () =>
+    client.getQueryData<GroupActivityResponse>(qk.activity("g1"));
+
+  const invalidated = (key: readonly unknown[]) =>
+    client.getQueryState(key)?.isInvalidated;
+
+  it("predicts balances and the activity feed instantly, then marks every touched cache stale on success", async () => {
+    seedCreateCaches();
+    const gate = deferred<unknown>();
+    vi.mocked(api.createExpense).mockReturnValue(gate.promise as never);
+
+    const { result } = renderHook(() => useCreateExpenseMutation("g1"), {
+      wrapper: createWrapper(client),
+    });
+
+    act(() => {
+      result.current.mutate(NEW_EXPENSE_REQUEST);
+    });
+
+    // Before the network answers, the payer already paid the new expense
+    // (`me` +10 net: paid 20, owes 10) and the feed carries the optimistic
+    // event.
+    await waitFor(() => {
+      expect(nets()).toEqual(["20", "-20"]);
+    });
+    await waitFor(() => {
+      expect(activity()?.activities).toHaveLength(1);
+      expect(activity()?.activities[0]?.isOptimistic).toBe(true);
+    });
+
+    await act(async () => {
+      gate.resolve({ expense: { id: "server-1" } });
+    });
+
+    // Success hands every cache the mutation touched back to the server:
+    // the list, the predicted balances and the activity feed are all
+    // invalidated so the canonical data replaces the prediction.
+    await waitFor(() => {
+      expect(invalidated(qk.expenses("g1"))).toBe(true);
+      expect(invalidated(qk.balances("g1"))).toBe(true);
+      expect(invalidated(qk.activity("g1"))).toBe(true);
+    });
+    expect(toast.success).toHaveBeenCalledWith("Expense created successfully");
+  });
+
+  it("rolls balances and the activity feed back to their snapshots when the API rejects", async () => {
+    seedCreateCaches();
+    const gate = deferred<unknown>();
+    vi.mocked(api.createExpense).mockReturnValue(gate.promise as never);
+
+    const { result } = renderHook(() => useCreateExpenseMutation("g1"), {
+      wrapper: createWrapper(client),
+    });
+
+    act(() => {
+      result.current.mutate(NEW_EXPENSE_REQUEST);
+    });
+
+    await waitFor(() => {
+      expect(nets()).toEqual(["20", "-20"]);
+    });
+    await waitFor(() => {
+      expect(activity()?.activities).toHaveLength(1);
+    });
+
+    await act(async () => {
+      gate.reject(new Error("create-rollback-network-down"));
+    });
+
+    // Every optimistic write is restored from its snapshot: the list is
+    // back to the server's copy, the balances are unmoved and the feed is
+    // empty again.
+    await waitFor(() => {
+      const cache = client.getQueryData<ExpensesResponse>(qk.expenses("g1"));
+      expect(cache?.expenses).toHaveLength(1);
+      expect(cache?.expenses[0].id).toBe("exp-1");
+      expect(nets()).toEqual(["10", "-10"]);
+      expect(activity()?.activities).toHaveLength(0);
+    });
+    expect(toast.error).toHaveBeenCalledWith("create-rollback-network-down");
+
+    // Only the expense list is marked stale for a reconciling refetch;
+    // the rolled-back balances and activity keep their server copies.
+    expect(invalidated(qk.expenses("g1"))).toBe(true);
+    expect(invalidated(qk.balances("g1"))).toBe(false);
+    expect(invalidated(qk.activity("g1"))).toBe(false);
   });
 });

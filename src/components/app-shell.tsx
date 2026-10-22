@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatePresence, motion } from "framer-motion";
 import { Logo, LogoMark } from "./logo";
 import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
@@ -63,6 +64,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     onClose: () => setMobileOpen(false),
     panelRef: drawerRef,
   });
+
+  // The drawer belongs to the page it was opened over. Link clicks inside it
+  // close it directly, but a back/forward navigation or a programmatic
+  // redirect changes the route without firing those, so every route change
+  // closes it here (#619).
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     function handleGlobalKeyDown(e: KeyboardEvent) {
@@ -180,34 +189,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
 
-      {/* mobile drawer */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div
-            className="absolute inset-0 bg-ink/60"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-          <div
-            ref={drawerRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Navigation menu"
-            // The dialog is where focus lands, so it has to be focusable.
-            tabIndex={-1}
-            className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper outline-none"
-          >
-            <button
+      {/* mobile drawer — framer-motion slide-over (#619): the panel springs
+          in from the left edge and the backdrop fades, matching the
+          MobileNavDrawer used by the public navbar. AnimatePresence keeps the
+          panel mounted for the exit animation; the focus/scroll-lock contract
+          still follows `mobileOpen` via useDialogFocus. */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               onClick={() => setMobileOpen(false)}
-              aria-label="Close"
-              className="absolute right-3 top-4 rounded-lg border-2 border-ink bg-cream p-1.5 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
+              aria-hidden="true"
+              className="absolute inset-0 bg-ink/60"
+            />
+            <motion.div
+              ref={drawerRef}
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Navigation menu"
+              // The dialog is where focus lands, so it has to be focusable.
+              tabIndex={-1}
+              className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper outline-none"
             >
-              <X className="h-4 w-4" />
-            </button>
-            {navContent}
+              <button
+                onClick={() => setMobileOpen(false)}
+                aria-label="Close"
+                className="absolute right-3 top-4 rounded-lg border-2 border-ink bg-cream p-1.5 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              {navContent}
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* The bottom padding clears the fixed mobile bottom nav, plus the
           device's safe-area inset so content is not hidden by a home
