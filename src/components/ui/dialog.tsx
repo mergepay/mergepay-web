@@ -55,11 +55,11 @@ export function Dialog({
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
-          "relative z-10 w-full max-w-lg rounded-2xl border-3 border-ink bg-paper p-6 shadow-brutal outline-none max-h-[90vh] overflow-y-auto",
+          "relative z-10 flex flex-col w-full max-w-[calc(100vw-2rem)] sm:max-w-lg rounded-2xl border-3 border-ink bg-paper p-4 sm:p-6 shadow-brutal outline-none max-h-[85vh] sm:max-h-[90vh]",
           className
         )}
       >
-        <div className="flex items-center justify-between pb-4 border-b-2 border-ink">
+        <div className="shrink-0 flex items-center justify-between pb-4 border-b-2 border-ink">
           <h2 id={titleId} className="font-display text-lg uppercase tracking-wider">
             {title}
           </h2>
@@ -77,14 +77,14 @@ export function Dialog({
         </div>
 
         {description && (
-          <p id={descriptionId} className="text-sm text-ink/70">
+          <p id={descriptionId} className="shrink-0 pt-2 text-sm text-ink/70">
             {description}
           </p>
         )}
 
         {/* `contentRef` is what the focus rules read; the matching attribute
             stays as a stable hook for styling and tests. */}
-        <div className="pt-4" data-dialog-content ref={contentRef}>
+        <div className="flex-1 overflow-y-auto pt-4" data-dialog-content ref={contentRef}>
           {children}
         </div>
       </div>

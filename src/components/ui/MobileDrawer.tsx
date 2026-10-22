@@ -52,9 +52,9 @@ export function MobileDrawer({
   };
 
   const positionClasses = {
-    bottom: "inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl",
-    left: "inset-y-0 left-0 w-72 border-r-3",
-    right: "inset-y-0 right-0 w-72 border-l-3",
+    bottom: "inset-x-0 bottom-0 max-h-[85vh] sm:max-h-[90vh] rounded-t-2xl",
+    left: "inset-y-0 left-0 w-72 sm:w-80 border-r-3",
+    right: "inset-y-0 right-0 w-72 sm:w-80 border-l-3",
   };
 
   // A titled drawer labels its dialog; an untitled one keeps its close button
@@ -122,7 +122,7 @@ export function MobileDrawer({
 
             {/* Content — the ref marks the body initial focus prefers, so the
                 rule does not depend on this div's classes. */}
-            <div className="flex-1 overflow-y-auto p-4" ref={contentRef}>
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6" ref={contentRef}>
               {children}
             </div>
           </motion.div>

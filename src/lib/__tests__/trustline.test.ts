@@ -8,9 +8,20 @@ import {
   HorizonBalanceItem,
   ConfiguredAsset,
 } from "../trustline";
-import { XLM_ASSET, STABLE_ASSET } from "../constants";
+import { XLM_ASSET, STABLE_ASSET, getUsdcAssetForNetwork, USDC_ISSUERS } from "../constants";
 
 describe("Trustline Balancer & Verification Logic", () => {
+  describe("getUsdcAssetForNetwork", () => {
+    it("returns correct USDC issuer for mainnet and testnet", () => {
+      const publicUsdc = getUsdcAssetForNetwork("public");
+      assert.strictEqual(publicUsdc.code, "USDC");
+      assert.strictEqual(publicUsdc.issuer, USDC_ISSUERS.public);
+
+      const testnetUsdc = getUsdcAssetForNetwork("testnet");
+      assert.strictEqual(testnetUsdc.code, "USDC");
+      assert.strictEqual(testnetUsdc.issuer, USDC_ISSUERS.testnet);
+    });
+  });
   describe("formatStellarBalance", () => {
     it("formats integer strings into strict 7 decimal places", () => {
       assert.strictEqual(formatStellarBalance("10"), "10.0000000");

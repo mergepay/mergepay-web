@@ -71,12 +71,31 @@ export function describeNetwork(
 
 export const EXPLORER_BASE = explorerBaseUrl(STELLAR_NETWORK);
 
-export const STABLE_ASSET = {
-  code: process.env.NEXT_PUBLIC_STABLE_ASSET_CODE ?? "USDC",
-  issuer:
-    process.env.NEXT_PUBLIC_STABLE_ASSET_ISSUER ??
-    "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+/** Canonical USDC issuers by Stellar network. */
+export const USDC_ISSUERS: Record<StellarNetwork, string> = {
+  public: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+  testnet: "GBBD47IF6LWK2P7MDEVSCWR7DPUWV3NY3DTQEVFL4TW452EPR7C75C2Z",
 };
+
+/**
+ * Returns the correct USDC asset code and issuer for the specified network.
+ */
+export function getUsdcAssetForNetwork(
+  network: StellarNetwork | string = STELLAR_NETWORK
+): { code: string; issuer: string } {
+  const normalizedNetwork: StellarNetwork =
+    network === "public" || network === "mainnet" || network === "pubnet"
+      ? "public"
+      : "testnet";
+
+  const code = process.env.NEXT_PUBLIC_STABLE_ASSET_CODE ?? "USDC";
+  const issuer =
+    process.env.NEXT_PUBLIC_STABLE_ASSET_ISSUER ?? USDC_ISSUERS[normalizedNetwork];
+
+  return { code, issuer };
+}
+
+export const STABLE_ASSET = getUsdcAssetForNetwork(STELLAR_NETWORK);
 
 export const XLM_ASSET = { code: "XLM", issuer: null as string | null };
 

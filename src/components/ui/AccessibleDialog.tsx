@@ -97,12 +97,14 @@ export function AccessibleDialog({
       ref={ref}
       aria-modal="true"
       aria-label={title}
-      className={className ?? "rounded-2xl border-3 border-ink bg-cream p-6 shadow-brutal"}
+      className={className ?? "flex flex-col w-full max-w-[calc(100vw-2rem)] sm:max-w-lg rounded-2xl border-3 border-ink bg-cream p-4 sm:p-6 shadow-brutal max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"}
     >
       {title && (
-        <h2 className="font-display text-lg uppercase tracking-tight">{title}</h2>
+        <h2 className="shrink-0 font-display text-lg uppercase tracking-tight">{title}</h2>
       )}
-      {children}
+      <div className="flex-1 overflow-y-auto">
+        {children}
+      </div>
     </dialog>
   );
 }
