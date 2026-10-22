@@ -32,6 +32,17 @@ Object.defineProperty(window, "localStorage", {
   configurable: true,
 });
 
+// Polyfill HTMLDialogElement for jsdom if needed
+if (typeof HTMLDialogElement !== "undefined") {
+  HTMLDialogElement.prototype.showModal ??= function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close ??= function () {
+    this.open = false;
+    this.dispatchEvent(new Event("close"));
+  };
+}
+
 // jsdom is shared across tests in a file; unmount between cases so queries
 // never match a component left behind by the previous test.
 afterEach(() => {

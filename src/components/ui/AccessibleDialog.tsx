@@ -95,6 +95,7 @@ export function AccessibleDialog({
   return (
     <dialog
       ref={ref}
+      role="dialog"
       aria-modal="true"
       aria-label={title}
       className={className ?? "rounded-2xl border-3 border-ink bg-cream p-6 shadow-brutal"}

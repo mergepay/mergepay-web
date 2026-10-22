@@ -2,7 +2,10 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  ActivityFeedSkeleton,
+  ActivityItemSkeleton,
   BalanceCardSkeleton,
+  BalanceSummarySkeleton,
   ExpenseCardSkeleton,
   GroupCardSkeleton,
   GroupHeaderSkeleton,
@@ -79,12 +82,26 @@ describe("Domain skeletons", () => {
     expect(container.firstElementChild?.className).toContain("h-full");
   });
 
-  it("renders the requested number of rows per variant", () => {
+  it("renders the activity item and feed structure", () => {
+    const { getByTestId, getAllByTestId } = render(<ActivityFeedSkeleton rows={3} />);
+    expect(getByTestId("activity-feed-skeleton")).toBeInTheDocument();
+    expect(getAllByTestId("activity-item-skeleton").length).toBe(3);
+  });
+
+  it("renders the balance summary structure", () => {
+    const { getByTestId } = render(<BalanceSummarySkeleton />);
+    expect(getByTestId("balance-summary-skeleton")).toBeInTheDocument();
+  });
+
+  it("renders the requested number of rows per variant including activity", () => {
     const card = render(<ListSkeleton rows={4} />);
     expect(card.container.querySelectorAll(".shadow-brutal").length).toBe(4);
 
     const expense = render(<ListSkeleton rows={3} variant="expense" />);
     expect(expense.container.querySelectorAll(".overflow-hidden").length).toBe(3);
+
+    const activity = render(<ListSkeleton rows={3} variant="activity" />);
+    expect(activity.container.querySelectorAll("[data-testid='activity-item-skeleton']").length).toBe(3);
   });
 });
 

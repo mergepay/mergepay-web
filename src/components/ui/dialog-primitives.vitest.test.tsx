@@ -2,6 +2,7 @@ import * as React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dialog } from "./dialog";
+import { AccessibleDialog } from "./AccessibleDialog";
 import { MobileDrawer } from "./MobileDrawer";
 import { ReceiptPreview } from "./receipt-preview";
 import { FocusTrapModal } from "./FocusTrapModal";
@@ -363,5 +364,61 @@ describe("MobileNavDrawer keyboard behaviour (#546)", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(document.body.style.overflow).toBe("auto");
+  });
+});
+
+describe("AccessibleDialog (#635)", () => {
+  it("renders with role='dialog' and aria-modal='true'", () => {
+    render(
+      <AccessibleDialog isOpen={true} onClose={() => {}} title="Transfer Funds">
+        <button type="button">Confirm</button>
+      </AccessibleDialog>
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("aria-label", "Transfer Funds");
+    expect(screen.getByText("Transfer Funds")).toBeInTheDocument();
+  });
+
+  it("registers in dialogStack when opened and unregisters on close", () => {
+    const { unmount } = render(
+      <AccessibleDialog isOpen={true} onClose={() => {}} title="Stack Test">
+        <p>Inside Stack Test</p>
+      </AccessibleDialog>
+    );
+
+    expect(dialogStack.size).toBe(1);
+    unmount();
+    expect(dialogStack.size).toBe(0);
+  });
+
+  it("invokes onClose when cancel event fires on dismissible dialog", () => {
+    const onClose = vi.fn();
+    render(
+      <AccessibleDialog isOpen={true} onClose={onClose} dismissible={true} title="Dismissible">
+        <p>Content</p>
+      </AccessibleDialog>
+    );
+
+    const dialog = screen.getByRole("dialog");
+    const cancelEvent = new Event("cancel", { cancelable: true });
+    dialog.dispatchEvent(cancelEvent);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("does not invoke onClose when dismissible is false", () => {
+    const onClose = vi.fn();
+    render(
+      <AccessibleDialog isOpen={true} onClose={onClose} dismissible={false} title="Non-dismissible">
+        <p>Content</p>
+      </AccessibleDialog>
+    );
+
+    const dialog = screen.getByRole("dialog");
+    const cancelEvent = new Event("cancel", { cancelable: true });
+    dialog.dispatchEvent(cancelEvent);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

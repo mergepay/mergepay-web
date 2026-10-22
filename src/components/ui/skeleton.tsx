@@ -151,6 +151,61 @@ export function GroupHeaderSkeleton({ className }: { className?: string }) {
   );
 }
 
+export function ActivityItemSkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      data-testid="activity-item-skeleton"
+      className={cn(
+        "relative flex items-start gap-3 rounded-xl border-3 border-ink bg-paper p-4 shadow-brutal-sm",
+        className
+      )}
+    >
+      <SkeletonAvatar size="sm" />
+      <div className="flex-1 min-w-0 space-y-2">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-4 w-28" />
+          <SkeletonBadge className="h-4 w-16" />
+        </div>
+        <Skeleton className="h-3 w-44" />
+        <Skeleton className="h-3 w-20" />
+      </div>
+      <div className="text-right space-y-1.5 flex flex-col items-end">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-3 w-10" />
+      </div>
+    </div>
+  );
+}
+
+export function ActivityFeedSkeleton({ rows = 4, className }: { rows?: number; className?: string }) {
+  return (
+    <div data-testid="activity-feed-skeleton" className={cn("space-y-3", className)}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <ActivityItemSkeleton key={i} />
+      ))}
+    </div>
+  );
+}
+
+export function BalanceSummarySkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      data-testid="balance-summary-skeleton"
+      className={cn("bg-cream border-3 border-ink rounded-2xl shadow-brutal p-5 space-y-4", className)}
+    >
+      <div className="flex items-center justify-between border-b-2 border-ink/10 pb-3">
+        <Skeleton className="h-6 w-32" />
+        <Skeleton className="h-5 w-20" />
+      </div>
+      <div className="space-y-3">
+        <BalanceCardSkeleton />
+        <BalanceCardSkeleton />
+        <BalanceCardSkeleton />
+      </div>
+    </div>
+  );
+}
+
 export function ExpenseListSkeleton({ rows = 3 }: { rows?: number }) {
   return <ListSkeleton rows={rows} variant="expense" />;
 }
@@ -159,10 +214,28 @@ export function BalanceListSkeleton({ rows = 3 }: { rows?: number }) {
   return <ListSkeleton rows={rows} variant="balance" />;
 }
 
-export function ListSkeleton({ rows = 3, variant = "card" }: { rows?: number; variant?: "card" | "expense" | "balance" | "settlement" }) {
-  const Item = variant === "expense" ? ExpenseCardSkeleton : variant === "balance" ? BalanceCardSkeleton : variant === "settlement" ? SettlementPathSkeleton : CardSkeleton;
+export function ListSkeleton({
+  rows = 3,
+  variant = "card",
+  className,
+}: {
+  rows?: number;
+  variant?: "card" | "expense" | "balance" | "settlement" | "activity";
+  className?: string;
+}) {
+  const Item =
+    variant === "expense"
+      ? ExpenseCardSkeleton
+      : variant === "balance"
+      ? BalanceCardSkeleton
+      : variant === "settlement"
+      ? SettlementPathSkeleton
+      : variant === "activity"
+      ? ActivityItemSkeleton
+      : CardSkeleton;
+
   return (
-    <div className="space-y-3">
+    <div className={cn("space-y-3", className)}>
       {Array.from({ length: rows }).map((_, i) => (
         <Item key={i} />
       ))}

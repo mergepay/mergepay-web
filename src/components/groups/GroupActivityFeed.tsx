@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { AssetBadge } from "@/components/asset-badge";
 import { Money } from "@/components/amount";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ListSkeleton } from "@/components/ui/skeleton";
+import { ListSkeleton, ActivityFeedSkeleton } from "@/components/ui/skeleton";
 import { SectionBoundary, SectionError, SectionLoading } from "@/components/ui/section";
 import { ExpenseFilterBar, type ActivityFilters } from "@/components/expenses/ExpenseFilterBar";
 import {
@@ -238,7 +238,7 @@ export function GroupActivityFeed({
       <div className={className}>
         {isLoading && (
           <SectionLoading label="Loading group activity feed" minHeight="min-h-[16rem]">
-            <ListSkeleton rows={4} />
+            <ActivityFeedSkeleton rows={4} />
           </SectionLoading>
         )}
 

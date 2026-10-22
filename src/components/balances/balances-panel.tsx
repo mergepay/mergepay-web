@@ -46,7 +46,7 @@ export function BalancesPanel({
   if (status === "loading") {
     return (
       <SectionLoading label="Loading balances" minHeight="min-h-[14rem]">
-        <ListSkeleton rows={3} />
+        <ListSkeleton rows={3} variant="balance" />
       </SectionLoading>
     );
   }
