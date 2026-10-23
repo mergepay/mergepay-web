@@ -89,6 +89,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <a
                 href={this.props.dashboardHref ?? DEFAULT_DASHBOARD_HREF}
                 className={buttonClassName("outline", "md")}
+                aria-label="Return to dashboard"
               >
                 <LayoutDashboard className="h-4 w-4 mr-1" />
                 Return to Dashboard
