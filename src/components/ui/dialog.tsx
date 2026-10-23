@@ -44,6 +44,7 @@ export function Dialog({
         className="fixed inset-0 bg-ink/60 backdrop-blur-sm transition-opacity"
         onClick={dismissible ? onClose : undefined}
         aria-hidden="true"
+        aria-label="Background"
       />
 
       {/* Dialog Window */}
@@ -53,6 +54,7 @@ export function Dialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
+        aria-label={title ? `Dialog: ${title}` : "Dialog"}
         tabIndex={-1}
         className={cn(
           "relative z-10 w-full max-w-lg rounded-2xl border-3 border-ink bg-paper p-6 shadow-brutal outline-none max-h-[90vh] overflow-y-auto",
