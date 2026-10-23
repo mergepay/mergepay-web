@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -11,7 +11,6 @@ import {
   Menu,
   Settings,
   Users,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Logo, LogoMark } from "./logo";
@@ -24,7 +23,9 @@ import { useWalletScopedCache } from "@/lib/queries";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
 import { WalletStatusPanel } from "./wallet/wallet-status";
 import { shortKey } from "@/lib/format";
-import { useDialogFocus } from "./ui/useDialogFocus";
+import { MobileDrawer } from "./ui/MobileDrawer";
+import { GroupSwitcher } from "./layout/GroupSwitcher";
+import { WalletErrorBoundary } from "./wallet/WalletErrorBoundary";
 
 import { HorizonHealthIndicator } from "./HorizonHealthIndicator";
 import { OfflineSyncBanner } from "./OfflineSyncBanner";
@@ -52,17 +53,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { refresh: refreshWallet, ...walletStatus } = useWalletStatus();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
-  const drawerRef = useRef<HTMLDivElement>(null);
-
-  // Escape, Tab trapping, focus containment and the page scroll lock while the
-  // nav drawer is open — the same contract the dialog primitive gives, so a
-  // dialog opened over the drawer owns Escape and focus instead of both
-  // surfaces reacting to the same key press.
-  useDialogFocus({
-    open: mobileOpen,
-    onClose: () => setMobileOpen(false),
-    panelRef: drawerRef,
-  });
 
   useEffect(() => {
     function handleGlobalKeyDown(e: KeyboardEvent) {
@@ -120,9 +110,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           );
         })}
       </nav>
+      <GroupSwitcher onNavigate={() => setMobileOpen(false)} />
       <div className="space-y-2 px-3 pb-3">
         <HorizonHealthIndicator className="w-full justify-between" />
-        <WalletStatusPanel status={walletStatus} onRefresh={refreshWallet} />
+        {/* A wallet-status crash must not take the navigation with it. */}
+        <WalletErrorBoundary subject="wallet status">
+          <WalletStatusPanel status={walletStatus} onRefresh={refreshWallet} />
+        </WalletErrorBoundary>
       </div>
       {user && (
         <div className="border-t-3 border-ink p-3">
@@ -180,34 +174,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
 
-      {/* mobile drawer */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div
-            className="absolute inset-0 bg-ink/60"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-          <div
-            ref={drawerRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Navigation menu"
-            // The dialog is where focus lands, so it has to be focusable.
-            tabIndex={-1}
-            className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper outline-none"
-          >
-            <button
-              onClick={() => setMobileOpen(false)}
-              aria-label="Close"
-              className="absolute right-3 top-4 rounded-lg border-2 border-ink bg-cream p-1.5 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            {navContent}
-          </div>
-        </div>
-      )}
+      {/* mobile drawer — animated, backdrop-dismissable, focus-trapped and
+          scroll-locked by the shared drawer primitive (#611). */}
+      <div className="lg:hidden">
+        <MobileDrawer
+          open={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          side="left"
+          ariaLabel="Navigation menu"
+          contentClassName="p-0"
+          className="w-72 max-w-[85vw]"
+        >
+          {navContent}
+        </MobileDrawer>
+      </div>
 
       {/* The bottom padding clears the fixed mobile bottom nav, plus the
           device's safe-area inset so content is not hidden by a home

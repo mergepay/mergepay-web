@@ -1,7 +1,7 @@
 "use client";
 
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
-import { AlertTriangle, LayoutDashboard, RefreshCw } from "lucide-react";
+import { AlertTriangle, LayoutDashboard, RefreshCw, RotateCcw } from "lucide-react";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { logRenderError } from "@/lib/errorHandler";
@@ -50,6 +50,16 @@ export class ErrorBoundary extends Component<Props, State> {
     this.setState({ hasError: false, error: null });
   };
 
+  /**
+   * Full document reload. `Try Again` re-renders the subtree, which is right
+   * when the failure was transient (a rejected wallet call, a bad response),
+   * but a crash caused by module or provider state survives that remount. The
+   * reload path guarantees the user is never stuck on the fallback.
+   */
+  private handleReload = () => {
+    window.location.reload();
+  };
+
   public render() {
     if (this.state.hasError && this.state.error) {
       if (this.props.fallback) {
@@ -93,10 +103,16 @@ export class ErrorBoundary extends Component<Props, State> {
                 <LayoutDashboard className="h-4 w-4 mr-1" />
                 Return to Dashboard
               </a>
-              <Button onClick={this.handleReset} variant="primary">
-                <RefreshCw className="h-4 w-4 mr-1" />
-                Try Again
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={this.handleReload} variant="outline">
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  Reload page
+                </Button>
+                <Button onClick={this.handleReset} variant="primary">
+                  <RotateCcw className="h-4 w-4 mr-1" />
+                  Try Again
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

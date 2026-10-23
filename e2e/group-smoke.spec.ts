@@ -863,7 +863,42 @@ test.describe("group smoke journey", () => {
     await expect(page).toHaveURL(
       new RegExp(`/groups/${groupId}(\\?[^#]*)?$`)
     );
-    await page.getByRole("button", { name: /add expense/i }).click();
+    const addExpenseButton = page.getByRole("button", {
+      name: /add expense/i,
+    });
+
+    try {
+      await expect(addExpenseButton).toBeVisible({ timeout: 5000 });
+    } catch (error) {
+      console.log("=== GROUP SMOKE DIAGNOSTICS ===");
+      console.log("Current URL:", page.url());
+
+      console.log(
+        "Page headings:",
+        await page.getByRole("heading").allTextContents()
+      );
+
+      console.log(
+        "Visible page text:",
+        (await page.locator("body").innerText()).slice(0, 5000)
+      );
+
+      console.log(
+        "Add Expense test ID count:",
+        await page.getByTestId("group-add-expense").count()
+      );
+
+      console.log(
+        "Collected browser errors:",
+        errors
+      );
+
+      console.log("=== END GROUP SMOKE DIAGNOSTICS ===");
+
+      throw error;
+    }
+
+    await addExpenseButton.click();
     const expenseDialog = page.getByRole("dialog", { name: /add expense/i });
     await expenseDialog.getByLabel(/^title$/i).fill(EXPENSE_TITLE);
     await expenseDialog.getByLabel(/^amount$/i).fill(EXPENSE_AMOUNT);

@@ -19,6 +19,24 @@ describe("ErrorBoundary", () => {
     errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
+  /** Replace `window.location` so the reload action can be observed. */
+  function stubLocation() {
+    const original = window.location;
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...original, reload },
+    });
+    return {
+      reload,
+      restore: () =>
+        Object.defineProperty(window, "location", {
+          configurable: true,
+          value: original,
+        }),
+    };
+  }
+
   it("renders children normally when no error occurs", () => {
     render(
       <ErrorBoundary>
@@ -63,6 +81,34 @@ describe("ErrorBoundary", () => {
       "href",
       "/settings"
     );
+  });
+
+  it("reloads the document when the recovery button is clicked", () => {
+    const { reload, restore } = stubLocation();
+    try {
+      render(
+        <ErrorBoundary>
+          <Bomb shouldThrow={true} />
+        </ErrorBoundary>
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /reload page/i }));
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("calls onReset so the owning query can refetch", () => {
+    const onReset = vi.fn();
+    render(
+      <ErrorBoundary onReset={onReset}>
+        <Bomb shouldThrow={true} />
+      </ErrorBoundary>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(onReset).toHaveBeenCalledTimes(1);
   });
 
   it("resets error state when Try Again button is clicked", () => {

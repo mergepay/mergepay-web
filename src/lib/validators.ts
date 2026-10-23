@@ -23,6 +23,10 @@ import { z } from "zod";
 
 import { isValidEd25519PublicKey } from "./strkey";
 import { validateExpenseAmount } from "./validation";
+import {
+  createSettlementFormSchema,
+  type CreateSettlementFormValues,
+} from "./validations/settlement";
 import type {
   CreateGroupRequest,
   CreateSettlementRequest,
@@ -109,27 +113,13 @@ export type AssertCreateGroupContract<
 // ---------------------------------------------------------------------------
 
 /**
- * One settlement input row: who to pay, how much, in which asset. Mirrors
- * `CreateSettlementRequest`; the recipient must be a real Stellar account
- * because the API builds an on-chain payment to it.
+ * One settlement input row: who to pay, how much, in which asset. The rules —
+ * including the Stellar public-key and 7-decimal precision checks — live in
+ * `src/lib/validations/settlement.ts` and are re-exported here so existing
+ * imports keep working.
  */
-export const createSettlementFormSchema = z.object({
-  toUserId: z.string().trim().min(1, "Choose who to pay"),
-  amount: positiveAmount,
-  assetCode: z.string().trim().min(1, "Asset code is required"),
-  assetIssuer: z
-    .string()
-    .trim()
-    .refine((value) => value === "" || isValidEd25519PublicKey(value), {
-      message: "Asset issuer must be a valid Stellar public key",
-    })
-    .optional()
-    .nullable(),
-});
-
-export type CreateSettlementFormValues = z.infer<
-  typeof createSettlementFormSchema
->;
+export { createSettlementFormSchema };
+export type { CreateSettlementFormValues };
 
 export type AssertSettlementContract<
   T extends CreateSettlementRequest = CreateSettlementFormValues,

@@ -10,8 +10,12 @@ export interface MobileDrawerProps {
   open: boolean;
   onClose: () => void;
   title?: string;
+  /** Accessible name for an untitled drawer (a visible title labels it). */
+  ariaLabel?: string;
   children: React.ReactNode;
   className?: string;
+  /** Padding/scroll classes for the body. Defaults to `p-4`. */
+  contentClassName?: string;
   /** Side from which the drawer slides in. Default "bottom" for mobile. */
   side?: "bottom" | "left" | "right";
   /** When false, backdrop clicks and Escape are disabled. */
@@ -22,8 +26,10 @@ export function MobileDrawer({
   open,
   onClose,
   title,
+  ariaLabel,
   children,
   className,
+  contentClassName,
   side = "bottom",
   dismissible = true,
 }: MobileDrawerProps) {
@@ -86,6 +92,7 @@ export function MobileDrawer({
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
+            aria-label={titleId ? undefined : ariaLabel}
             // Focus is parked here when there is nothing to Tab to; a div
             // without tabIndex cannot receive it and the trap silently misses.
             tabIndex={-1}
@@ -122,7 +129,10 @@ export function MobileDrawer({
 
             {/* Content — the ref marks the body initial focus prefers, so the
                 rule does not depend on this div's classes. */}
-            <div className="flex-1 overflow-y-auto p-4" ref={contentRef}>
+            <div
+              className={cn("flex-1 overflow-y-auto", contentClassName ?? "p-4")}
+              ref={contentRef}
+            >
               {children}
             </div>
           </motion.div>
