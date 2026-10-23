@@ -192,6 +192,22 @@ export function GroupCardSkeleton({ className }: { className?: string }) {
 }
 
 /**
+ * Skeleton for the dashboard area showing pending groups and expenses.
+ * Fades in real content via SkeletonBoundary when data resolves.
+ */
+export function DashboardSkeleton({ className }: { className?: string }) {
+  return (
+    <SkeletonBoundary isPending className={className}>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <GroupCardSkeleton />
+        <GroupCardSkeleton />
+        <GroupCardSkeleton />
+      </div>
+    </SkeletonBoundary>
+  );
+}
+
+/**
  * Cross-fade between a loading placeholder and resolved content.
  *
  * A hard swap makes the page "pop" as the real layout replaces differently
