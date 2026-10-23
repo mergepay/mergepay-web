@@ -21,8 +21,8 @@ describe("OfflineBanner network status detection (#622)", () => {
       window.dispatchEvent(new Event("offline"));
     });
 
-    const banner = screen.getByRole("status");
-    expect(banner).toHaveAttribute("aria-live", "polite");
+    const banner = screen.getByRole("alert");
+    expect(banner).toHaveAttribute("aria-live", "assertive");
     expect(banner.textContent).toMatch(/offline/i);
   });
 });
