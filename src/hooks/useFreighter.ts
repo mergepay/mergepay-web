@@ -9,6 +9,8 @@ import {
   NetworkMismatchError,
   WalletError,
   type WalletErrorCode,
+  WALLET_CONNECTED_SESSION_KEY,
+  WALLET_ADDRESS_SESSION_KEY,
 } from "@/lib/stellar";
 import { showWalletErrorToast } from "@/lib/walletToasts";
 
@@ -79,6 +81,7 @@ export interface UseFreighterResult {
     options?: UseFreighterOptions & { errorMessage?: string; successMessage?: string }
   ) => Promise<T>;
   resetError: () => void;
+  disconnect: () => void;
 }
 
 export function useFreighter(): UseFreighterResult {
@@ -97,6 +100,19 @@ export function useFreighter(): UseFreighterResult {
     setError(null);
     setErrorCode(null);
     setStatus("idle");
+  }, []);
+
+  const disconnect = useCallback(() => {
+    setIsConnecting(false);
+    setIsRetrying(false);
+    setRetryCount(0);
+    setStatus("idle");
+    setError(null);
+    setErrorCode(null);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+      sessionStorage.removeItem(WALLET_ADDRESS_SESSION_KEY);
+    }
   }, []);
 
   const runConnect = useCallback(
@@ -306,5 +322,6 @@ export function useFreighter(): UseFreighterResult {
     connectWithRetry,
     executeWalletAction,
     resetError,
+    disconnect,
   };
 }

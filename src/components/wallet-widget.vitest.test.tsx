@@ -205,4 +205,17 @@ describe("WalletWidget", () => {
       await screen.findByText(/your freighter wallet is locked/i)
     ).toBeInTheDocument();
   });
+
+  it("renders a neobrutalist alert banner when status is network_mismatch (#711)", async () => {
+    walletStatus.kind = "network_mismatch";
+    walletStatus.label = "Wrong network";
+    walletStatus.tone = "flamingo";
+    walletStatus.message = "Your wallet is on a different network (currently TESTNET). Switch it to Stellar mainnet before signing.";
+    walletStatus.canSign = false;
+
+    renderWidget(<WalletWidget />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toBeInTheDocument();
+    expect(alert).toHaveTextContent(/switch it to stellar mainnet before signing/i);
+  });
 });
