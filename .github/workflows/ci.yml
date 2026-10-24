@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,12 +17,24 @@ jobs:
           node-version: 20.x
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps
+      - run: npx playwright install --with-deps chromium
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      - run: npm run test:e2e
       - run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:4000
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
+      # Serves the build above (see playwright.config.ts). The specs read the
+      # same env to pick the network their wallet and Horizon mocks answer for.
+      - run: npm run test:e2e
+        timeout-minutes: 15
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_STELLAR_NETWORK: testnet
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

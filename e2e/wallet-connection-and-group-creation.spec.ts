@@ -589,6 +589,12 @@ test.describe("group creation", () => {
       page.getByTestId("create-group-confirm").click(),
     ]);
 
+    // Creating a group redirects to its detail page, so return to the list
+    // before looking for it there.
+    await expect(page).toHaveURL(/\/groups\/grp-\d+$/);
+    await page.locator("aside").getByRole("link", { name: /groups/i }).click();
+    await expect(page).toHaveURL(/\/groups$/);
+
     // The new group's name must appear in the list.
     await expect(
       page.getByRole("link", { name: /weekend hike/i })
@@ -615,9 +621,8 @@ test.describe("group creation", () => {
       page.getByTestId("create-group-confirm").click(),
     ]);
 
-    // The card links into the group detail.
-    await page.getByRole("link", { name: /trip to abuja/i }).click();
-    await expect(page).toHaveURL(/\/groups\//);
+    // Creating a group redirects straight to its detail page.
+    await expect(page).toHaveURL(/\/groups\/grp-\d+$/);
     await expect(page.getByTestId("group-title")).toContainText(
       /trip to abuja/i
     );
@@ -643,8 +648,8 @@ test.describe("expense creation", () => {
       page.getByTestId("create-group-confirm").click(),
     ]);
 
-    await page.getByRole("link", { name: /camping trip/i }).click();
-    await expect(page).toHaveURL(/\/groups\//);
+    // Creating a group redirects straight to its detail page.
+    await expect(page).toHaveURL(/\/groups\/grp-\d+$/);
     await page.getByTestId("group-add-expense").click();
     await expect(
       page.getByRole("dialog", { name: /add expense/i })

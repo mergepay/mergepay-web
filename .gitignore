@@ -37,4 +37,5 @@ next-env.d.ts
 .pw-browsers/
 test-results/
 playwright-report/
+blob-report/
 
