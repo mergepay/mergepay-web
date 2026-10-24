@@ -29,6 +29,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { ReceiveQrModal } from "@/components/ReceiveQrModal";
+import CopyButton from "@/components/ui/CopyButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -388,9 +389,12 @@ export function WalletWidget({
         {status.kind === "connected" && address && (
           <>
             <div className="flex items-center justify-between">
-              <span className="font-mono text-[11px] text-ink/60">
-                {shortKey(address, 6)}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[11px] text-ink/60">
+                  {shortKey(address, 6)}
+                </span>
+                <CopyButton text={address} what="Stellar public key" />
+              </div>
               <span className="sr-only">Connected Stellar address: {address}</span>
               <button
                 type="button"

@@ -51,6 +51,10 @@ const { walletStatus, stellarMock } = vi.hoisted(() => {
   };
 });
 
+vi.mock("@/lib/clipboard", () => ({
+  copyTextToClipboard: vi.fn().mockResolvedValue(true),
+}));
+
 vi.mock("@/hooks/useWalletStatus", () => ({
   useWalletStatus: () => walletStatus,
 }));
@@ -204,5 +208,18 @@ describe("WalletWidget", () => {
     expect(
       await screen.findByText(/your freighter wallet is locked/i)
     ).toBeInTheDocument();
+  });
+
+  it("renders a copy button for the connected public key and copies to clipboard with toast feedback (#719)", async () => {
+    stellarMock.getWalletAssets.mockResolvedValue([XLM_ASSET]);
+    renderWidget(<WalletWidget />);
+
+    const copyBtn = await screen.findByRole("button", {
+      name: /copy stellar public key/i,
+    });
+    expect(copyBtn).toBeInTheDocument();
+
+    fireEvent.click(copyBtn);
+    expect(await screen.findByText(/stellar public key copied/i)).toBeInTheDocument();
   });
 });
