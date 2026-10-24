@@ -15,7 +15,8 @@ export interface HistoryFilterBarProps {
 function countActive(filters: HistoryFilters): number {
   let n = 0;
   if (filters.keyword) n++;
-  if (filters.assetCode) n++;
+  if (filters.assetCode && filters.assetCode !== "all") n++;
+  if (filters.status && filters.status !== "all") n++;
   if (filters.participant) n++;
   if (filters.fromDate) n++;
   if (filters.toDate) n++;
@@ -36,6 +37,7 @@ export function HistoryFilterBar({ value, onChange }: HistoryFilterBarProps) {
   // Grouped event handlers keep the JSX tidy and avoid inline closures.
   const setKeyword = (keyword: string) => onChange({ ...value, keyword });
   const setAssetCode = (assetCode: string) => onChange({ ...value, assetCode });
+  const setStatus = (status: string) => onChange({ ...value, status });
   const setParticipant = (participant: string) =>
     onChange({ ...value, participant });
   const setFromDate = (fromDate: string) => onChange({ ...value, fromDate });
@@ -84,27 +86,48 @@ export function HistoryFilterBar({ value, onChange }: HistoryFilterBarProps) {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         <div>
           <label
             htmlFor="history-asset"
             className="mb-1 block font-display text-xs uppercase tracking-widest text-ink"
           >
-            Currency
+            Asset
           </label>
           <Select
             id="history-asset"
-            aria-label="Filter by currency"
-            className={cn(!value.assetCode && "text-ink/40")}
-            value={value.assetCode ?? ""}
+            aria-label="Filter by asset"
+            className={cn((!value.assetCode || value.assetCode === "all") && "text-ink/60")}
+            value={value.assetCode ?? "all"}
             onChange={(e) => setAssetCode(e.target.value)}
           >
-            <option value="">All currencies</option>
+            <option value="all">All assets</option>
             {assetCodes.map((code) => (
               <option key={code} value={code}>
                 {code}
               </option>
             ))}
+          </Select>
+        </div>
+
+        <div>
+          <label
+            htmlFor="history-status"
+            className="mb-1 block font-display text-xs uppercase tracking-widest text-ink"
+          >
+            Status
+          </label>
+          <Select
+            id="history-status"
+            aria-label="Filter by status"
+            className={cn((!value.status || value.status === "all") && "text-ink/60")}
+            value={value.status ?? "all"}
+            onChange={(e) => setStatus(e.target.value)}
+          >
+            <option value="all">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="settled">Settled</option>
+            <option value="failed">Failed</option>
           </Select>
         </div>
 

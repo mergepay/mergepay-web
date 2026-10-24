@@ -128,6 +128,22 @@ describe("matchesHistoryFilters", () => {
     assert.ok(matchesHistoryFilters(settlementRow, { kind: "settlements" }));
   });
 
+  it("matches by status (pending, settled, failed, all)", () => {
+    const pendingExpense = toHistoryRow({ type: "expense", ...baseExpense }); // pending (shares are pending)
+    const confirmedSettlement = toHistoryRow({ type: "settlement", ...baseSettlement }); // confirmed
+    const failedSettlement = toHistoryRow({ type: "settlement", ...baseSettlement, status: "failed" });
+
+    assert.ok(matchesHistoryFilters(pendingExpense, { status: "all" }));
+    assert.ok(matchesHistoryFilters(pendingExpense, { status: "pending" }));
+    assert.ok(!matchesHistoryFilters(pendingExpense, { status: "settled" }));
+
+    assert.ok(matchesHistoryFilters(confirmedSettlement, { status: "settled" }));
+    assert.ok(!matchesHistoryFilters(confirmedSettlement, { status: "pending" }));
+
+    assert.ok(matchesHistoryFilters(failedSettlement, { status: "failed" }));
+    assert.ok(!matchesHistoryFilters(failedSettlement, { status: "settled" }));
+  });
+
   it("matches by participant", () => {
     assert.ok(matchesHistoryFilters(expenseRow, { participant: "alice" }));
     assert.ok(matchesHistoryFilters(expenseRow, { participant: "BOB" }));
@@ -180,6 +196,7 @@ describe("hasActiveFilters", () => {
   it("true when any filter is set", () => {
     assert.equal(hasActiveFilters({ keyword: "x" }), true);
     assert.equal(hasActiveFilters({ assetCode: "XLM" }), true);
+    assert.equal(hasActiveFilters({ status: "pending" }), true);
     assert.equal(hasActiveFilters({ kind: "expenses" }), true);
     assert.equal(hasActiveFilters({ fromDate: "2024-01-01" }), true);
   });
@@ -196,6 +213,7 @@ describe("sortHistoryRows (issue #314)", () => {
       id,
       createdAt,
       assetCode: "XLM",
+      status: "pending",
       searchText: `history item ${id}`,
       participants: [],
     };
@@ -297,5 +315,18 @@ describe("filterHistoryRows combined filters (issue #314)", () => {
       toDate: "2024-03-02",
     });
     assert.deepEqual(all.map((r) => r.id), ["s1"]);
+  });
+
+  it("combines asset + status filters", () => {
+    const rows = [expenseRow, settlementRow];
+    // expense is USDC + pending, settlement is XLM + settled (confirmed)
+    const pendingUsdc = filterHistoryRows(rows, { assetCode: "USDC", status: "pending" });
+    assert.deepEqual(pendingUsdc.map((r) => r.id), ["e1"]);
+
+    const settledXlm = filterHistoryRows(rows, { assetCode: "XLM", status: "settled" });
+    assert.deepEqual(settledXlm.map((r) => r.id), ["s1"]);
+
+    const pendingXlm = filterHistoryRows(rows, { assetCode: "XLM", status: "pending" });
+    assert.deepEqual(pendingXlm, []);
   });
 });
