@@ -15,7 +15,7 @@
 
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { SETTLEMENT_MEMO_PREFIX } from "../constants";
-import { buildMergepayMemo, validateMergepayMemo } from "../validations/memo";
+import { buildMergepayMemo, validateSettlementMemo } from "../validations/memo";
 import { toStroops } from "../split";
 import type { Settlement } from "../types";
 
@@ -82,8 +82,7 @@ export function formatSettlementMemo(codeOrMemo: string): string {
 
 /** True when `memo` is a well-formed `MP:<code>` memo that fits on-chain. */
 export function isSettlementMemo(memo: string | null | undefined): memo is string {
-  // Unlike an expense memo, a settlement memo is mandatory.
-  return validateMergepayMemo(memo, { required: true }).valid;
+  return validateSettlementMemo(memo).valid;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +261,8 @@ function sameAmount(a: string, b: string): boolean {
  * fields in `expected` are only checked when provided.
  */
 export function verifySettlementEnvelope(envelope: SettlementEnvelope, expected: ExpectedSettlement): void {
-  if (!isSettlementMemo(expected.memo)) {
+  const expectedMemo = expected.memo;
+  if (!isSettlementMemo(expectedMemo)) {
     throw new SettlementVerificationError(
       "memo_malformed",
       "Mergepay did not return a valid MP: reconciliation memo for this settlement."
@@ -274,10 +274,16 @@ export function verifySettlementEnvelope(envelope: SettlementEnvelope, expected:
       "The payment is missing its MP: memo, so it could not be matched to this debt."
     );
   }
-  if (envelope.memo.trim() !== expected.memo.trim()) {
+  if (!isSettlementMemo(envelope.memo)) {
+    throw new SettlementVerificationError(
+      "memo_malformed",
+      "The payment memo is not a valid MP: reconciliation memo."
+    );
+  }
+  if (envelope.memo !== expectedMemo) {
     throw new SettlementVerificationError(
       "memo_mismatch",
-      `The payment memo "${envelope.memo}" does not match the expected "${expected.memo}".`
+      `The payment memo "${envelope.memo}" does not match the expected "${expectedMemo}".`
     );
   }
 
@@ -315,7 +321,13 @@ export function verifySettledMemo(settlement: Pick<Settlement, "memo">, expected
   if (!settlement.memo) {
     throw new SettlementVerificationError("memo_missing", "The confirmed payment has no MP: memo recorded.");
   }
-  if (settlement.memo.trim() !== expectedMemo.trim()) {
+  if (!isSettlementMemo(settlement.memo)) {
+    throw new SettlementVerificationError(
+      "memo_malformed",
+      "The confirmed payment has an invalid MP: reconciliation memo."
+    );
+  }
+  if (settlement.memo !== expectedMemo) {
     throw new SettlementVerificationError(
       "memo_mismatch",
       `The confirmed payment carries memo "${settlement.memo}", expected "${expectedMemo}".`

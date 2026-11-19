@@ -22,7 +22,12 @@ vi.mock("@/lib/fiat-preference", () => ({
     selector({ preferredCurrency: "USD" }),
 }));
 
-function balance(userId: string, net: string, assetCode: string): MemberBalance {
+function balance(
+  userId: string,
+  net: string,
+  assetCode: string,
+  assetIssuer?: string | null
+): MemberBalance {
   return {
     userId,
     user: {
@@ -34,6 +39,7 @@ function balance(userId: string, net: string, assetCode: string): MemberBalance 
     },
     net,
     assetCode,
+    assetIssuer,
   };
 }
 
@@ -125,5 +131,22 @@ describe("MultiCurrencyBalanceSummary", () => {
 
     expect(screen.queryByText(/Total in/)).toBeNull();
     expect(screen.getAllByText("100.00 BTC").length).toBeGreaterThan(0);
+  });
+
+  it("keeps assets with the same code but different issuers separate", () => {
+    render(
+      <MultiCurrencyBalanceSummary
+        balances={[
+          balance("user-1", "10", "USDC", "GISSUERONE"),
+          balance("user-1", "20", "USDC", "GISSUERTWO"),
+        ]}
+      />
+    );
+
+    expect(screen.getAllByText("10.00 USDC").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("20.00 USDC").length).toBeGreaterThan(0);
+    expect(screen.getByText("GISSU…RONE")).toBeDefined();
+    expect(screen.getByText("GISSU…RTWO")).toBeDefined();
+    expect(screen.queryByText(/Total in/)).toBeNull();
   });
 });

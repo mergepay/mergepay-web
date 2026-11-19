@@ -175,6 +175,7 @@ export const BalancesResponseSchema = z.object({
       user: UserSchema,
       net: DecimalStringSchema,
       assetCode: z.string(),
+      assetIssuer: z.string().nullable().optional(),
     })
   ),
   suggestions: z.array(

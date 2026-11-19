@@ -209,26 +209,32 @@ describe("API response schemas", () => {
 
   it("BalancesResponseSchema accepts valid balances + suggestions", () => {
     const u2 = { ...user, id: "u2", displayName: "Bob" };
-    assert.equal(
-      BalancesResponseSchema.safeParse({
-        balances: [
-          { userId: "u1", user, net: "0", assetCode: "XLM" },
-          { userId: "u2", user: u2, net: "0", assetCode: "XLM" },
-        ],
-        suggestions: [
-          {
-            fromUserId: "u1",
-            from: user,
-            toUserId: "u2",
-            to: u2,
-            amount: "0",
-            assetCode: "XLM",
-            assetIssuer: null,
-          },
-        ],
-      }).success,
-      true
-    );
+    const result = BalancesResponseSchema.safeParse({
+      balances: [
+        { userId: "u1", user, net: "0", assetCode: "XLM" },
+        { userId: "u2", user: u2, net: "0", assetCode: "XLM" },
+        { userId: "u1", user, net: "1", assetCode: "USDC", assetIssuer: "GISSUERONE" },
+        { userId: "u2", user: u2, net: "-1", assetCode: "USDC", assetIssuer: "GISSUERTWO" },
+      ],
+      suggestions: [
+        {
+          fromUserId: "u1",
+          from: user,
+          toUserId: "u2",
+          to: u2,
+          amount: "0",
+          assetCode: "XLM",
+          assetIssuer: null,
+        },
+      ],
+    });
+    assert.equal(result.success, true);
+    if (result.success) {
+      assert.deepEqual(
+        result.data.balances.slice(2).map((balance) => balance.assetIssuer),
+        ["GISSUERONE", "GISSUERTWO"]
+      );
+    }
   });
 
   it("SettlementResponseSchema accepts every terminal + non-terminal status", () => {
