@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { expenseFormSchema, type ExpenseFormValues } from "./expense";
+import {
+  createExpenseFormSchema,
+  expenseFormSchema,
+  type ExpenseFormValues,
+} from "./expense";
 
 /** Real USDC issuer on Stellar mainnet/testnet — a valid ed25519 public key. */
 const VALID_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+/** Separate valid key for verifying same-code/different-issuer identity. */
+const SECOND_VALID_ISSUER = "GAQOC6L5ZP7GCVXQBKHCZKHYGBXTGYZW2NQLKXT3M6Q5G44OKOQWZWCB";
 
 /** Fixture mirroring the payload `AddExpenseDialog` builds before submitting. */
 const validEqual = {
@@ -40,6 +46,18 @@ function firstMessage(result: ReturnType<typeof parse>): string | undefined {
   return result.success ? undefined : result.error?.issues[0]?.message;
 }
 
+const configuredExpenseSchema = createExpenseFormSchema({
+  memberIds: ["user-a", "user-b", "user-c"],
+  supportedAssets: [
+    { code: "XLM", issuer: null },
+    { code: "TOK", issuer: VALID_ISSUER },
+  ],
+});
+
+function parseConfigured(overrides: Record<string, unknown> = {}) {
+  return configuredExpenseSchema.safeParse({ ...validEqual, ...overrides });
+}
+
 describe("expenseFormSchema — valid submissions", () => {
   it("accepts a well-formed equal split", () => {
     expect(parse().success).toBe(true);
@@ -72,6 +90,81 @@ describe("expenseFormSchema — valid submissions", () => {
       shares: [{ userId: "user-a" }],
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("createExpenseFormSchema — configured asset and group verification (#717)", () => {
+  it("accepts a configured custom asset only with its configured issuer", () => {
+    expect(
+      parseConfigured({ assetCode: "TOK", assetIssuer: VALID_ISSUER }).success
+    ).toBe(true);
+  });
+
+  it("distinguishes configured assets with the same symbol by issuer", () => {
+    const sameCodeSchema = createExpenseFormSchema({
+      memberIds: ["user-a", "user-b", "user-c"],
+      supportedAssets: [
+        { code: "TOK", issuer: VALID_ISSUER },
+        { code: "TOK", issuer: SECOND_VALID_ISSUER },
+      ],
+    });
+
+    expect(
+      sameCodeSchema.safeParse({
+        ...validEqual,
+        assetCode: "TOK",
+        assetIssuer: VALID_ISSUER,
+      }).success
+    ).toBe(true);
+    expect(
+      sameCodeSchema.safeParse({
+        ...validEqual,
+        assetCode: "TOK",
+        assetIssuer: SECOND_VALID_ISSUER,
+      }).success
+    ).toBe(true);
+    expect(
+      sameCodeSchema.safeParse({
+        ...validEqual,
+        assetCode: "TOK",
+        assetIssuer: null,
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects an otherwise well-formed symbol that is not configured", () => {
+    const result = parseConfigured({ assetCode: "EUR" });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues[0]?.path[0]).toBe("assetCode");
+  });
+
+  it("rejects a custom asset when its issuer is missing or belongs to another token", () => {
+    expect(parseConfigured({ assetCode: "TOK", assetIssuer: null }).success).toBe(false);
+    const wrongIssuer = parseConfigured({
+      assetCode: "TOK",
+      assetIssuer: SECOND_VALID_ISSUER,
+    });
+    expect(wrongIssuer.success).toBe(false);
+    if (!wrongIssuer.success) {
+      expect(wrongIssuer.error.issues.some((issue) => issue.path[0] === "assetIssuer")).toBe(true);
+    }
+  });
+
+  it("keeps the native asset issuerless", () => {
+    expect(parseConfigured({ assetCode: "XLM", assetIssuer: null }).success).toBe(true);
+    expect(parseConfigured({ assetCode: "XLM", assetIssuer: VALID_ISSUER }).success).toBe(false);
+  });
+
+  it("accepts only current group members as payers and participants", () => {
+    expect(parseConfigured().success).toBe(true);
+    expect(parseConfigured({ payerUserId: "user-outside" }).success).toBe(false);
+    const invalidParticipant = parseConfigured({ shares: [{ userId: "user-outside" }] });
+    expect(invalidParticipant.success).toBe(false);
+    if (!invalidParticipant.success) {
+      expect(
+        invalidParticipant.error.issues.some((issue) => issue.message.includes("not a member"))
+      ).toBe(true);
+    }
   });
 });
 

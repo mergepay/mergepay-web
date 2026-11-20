@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
 
 import { toast } from "sonner";
 import { Dialog } from "@/components/ui/dialog";
@@ -28,10 +30,12 @@ import {
   isTypableAmount,
   parseDecimalUnits,
   splitEqualUnits,
-  validateExpenseForm,
 } from "@/lib/expenseValidation";
 import { formatAmountInput } from "@/lib/amountInput";
-import { expenseFormSchema } from "@/lib/validations/expense";
+import {
+  createExpenseFormSchema,
+  type ExpenseFormValues,
+} from "@/lib/validations/expense";
 import { expenseCreationSchema } from "@/lib/validation";
 import { MAX_DECIMAL_PLACES, parseExactAmount } from "@/lib/money";
 import { useWalletDisconnected } from "@/lib/wallet-store";
@@ -90,6 +94,7 @@ export function AddExpenseDialog({
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submissionLock = useRef(false);
 
   const { draft, isRestored, saveDraft, clearDraft, acknowledgeRestored } = useLocalStorageDraft(groupId);
 
@@ -178,19 +183,15 @@ export function AddExpenseDialog({
   // connected wallet is still required because the request needs the session.
   const submitBlocked = walletDisconnected;
 
-  const pending = create.isPending || submitting;
-
   /**
    * Update the local field and the persisted preference together, so the
    * currency toggle stays put across dialogs and page reloads (#486).
    */
   function selectAssetKey(key: string) {
-    const next = SUPPORTED_ASSET_CODES.includes(key) ? key : SUPPORTED_ASSET_CODES[0];
-    setAssetKey(next);
-    const assetDef = SETTLEMENT_ASSETS.find((a) => a.code === next);
-    if (assetDef) {
-      setActiveAsset({ code: assetDef.code, issuer: assetDef.issuer });
-    }
+    setAssetKey(key);
+    const assetDef = SETTLEMENT_ASSETS.find((a) => a.code === key);
+    if (!assetDef) return;
+    setActiveAsset({ code: assetDef.code, issuer: assetDef.issuer });
   }
 
   const asset = useMemo(
@@ -199,6 +200,14 @@ export function AddExpenseDialog({
   );
 
   const memberIds = useMemo(() => members.map((m) => m.userId), [members]);
+
+  // The auth store can finish hydrating after the dialog has mounted. Keep the
+  // default payer aligned with that session once the user is in this group.
+  useEffect(() => {
+    if (currentUserId && memberIds.includes(currentUserId)) {
+      setPayerUserId(currentUserId);
+    }
+  }, [currentUserId, memberIds]);
 
   const calculatorParticipants = useMemo(
     () =>
@@ -244,6 +253,50 @@ export function AddExpenseDialog({
     }));
   }, [splitType, participants, custom, percent]);
 
+  const formSchema = useMemo(
+    () => createExpenseFormSchema({ memberIds, supportedAssets: SETTLEMENT_ASSETS }),
+    [memberIds]
+  );
+
+  const formValues = useMemo<ExpenseFormValues>(
+    () => ({
+      title,
+      description: description || undefined,
+      amount,
+      // Keep the selected symbol itself in validation. Falling back to XLM
+      // for display must never turn an invalid restored value into a valid
+      // payload by accident.
+      assetCode: assetKey,
+      assetIssuer: asset.issuer,
+      splitType,
+      shares: sharesPayload,
+      payerUserId,
+      memo: memo || undefined,
+      receiptUrl,
+    }),
+    [title, description, amount, assetKey, asset.issuer, splitType, sharesPayload, payerUserId, memo, receiptUrl]
+  );
+
+  const {
+    handleSubmit: handleValidatedSubmit,
+    reset: resetValidatedForm,
+    formState: { isSubmitting: isValidatingOrSubmitting },
+  } = useForm<ExpenseFormValues>({
+    resolver: zodResolver(formSchema),
+    mode: "onChange",
+    reValidateMode: "onChange",
+    defaultValues: formValues,
+  });
+
+  // Most fields keep their existing local state because it also feeds draft
+  // persistence and the split preview. Mirror that exact model into RHF so its
+  // resolver validates the current snapshot on submit.
+  useEffect(() => {
+    resetValidatedForm(formValues);
+  }, [formValues, resetValidatedForm]);
+
+  const pending = create.isPending || submitting || isValidatingOrSubmitting;
+
   /** The amount in stroops, or null while it is empty/invalid. */
   const amountUnits = useMemo(() => {
     const parsed = parseDecimalUnits(amount, AMOUNT_DECIMAL_PLACES);
@@ -266,22 +319,9 @@ export function AddExpenseDialog({
   const rateWarning =
     hasRateOverride && rateDeviationPercent(effectiveRate, marketRate) > 10;
 
-  // Use Zod schema validation
   const validationResult = useMemo(() => {
-    const payload = {
-      title,
-      description: description || undefined,
-      amount,
-      assetCode: asset.code,
-      assetIssuer: asset.issuer,
-      splitType,
-      shares: sharesPayload,
-      payerUserId,
-      memo: memo || undefined,
-      receiptUrl,
-    };
-    return expenseFormSchema.safeParse(payload);
-  }, [title, description, amount, asset, splitType, sharesPayload, payerUserId, memo, receiptUrl]);
+    return formSchema.safeParse(formValues);
+  }, [formSchema, formValues]);
 
   /**
    * True only when the Zod schema accepts the current form values.
@@ -311,56 +351,44 @@ export function AddExpenseDialog({
     setTouched((prev) => ({ ...prev, [field]: true }));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  const assetError = getError("assetCode") ?? getError("assetIssuer");
+
+  function handleInvalidSubmit() {
     setShowErrors(true);
     setSubmitError(null);
+    toast.error("Please fix the errors before submitting");
+  }
 
-    if (!validationResult.success) {
-      toast.error("Please fix the errors before submitting");
-      return;
-    }
+  async function handleValidSubmit(values: ExpenseFormValues) {
+    setShowErrors(true);
+    setSubmitError(null);
+    if (submitBlocked || create.isPending || submissionLock.current) return;
 
-    if (submitBlocked) {
-      return;
-    }
-
-    // Final runtime gate on the exact payload about to be dispatched (#315):
-    // a malformed amount, an invalid asset code, or a split that does not add
-    // up is rejected here — with a descriptive message — before mergepay-api
-    // ever sees the request.
-    const payload = expenseCreationSchema.safeParse({
-      title: title.trim(),
-      description: description.trim() || undefined,
-      amount,
-      assetCode: asset.code,
-      assetIssuer: asset.issuer,
-      splitType,
-      shares: sharesPayload,
-      payerUserId,
-      memo: memo.trim() || undefined,
-      receiptUrl,
-    });
-    if (!payload.success) {
-      toast.error(payload.error.issues[0]?.message ?? "Please fix the errors before submitting");
-      return;
-    }
-
-    // Offline: persist the draft in the queue; the sync runner posts it (with
-    // its idempotency key) the moment the connection returns.
-    if (isOffline) {
-      useOfflineStore.getState().enqueue(groupId, payload.data);
-      clearDraft();
-      reset();
-      toast.success(
-        "Saved offline — this expense will sync when you're back online"
-      );
-      onClose();
-      return;
-    }
-
+    submissionLock.current = true;
+    setSubmitting(true);
     try {
-      setSubmitting(true);
+      // Final runtime gate on the exact payload about to be dispatched (#315):
+      // this keeps the API contract check as a second boundary after the form
+      // resolver and before the network request.
+      const payload = expenseCreationSchema.safeParse(values);
+      if (!payload.success) {
+        const message = payload.error.issues[0]?.message ?? "Please fix the errors before submitting";
+        setSubmitError(message);
+        toast.error(message);
+        return;
+      }
+
+      // Offline: persist the draft in the queue; the sync runner posts it (with
+      // its idempotency key) the moment the connection returns.
+      if (isOffline) {
+        useOfflineStore.getState().enqueue(groupId, payload.data);
+        clearDraft();
+        reset();
+        toast.success("Saved offline — this expense will sync when you're back online");
+        onClose();
+        return;
+      }
+
       await create.mutateAsync({
         ...payload.data,
         // Makes the bounded retries in `useCreateExpense` (and a manual retry
@@ -376,6 +404,7 @@ export function AddExpenseDialog({
       const msg = handleApiError(err, "Could not create expense", { silent: true });
       setSubmitError(msg);
     } finally {
+      submissionLock.current = false;
       setSubmitting(false);
     }
   }
@@ -395,6 +424,18 @@ export function AddExpenseDialog({
     setParticipants(members.map((m) => m.userId));
     setTouched({});
     setShowErrors(false);
+    resetValidatedForm({
+      title: "",
+      description: undefined,
+      amount: "",
+      assetCode: assetKey,
+      assetIssuer: asset.issuer,
+      splitType: "equal",
+      shares: members.map((member) => ({ userId: member.userId })),
+      payerUserId,
+      memo: undefined,
+      receiptUrl: null,
+    });
   }
 
   return (
@@ -404,7 +445,7 @@ export function AddExpenseDialog({
       title="Add Expense"
       description="Create a new shared expense for this group."
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleValidatedSubmit(handleValidSubmit, handleInvalidSubmit)} className="space-y-4">
         {submitError && (
           <div className="rounded-xl border-3 border-ink bg-flamingo-pale p-3 text-sm font-bold text-ink shadow-brutal-sm">
             {submitError}
@@ -549,7 +590,10 @@ export function AddExpenseDialog({
             id="expense-asset"
             value={assetKey}
             onChange={(e) => selectAssetKey(e.target.value)}
-            className={getError("assetCode") || getError("assetIssuer") ? "border-flamingo" : undefined}
+            onBlur={() => markTouched("assetCode")}
+            aria-invalid={assetError ? true : undefined}
+            aria-describedby={assetError ? "expense-asset-error" : undefined}
+            className={assetError ? "border-flamingo" : undefined}
           >
             {SUPPORTED_ASSET_CODES.map((code) => (
               <option key={code} value={code}>
@@ -557,9 +601,9 @@ export function AddExpenseDialog({
               </option>
             ))}
           </Select>
-          {(getError("assetCode") || getError("assetIssuer")) && (
-            <p className="mt-1 text-xs font-bold text-flamingo-dark">
-              {getError("assetCode") ?? getError("assetIssuer")}
+          {assetError && (
+            <p id="expense-asset-error" className="mt-1 text-xs font-bold text-flamingo-dark" role="alert">
+              {assetError}
             </p>
           )}
         </div>
