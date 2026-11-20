@@ -258,6 +258,8 @@ export interface MemberBalance {
   /** Signed decimal string: positive = is owed, negative = owes. */
   net: string;
   assetCode: string;
+  /** Optional for compatibility with older balance responses that sent only the code. */
+  assetIssuer?: string | null;
 }
 
 export interface SettlementSuggestion {

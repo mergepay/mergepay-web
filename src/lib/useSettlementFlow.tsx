@@ -12,6 +12,10 @@ import {
   UserRejectedError,
 } from "./stellar";
 import { validateSettlementInput } from "./paymentValidation";
+import {
+  inspectSettlementXdr,
+  verifySettlementEnvelope,
+} from "./stellar/transactions";
 import { NETWORK_PASSPHRASE } from "./constants";
 import type {
   Settlement,
@@ -226,6 +230,29 @@ export function useSettlementFlow(groupId: string) {
             walletErrorCode: null,
           });
           submittingRef.current = false;
+          return;
+        }
+
+        // Validate the returned memo and payment envelope before opening
+        // Freighter. The modal flow uses the same guard; keep this exported
+        // flow safe as well if it is used by another caller.
+        try {
+          verifySettlementEnvelope(
+            inspectSettlementXdr(intent.xdr, intent.networkPassphrase),
+            {
+              memo: intent.settlement.memo,
+              destination: target.to.stellarPublicKey || null,
+              assetCode: target.assetCode,
+              assetIssuer: target.assetIssuer,
+              amount: target.expenseId ? null : target.amount,
+            }
+          );
+        } catch (error) {
+          setStep("failed");
+          setErrorPayload({
+            message: error instanceof Error ? error.message : "The settlement memo is invalid.",
+            walletErrorCode: null,
+          });
           return;
         }
 

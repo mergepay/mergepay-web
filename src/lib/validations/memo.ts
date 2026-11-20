@@ -106,6 +106,24 @@ export function validateMergepayMemo(
   };
 }
 
+/**
+ * Validate the exact memo that will be placed on a settlement transaction.
+ * Input helpers may trim pasted whitespace, but a transaction memo must
+ * begin with `MP:` and end with the code without surrounding whitespace.
+ */
+export function validateSettlementMemo(
+  memo: string | null | undefined
+): MemoValidationResult {
+  if (typeof memo === "string" && memo !== memo.trim()) {
+    return {
+      valid: false,
+      error: "Settlement memo cannot have leading or trailing whitespace.",
+      byteLength: memoByteLength(memo),
+    };
+  }
+  return validateMergepayMemo(memo, { required: true });
+}
+
 /** Boolean form of {@link validateMergepayMemo}. */
 export function isValidMergepayMemo(memo: string | null | undefined): boolean {
   return validateMergepayMemo(memo).valid;

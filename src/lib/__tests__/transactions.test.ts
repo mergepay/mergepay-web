@@ -349,6 +349,8 @@ describe("verifySettlementEnvelope", () => {
     assert.equal(issueOf(() => verifySettlementEnvelope(envelope, { ...expected, assetCode: "XLM" })), "asset_mismatch");
     assert.equal(issueOf(() => verifySettlementEnvelope(envelope, { ...expected, assetIssuer: "GFAKE" })), "asset_mismatch");
     assert.equal(issueOf(() => verifySettlementEnvelope(envelope, { ...expected, amount: "12.5000001" })), "amount_mismatch");
+    assert.equal(issueOf(() => verifySettlementEnvelope(envelope, { ...expected, memo: " MP:rent-0526" })), "memo_malformed");
+    assert.equal(issueOf(() => verifySettlementEnvelope({ ...envelope, memo: "MP:rent-0526 " }, expected)), "memo_malformed");
   });
 
   it("skips optional checks that were not requested", () => {
