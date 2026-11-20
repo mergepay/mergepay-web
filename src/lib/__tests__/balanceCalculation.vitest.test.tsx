@@ -85,6 +85,7 @@ describe("aggregateBalancesByAsset", () => {
 
     expect(result.get("XLM")).toEqual({
       assetCode: "XLM",
+      assetIssuer: null,
       netStroops: BigInt(145_000_000),
       net: "14.5000000",
       count: 3,

@@ -4,6 +4,7 @@ import { Card, CardContent } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Money } from "../amount";
 import { aggregateBalancesByAsset, getSortedAggregatedBalances } from "@/lib/balanceAggregation";
+import { assetIdentityKey } from "@/lib/utils/balance";
 import {
   aggregateBalancesInAsset,
   assetExchangeRates,
@@ -41,11 +42,17 @@ export function MultiCurrencyBalanceSummary({
   const aggregation = aggregateBalancesByAsset(balances, userId);
   const sortedBalances = getSortedAggregatedBalances(aggregation);
   const baseAsset = sortedBalances[0]?.assetCode;
+  const duplicateCodes = new Set(
+    sortedBalances
+      .filter((balance, index, all) => all.findIndex((item) => item.assetCode === balance.assetCode) !== index)
+      .map((balance) => balance.assetCode)
+  );
   const exchange = assetExchangeRates(rates);
   // A single-asset group has nothing to convert against. The cross rate comes
   // from the fiat feed, so when that has not resolved to a usable pair the
   // helpers below return null and we show no estimate rather than a guessed one.
-  const comparable = baseAsset !== undefined && sortedBalances.length > 1;
+  const comparable =
+    baseAsset !== undefined && sortedBalances.length > 1 && duplicateCodes.size === 0;
   const totalInBase = comparable
     ? aggregateBalancesInAsset(
         sortedBalances.map((b) => ({ amount: b.net, assetCode: b.assetCode })),
@@ -77,11 +84,18 @@ export function MultiCurrencyBalanceSummary({
                 : null;
             return (
               <div
-                key={balance.assetCode}
+                key={assetIdentityKey(balance.assetCode, balance.assetIssuer)}
                 className="flex items-center justify-between gap-3 py-2 px-3 rounded-lg border-2 border-ink/20 bg-cream/50"
               >
                 <span className="font-mono text-sm font-bold text-ink/80">
                   {balance.assetCode}
+                  {duplicateCodes.has(balance.assetCode) && (
+                    <span className="ml-1 text-[10px] font-normal text-ink/50">
+                      {balance.assetIssuer
+                        ? `${balance.assetIssuer.slice(0, 5)}…${balance.assetIssuer.slice(-4)}`
+                        : "issuer unavailable"}
+                    </span>
+                  )}
                 </span>
                 <span className="flex flex-col items-end">
                   <Money value={balance.net} assetCode={balance.assetCode} />
