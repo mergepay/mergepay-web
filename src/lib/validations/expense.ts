@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { SETTLEMENT_ASSETS } from "../constants";
 import { isValidEd25519PublicKey } from "../strkey";
 import { MAX_STROOPS } from "../validation";
 import { mergepayMemoSchema } from "./memo";
@@ -256,6 +257,72 @@ export const expenseFormSchema = z
   });
 
 export type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
+
+export interface ExpenseFormAsset {
+  code: string;
+  issuer: string | null;
+}
+
+export interface ExpenseFormSchemaOptions {
+  /** Current group roster; participant and payer ids must belong to it. */
+  memberIds: readonly string[];
+  /** Assets this form can submit. Defaults to the app's configured choices. */
+  supportedAssets?: readonly ExpenseFormAsset[];
+}
+
+/**
+ * Apply group and asset configuration checks to the shared expense schema.
+ * Asset identity includes the issuer: a syntactically valid code alone does
+ * not establish that a custom trustline asset is the one selected by the app.
+ */
+export function createExpenseFormSchema({
+  memberIds,
+  supportedAssets = SETTLEMENT_ASSETS,
+}: ExpenseFormSchemaOptions) {
+  const currentMembers = new Set(memberIds);
+
+  return expenseFormSchema.superRefine((data, ctx) => {
+    const selectedAsset = supportedAssets.find(
+      (asset) =>
+        asset.code === data.assetCode &&
+        (asset.issuer ?? null) === (data.assetIssuer ?? null)
+    );
+    if (!selectedAsset) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [data.assetIssuer ? "assetIssuer" : "assetCode"],
+        message: "Choose a supported asset and issuer combination",
+      });
+    } else {
+      const expectedIssuer = selectedAsset.issuer ?? null;
+      if (expectedIssuer && !isValidEd25519PublicKey(expectedIssuer)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["assetIssuer"],
+          message: "The selected asset is missing a valid Stellar issuer",
+        });
+      }
+    }
+
+    if (data.payerUserId && !currentMembers.has(data.payerUserId.trim())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payerUserId"],
+        message: "The selected payer is not a member of this group",
+      });
+    }
+
+    data.shares.forEach((share, index) => {
+      if (!currentMembers.has(share.userId.trim())) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["shares", index, "userId"],
+          message: "Selected participant is not a member of this group",
+        });
+      }
+    });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Split calculator form (issue #353)

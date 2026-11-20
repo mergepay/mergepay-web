@@ -6,7 +6,7 @@
  * after the user attempts submission with bad data.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { GroupMember } from "@/lib/types";
@@ -264,5 +264,67 @@ describe("AddExpenseDialog — Zod schema covers currency/asset selection (#607)
       target: { value: "USDC" },
     });
     expect(submitButton()).not.toBeDisabled();
+  });
+
+  it("shows an inline error and rejects an unsupported asset symbol", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/^title$/i), {
+      target: { value: "Groceries" },
+    });
+    fireEvent.change(screen.getByLabelText(/^amount$/i), {
+      target: { value: "80" },
+    });
+    const asset = screen.getByLabelText(/^asset$/i);
+    fireEvent.change(asset, { target: { value: "EUR" } });
+    fireEvent.blur(asset);
+
+    await waitFor(() => expect(asset).toHaveAttribute("aria-invalid", "true"));
+    expect(screen.getByRole("alert")).toHaveTextContent(/supported assets|asset code is required/i);
+    expect(submitButton()).toBeDisabled();
+
+    fireEvent.submit(document.querySelector("form")!);
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("runs resolver validation even when an invalid form is submitted directly", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/^title$/i), {
+      target: { value: "Coffee" },
+    });
+    fireEvent.change(screen.getByLabelText(/^amount$/i), {
+      target: { value: "0" },
+    });
+
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(screen.getByText(/greater than zero/i)).toBeInTheDocument());
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("disables during submission and ignores duplicate submit events", async () => {
+    let finishRequest: (() => void) | undefined;
+    mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRequest = () => resolve({ expense: { id: "e1" } });
+        })
+    );
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/^title$/i), {
+      target: { value: "Lunch" },
+    });
+    fireEvent.change(screen.getByLabelText(/^amount$/i), {
+      target: { value: "20" },
+    });
+
+    const form = document.querySelector("form")!;
+    fireEvent.submit(form);
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(submitButton()).toBeDisabled();
+
+    fireEvent.submit(form);
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+
+    await act(async () => finishRequest?.());
   });
 });

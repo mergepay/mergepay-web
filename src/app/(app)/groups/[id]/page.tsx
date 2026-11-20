@@ -27,6 +27,7 @@ import { ExpenseListFilters, type ExpenseFilterState } from "@/components/expens
 import { filterExpenses } from "@/lib/expenseFilters";
 import { ListSkeleton, GroupHeaderSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
 import type { Expense, GroupMember } from "@/lib/types";
+import { useAuth } from "@/lib/auth-store";
 
 export default function GroupDetailPage() {
   const params = useParams();
@@ -57,7 +58,7 @@ export default function GroupDetailPage() {
   const balances = balancesQuery.data?.balances ?? [];
   const settlements = settlementsQuery.data?.settlements ?? [];
   const members: GroupMember[] = groupQuery.data?.members ?? [];
-  const currentUserId = "user-1"; // Fallback or session user ID
+  const currentUserId = useAuth((state) => state.user?.id) ?? "";
   const isAdmin = true;
 
   const onFilterChange = useCallback((next: ExpenseFilterState) => {
