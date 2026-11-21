@@ -1,61 +1,93 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { WifiOff, AlertTriangle } from "lucide-react";
-import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { WifiOff, AlertTriangle, RefreshCw } from "lucide-react";
+import { useNetworkStatus } from "@/lib/hooks/useNetworkStatus";
+import { cn } from "@/lib/utils";
+
+export interface NetworkStatusBannerProps {
+  className?: string;
+}
 
 /**
- * Global connection banner that smoothly animates into view when the
- * browser goes offline or the API health check degrades.
- *
- * Uses framer-motion for a slide-down entrance / exit and neobrutalist
- * styling (thick borders, high-contrast warning colors) per the design
- * system.
+ * Global network status warning banner following the neobrutalist design system.
+ * Announces state changes via aria-live="polite" and automatically dismisses/triggers
+ * data refetching when connection is restored.
  */
-export function NetworkStatusBanner() {
-  const { isOnline, isApiDegraded, latencyMs } = useNetworkStatus();
-  const [dismissed, setDismissed] = useState(false);
+export function NetworkStatusBanner({ className }: NetworkStatusBannerProps) {
+  const { isOnline, isApiDegraded, latencyMs, refetch } = useNetworkStatus();
+  const [userDismissed, setUserDismissed] = useState(false);
 
-  const visible = (!isOnline || isApiDegraded) && !(dismissed && !isOnline);
+  // Automatically reset user dismissal when connection drops again
+  useEffect(() => {
+    if (!isOnline || isApiDegraded) {
+      setUserDismissed(false);
+    }
+  }, [isOnline, isApiDegraded]);
+
+  const shouldShow = (!isOnline || isApiDegraded) && !userDismissed;
+
+  if (!shouldShow) return null;
 
   return (
     <AnimatePresence>
-      {visible && (
+      {shouldShow && (
         <motion.div
-          key="network-banner"
+          key="network-status-banner"
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: "auto", opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.25, ease: "easeInOut" }}
-          className="overflow-hidden border-b-3 border-ink bg-mustard-pale"
-          role="alert"
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className={cn(
+            "sticky top-0 z-50 overflow-hidden border-b-[3px] border-ink bg-mustard px-4 py-3 shadow-brutal-sm",
+            !isOnline ? "bg-flamingo text-ink" : "bg-mustard text-ink",
+            className
+          )}
+          role="status"
+          aria-live="polite"
         >
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-2.5 text-xs font-semibold sm:text-sm">
-            <div className="flex items-center gap-2">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 text-xs sm:text-sm font-black uppercase tracking-[0.1em]">
+            <div className="flex items-center gap-2.5">
               {!isOnline ? (
                 <>
-                  <WifiOff className="h-4 w-4 shrink-0 text-flamingo" />
-                  <span>You are offline. Transactions will be queued once reconnected.</span>
+                  <WifiOff className="h-4 w-4 shrink-0 text-ink" />
+                  <span>You are currently offline. Stellar transactions and balance syncing are paused.</span>
                 </>
-              ) : isApiDegraded ? (
+              ) : (
                 <>
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-tangerine-dark" />
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-ink" />
                   <span>
-                    Network latency detected ({latencyMs ? `${latencyMs}ms` : "RPC degraded"}). Stellar operations may be delayed.
+                    Network latency detected {latencyMs ? `(${latencyMs}ms)` : "(API degraded)"}. Operations may be delayed.
                   </span>
                 </>
-              ) : null}
+              )}
             </div>
-            <button
-              onClick={() => setDismissed(true)}
-              className="rounded-lg border-2 border-ink bg-cream px-2.5 py-1 text-xs font-bold shadow-brutal-sm hover:bg-paper transition-colors"
-            >
-              Dismiss
-            </button>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="inline-flex items-center gap-1.5 rounded-lg border-2 border-ink bg-cream px-2.5 py-1 text-xs font-bold shadow-brutal-sm hover:bg-paper transition-colors"
+                aria-label="Retry connection"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Retry</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserDismissed(true)}
+                className="rounded-lg border-2 border-ink bg-cream px-2.5 py-1 text-xs font-bold shadow-brutal-sm hover:bg-paper transition-colors"
+                aria-label="Dismiss network banner"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         </motion.div>
       )}
     </AnimatePresence>
   );
 }
+
+export default NetworkStatusBanner;
