@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/app-shell";
 import { HistoryFilterBar } from "@/components/history/HistoryFilterBar";
+import { TransactionFilter, type AssetFilter, type StatusFilter } from "@/components/history/TransactionFilter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
@@ -20,7 +21,6 @@ import { AssetBadge } from "@/components/asset-badge";
 import { SettlementStatusDetail } from "@/components/settle/settlement-status";
 import { Tabs } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ListSkeleton } from "@/components/ui/skeleton";
 import { ExpenseListSkeleton } from "@/components/expenses/ExpenseListSkeleton";
 import { useInfiniteHistory, accumulateHistoryPages } from "@/lib/queries";
 import {
@@ -41,13 +41,16 @@ import { AuditDetails } from "@/components/GroupHistoryExport";
 import { GroupExportMenu } from "@/components/groups/GroupExportMenu";
 import { Timestamp } from "@/components/timestamp";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-
 import { Pagination } from "@/components/ui/pagination";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type Filter = HistoryKind;
 const HISTORY_PAGE_SIZE = 10;
 
 export default function HistoryPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const {
     data: pages,
     isPending,
@@ -64,10 +67,12 @@ export default function HistoryPage() {
     DEFAULT_HISTORY_VIEW.filters
   );
   const [currentPage, setCurrentPage] = useState(1);
-  // The tab and the filter bar are display preferences: they are restored
-  // after mount (so server and first client render match) and written back
-  // on every change (#494).
   const [restored, setRestored] = useState(false);
+
+  const [selectedAsset, setSelectedAsset] = useState<AssetFilter>((searchParams.get("asset") as AssetFilter) || "ALL");
+  const [selectedStatus, setSelectedStatus] = useState<StatusFilter>((searchParams.get("status") as StatusFilter) || "ALL");
+  const [startDate, setStartDate] = useState(searchParams.get("start") || "");
+  const [endDate, setEndDate] = useState(searchParams.get("end") || "");
 
   useEffect(() => {
     const stored = readHistoryView();
@@ -81,15 +86,28 @@ export default function HistoryPage() {
     writeHistoryView({ kind: filter, filters });
   }, [restored, filter, filters]);
 
-  // Accumulate all loaded pages into a single deduplicated set sorted
-  // newest-first — mergeHistoryPages keeps stable order across refetches.
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (selectedAsset !== "ALL") params.set("asset", selectedAsset);
+    else params.delete("asset");
+    if (selectedStatus !== "ALL") params.set("status", selectedStatus);
+    else params.delete("status");
+    if (startDate) params.set("start", startDate);
+    else params.delete("start");
+    if (endDate) params.set("end", endDate);
+    else params.delete("end");
+
+    const queryStr = params.toString();
+    const url = queryStr ? `/history?${queryStr}` : "/history";
+    router.replace(url, { scroll: false });
+  }, [selectedAsset, selectedStatus, startDate, endDate, router, searchParams]);
+
   const accumulated = useMemo(() => accumulateHistoryPages(pages?.pages), [pages]);
 
   const expenses = accumulated.expenses;
   const settlements = accumulated.settlements;
   const hasData = expenses.length > 0 || settlements.length > 0;
 
-  // Unified items array (per type tab) before free-text / currency filtering
   const kindItems = useMemo(() => {
     if (filter === "expenses") {
       return expenses.map((e) => ({ type: "expense" as const, item: e, date: e.createdAt }));
@@ -103,16 +121,24 @@ export default function HistoryPage() {
     ]);
   }, [filter, expenses, settlements]);
 
-  // Apply the search bar filters (keyword, currency, person, date range).
   const filteredItems = useMemo(
     () =>
-      kindItems.filter(({ type, item }) =>
-        matchesHistoryFilters(toHistoryRow({ type, ...item }), filters)
-      ),
-    [kindItems, filters]
+      kindItems.filter(({ type, item }) => {
+        const row = toHistoryRow({ type, ...item });
+        if (!matchesHistoryFilters(row, filters)) return false;
+        if (selectedAsset !== "ALL" && row.assetCode !== selectedAsset) return false;
+        if (selectedStatus !== "ALL") {
+          if (type === "settlement" && item.status.toUpperCase() !== selectedStatus) return false;
+          if (type === "expense" && selectedStatus === "PENDING") return false;
+        }
+        if (startDate && new Date(row.createdAt) < new Date(startDate)) return false;
+        if (endDate && new Date(row.createdAt) > new Date(endDate + "T23:59:59")) return false;
+        return true;
+      }),
+    [kindItems, filters, selectedAsset, selectedStatus, startDate, endDate]
   );
 
-  const searching = hasActiveFilters(filters);
+  const searching = hasActiveFilters(filters) || selectedAsset !== "ALL" || selectedStatus !== "ALL" || Boolean(startDate) || Boolean(endDate);
 
   const totalItems = filteredItems.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / HISTORY_PAGE_SIZE));
@@ -135,6 +161,14 @@ export default function HistoryPage() {
     }
   }
 
+  function handleResetFilters() {
+    setFilters({ kind: filter });
+    setSelectedAsset("ALL");
+    setSelectedStatus("ALL");
+    setStartDate("");
+    setEndDate("");
+  }
+
   return (
     <ErrorBoundary onReset={() => void refetch()}>
       <PageHeader
@@ -151,10 +185,6 @@ export default function HistoryPage() {
               >
                 <RefreshCcw className="h-4 w-4" /> Refresh
               </Button>
-              {/* One dropdown for both formats instead of the three
-                  overlapping export buttons this header used to render
-                  (#362). Files are timestamped so repeat exports never
-                  overwrite each other. */}
               <GroupExportMenu
                 groupId="all"
                 expenses={expenses}
@@ -177,7 +207,22 @@ export default function HistoryPage() {
         ]}
       />
 
-      {hasData && <HistoryFilterBar value={filters} onChange={setFilters} />}
+      {hasData && (
+        <div className="space-y-4 mb-6">
+          <HistoryFilterBar value={filters} onChange={setFilters} />
+          <TransactionFilter
+            selectedAsset={selectedAsset}
+            onAssetChange={setSelectedAsset}
+            selectedStatus={selectedStatus}
+            onStatusChange={setSelectedStatus}
+            startDate={startDate}
+            onStartDateChange={setStartDate}
+            endDate={endDate}
+            onEndDateChange={setEndDate}
+            onReset={handleResetFilters}
+          />
+        </div>
+      )}
 
       {isPending ? (
         <ExpenseListSkeleton count={5} />
@@ -206,85 +251,85 @@ export default function HistoryPage() {
               title="No matches"
               description="No transactions match your current filters. Try broadening the search or clearing the filters."
               action={
-                <Button variant="outline" onClick={() => setFilters({ kind: "all" })}>
+                <Button variant="outline" onClick={handleResetFilters}>
                   Clear filters
                 </Button>
               }
             />
           ) : (
-          <div className="space-y-3">
-            {currentPageItems.map(({ type, item }) => {
-              if (type === "expense") {
-                const e = item;
+            <div className="space-y-3">
+              {currentPageItems.map(({ type, item }) => {
+                if (type === "expense") {
+                  const e = item;
+                  return (
+                    <Card key={`e-${e.id}`} className="flex items-center gap-3 p-4">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-ink bg-butter">
+                        <Receipt className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-bold">{e.title}</p>
+                        <p className="text-xs text-ink/50">
+                          {e.payer.displayName} paid · <Timestamp value={e.createdAt} />
+                          {e.memo && (
+                            <span className="ml-1.5 inline-block font-mono text-[11px] text-ink/70">
+                              · Memo: {e.memo}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <Money value={e.amount} assetCode={e.assetCode} />
+                        <div className="mt-1 flex justify-end">
+                          <AssetBadge code={e.assetCode} />
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                }
+
+                const s = item;
                 return (
-                  <Card key={`e-${e.id}`} className="flex items-center gap-3 p-4">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-ink bg-butter">
-                      <Receipt className="h-4 w-4" />
+                  <Card
+                    key={`s-${s.id}`}
+                    className="flex flex-wrap items-start gap-3 p-4"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 border-ink bg-lime">
+                      <Zap className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-bold">{e.title}</p>
-                      <p className="text-xs text-ink/50">
-                        {e.payer.displayName} paid · <Timestamp value={e.createdAt} />
-                        {e.memo && (
-                          <span className="ml-1.5 inline-block font-mono text-[11px] text-ink/70">
-                            · Memo: {e.memo}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <Money value={e.amount} assetCode={e.assetCode} />
-                      <div className="mt-1 flex justify-end">
-                        <AssetBadge code={e.assetCode} />
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Avatar user={s.from} size="sm" />
+                        <span className="text-sm font-bold">{s.from.displayName}</span>
+                        <ArrowRight className="h-3.5 w-3.5 text-ink/40" />
+                        <Avatar user={s.to} size="sm" />
+                        <span className="text-sm font-bold">{s.to.displayName}</span>
                       </div>
+                      {s.memo && (
+                        <p className="mt-1 font-mono text-xs text-ink/70">
+                          Memo: {s.memo}
+                        </p>
+                      )}
                     </div>
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <Money value={s.amount} assetCode={s.assetCode} />
+                      <button
+                        onClick={() => printReceipt(s)}
+                        className="inline-flex items-center gap-1 rounded-lg border-2 border-ink bg-cream px-2 py-1 text-xs font-bold shadow-brutal-sm hover:bg-butter"
+                        aria-label={`Print receipt for the settlement from ${s.from.displayName} to ${s.to.displayName}`}
+                      >
+                        <FileDown className="h-3 w-3" aria-hidden="true" /> PDF
+                      </button>
+                    </div>
+
+                    <SettlementStatusDetail
+                      settlement={s}
+                      className="w-full border-t-2 border-ink/10 pt-3"
+                    />
+                    <AuditDetails settlement={s} />
                   </Card>
                 );
-              }
-
-              const s = item;
-              return (
-                <Card
-                  key={`s-${s.id}`}
-                  className="flex flex-wrap items-start gap-3 p-4"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 border-ink bg-lime">
-                    <Zap className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <Avatar user={s.from} size="sm" />
-                      <span className="text-sm font-bold">{s.from.displayName}</span>
-                      <ArrowRight className="h-3.5 w-3.5 text-ink/40" />
-                      <Avatar user={s.to} size="sm" />
-                      <span className="text-sm font-bold">{s.to.displayName}</span>
-                    </div>
-                    {s.memo && (
-                      <p className="mt-1 font-mono text-xs text-ink/70">
-                        Memo: {s.memo}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <Money value={s.amount} assetCode={s.assetCode} />
-                    <button
-                      onClick={() => printReceipt(s)}
-                      className="inline-flex items-center gap-1 rounded-lg border-2 border-ink bg-cream px-2 py-1 text-xs font-bold shadow-brutal-sm hover:bg-butter"
-                      aria-label={`Print receipt for the settlement from ${s.from.displayName} to ${s.to.displayName}`}
-                    >
-                      <FileDown className="h-3 w-3" aria-hidden="true" /> PDF
-                    </button>
-                  </div>
-
-                  <SettlementStatusDetail
-                    settlement={s}
-                    className="w-full border-t-2 border-ink/10 pt-3"
-                  />
-                  <AuditDetails settlement={s} />
-                </Card>
-              );
-            })}
-          </div>
+              })}
+            </div>
           )}
 
           <Pagination
@@ -295,16 +340,14 @@ export default function HistoryPage() {
             pageSize={HISTORY_PAGE_SIZE}
           />
 
-          {/* Load-more control for additional server pages if needed */}
           {hasNextPage && (
-            <div className="flex justify-center pt-2">
+            <div className="flex justify-center pt-4">
               <Button
                 variant="outline"
-                onClick={() => fetchNextPage()}
+                onClick={() => void fetchNextPage()}
                 loading={isFetchingNextPage}
-                aria-label="Load more history from server"
               >
-                {isFetchingNextPage ? "Loading…" : "Load More History"}
+                Load more pages
               </Button>
             </div>
           )}

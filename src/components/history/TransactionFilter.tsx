@@ -14,6 +14,10 @@ export interface TransactionFilterProps {
   onAssetChange: (asset: AssetFilter) => void;
   selectedStatus: StatusFilter;
   onStatusChange: (status: StatusFilter) => void;
+  startDate?: string;
+  onStartDateChange?: (date: string) => void;
+  endDate?: string;
+  onEndDateChange?: (date: string) => void;
   onReset?: () => void;
   className?: string;
 }
@@ -25,6 +29,10 @@ export function TransactionFilter({
   onAssetChange,
   selectedStatus,
   onStatusChange,
+  startDate = "",
+  onStartDateChange,
+  endDate = "",
+  onEndDateChange,
   onReset,
   className,
 }: TransactionFilterProps) {
@@ -32,7 +40,11 @@ export function TransactionFilter({
   const statuses: StatusFilter[] = ["ALL", "PENDING", "SETTLED"];
 
   const hasActiveFilters =
-    selectedAsset !== "ALL" || selectedStatus !== "ALL" || Boolean(searchQuery.trim());
+    selectedAsset !== "ALL" ||
+    selectedStatus !== "ALL" ||
+    Boolean(searchQuery.trim()) ||
+    Boolean(startDate) ||
+    Boolean(endDate);
 
   return (
     <div
@@ -125,6 +137,47 @@ export function TransactionFilter({
               </button>
             );
           })}
+        </div>
+
+        {/* Date Range Picker Group */}
+        <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t-2 border-ink/10 w-full" role="group" aria-label="Filter by date range">
+          <span className="font-display uppercase tracking-widest text-ink/60 font-bold mr-1">
+            Date Range:
+          </span>
+          <div className="flex items-center gap-1">
+            <label htmlFor="start-date" className="text-[10px] font-bold text-ink/70 uppercase">From</label>
+            <input
+              id="start-date"
+              type="date"
+              value={startDate}
+              onChange={(e) => onStartDateChange?.(e.target.value)}
+              aria-label="Start date"
+              className="rounded-lg border-2 border-ink bg-cream px-2 py-1 font-mono text-xs text-ink outline-none focus:ring-2 focus:ring-grape"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            <label htmlFor="end-date" className="text-[10px] font-bold text-ink/70 uppercase">To</label>
+            <input
+              id="end-date"
+              type="date"
+              value={endDate}
+              onChange={(e) => onEndDateChange?.(e.target.value)}
+              aria-label="End date"
+              className="rounded-lg border-2 border-ink bg-cream px-2 py-1 font-mono text-xs text-ink outline-none focus:ring-2 focus:ring-grape"
+            />
+          </div>
+          {(startDate || endDate) && (
+            <button
+              type="button"
+              onClick={() => {
+                onStartDateChange?.("");
+                onEndDateChange?.("");
+              }}
+              className="text-xs font-bold text-grape hover:underline ml-2"
+            >
+              Clear dates
+            </button>
+          )}
         </div>
       </div>
     </div>
