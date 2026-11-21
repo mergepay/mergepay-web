@@ -3,6 +3,7 @@ import { Archivo_Black, Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { OfflineBanner } from "@/components/ui/offline-banner";
+import { NetworkStatusBanner } from "@/components/NetworkStatusBanner";
 import { NetworkStatusComponent } from "@/components/network-status";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
@@ -50,6 +51,7 @@ export default function RootLayout({
         className={`${display.variable} ${body.variable} ${mono.variable} font-body`}
       >
         <OfflineBanner />
+        <NetworkStatusBanner />
         <NetworkStatusComponent />
         <Providers>
           {/* Route-level boundaries live inside the `(app)` group, which leaves
