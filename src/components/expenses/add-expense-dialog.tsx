@@ -446,6 +446,19 @@ export function AddExpenseDialog({
       description="Create a new shared expense for this group."
     >
       <form onSubmit={handleValidatedSubmit(handleValidSubmit, handleInvalidSubmit)} className="space-y-4">
+        {isRestored && (
+          <div className="flex items-center justify-between rounded-xl border-3 border-ink bg-butter p-3 text-sm font-bold text-ink shadow-brutal-sm">
+            <span>Restored draft from previous session</span>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-auto p-1 text-xs underline"
+              onClick={acknowledgeRestored}
+            >
+              Dismiss
+            </Button>
+          </div>
+        )}
         {submitError && (
           <div className="rounded-xl border-3 border-ink bg-flamingo-pale p-3 text-sm font-bold text-ink shadow-brutal-sm">
             {submitError}
