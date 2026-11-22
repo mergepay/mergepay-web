@@ -8,6 +8,7 @@ import { createQueryClient } from "@/lib/queryClient";
 import { setSessionExpiredHandler } from "@/lib/api";
 import { toast } from "sonner";
 import { useSessionRestore } from "@/hooks/useSessionRestore";
+import { SessionTimeoutProvider } from "@/components/SessionTimeoutProvider";
 
 /**
  * Runs the one-time wallet session restore. It lives inside the query
@@ -37,7 +38,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <SessionRestore />
-        {children}
+        <SessionTimeoutProvider>
+          {children}
+        </SessionTimeoutProvider>
         <Toaster
           position="bottom-right"
           toastOptions={{
