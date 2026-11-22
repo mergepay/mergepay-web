@@ -38,6 +38,7 @@ export function AccessibleDialog({
   const ref = useRef<HTMLDialogElement>(null);
   const wasOpenRef = useRef(false);
   const stackId = useId();
+  const titleId = useId();
 
   // Register with the shared stack so only the topmost dialog reacts to Escape.
   useEffect(() => {
@@ -97,11 +98,12 @@ export function AccessibleDialog({
       ref={ref}
       role="dialog"
       aria-modal="true"
+      aria-labelledby={title ? titleId : undefined}
       aria-label={title}
       className={className ?? "flex flex-col w-full max-w-[calc(100vw-2rem)] sm:max-w-lg rounded-2xl border-3 border-ink bg-cream p-4 sm:p-6 shadow-brutal max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"}
     >
       {title && (
-        <h2 className="shrink-0 font-display text-lg uppercase tracking-tight">{title}</h2>
+        <h2 id={titleId} className="shrink-0 font-display text-lg uppercase tracking-tight">{title}</h2>
       )}
       <div className="flex-1 overflow-y-auto">
         {children}
