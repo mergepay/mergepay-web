@@ -12,6 +12,7 @@ import { Plus, Users, Receipt, ArrowLeft, SearchX, Download } from "lucide-react
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
+import { CurrencyTicker } from "@/components/CurrencyTicker";
 import { InviteMemberModal } from "@/components/groups/InviteMemberModal";
 import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import { BalancesPanel } from "@/components/balances/balances-panel";
@@ -133,8 +134,12 @@ export default function GroupDetailPage() {
 
         {/* Settling a non-native asset fails on-chain without a trustline,
             so warn here — before the user starts a settle — and let them
-            add it without leaving the group. */}
+            add it without leaving the group */}
         {!group?.archived && <TrustlineBanner />}
+
+        <ErrorBoundary>
+          <CurrencyTicker />
+        </ErrorBoundary>
 
         <ErrorBoundary>
           <SkeletonBoundary
