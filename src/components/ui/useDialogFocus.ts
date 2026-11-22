@@ -1,6 +1,7 @@
 import * as React from "react";
 
 
+
 export interface DialogFocusOptions {
   open: boolean;
   onClose: () => void;
@@ -20,11 +21,23 @@ export interface DialogFocusOptions {
   /** When false, Escape is ignored — e.g. a settlement mid-signature. */
   dismissible?: boolean;
 }
-interface UseDialogFocusOptions {
+export interface UseDialogFocusOptions {
   open: boolean;
   onClose: () => void;
-  panelRef: React.RefObject<HTMLElement>;
-  contentRef: React.RefObject<HTMLElement>;
+  /**
+   * The `role="dialog"` panel. It must carry `tabIndex={-1}`: that is where
+   * focus is parked when the dialog has no controls to Tab to, and a plain
+   * `div` cannot receive focus, so the trap would silently do nothing.
+   */
+  panelRef: React.RefObject<HTMLElement | null>;
+  /**
+   * The dialog body when it can be told apart from the title bar. Initial
+   * focus prefers the first control here over the close button; without it
+   * the panel itself takes focus. Marking the body with a ref instead of a
+   * class selector keeps the rule working through a styling change.
+   */
+  contentRef?: React.RefObject<HTMLElement | null>;
+  /** When false, Escape is ignored — e.g. a settlement mid-signature. */
   dismissible?: boolean;
 }
 
