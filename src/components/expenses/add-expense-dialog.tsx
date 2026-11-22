@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ReceiptUploader } from "@/components/ui/receipt-uploader";
-import { Input, Label, Select, FieldHint, FieldError } from "@/components/ui/input";
+import { Input, Label, Select, Textarea, FieldError } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useCreateExpense } from "@/lib/queries";
@@ -478,6 +478,29 @@ export function AddExpenseDialog({
             className={getError("title") ? "border-flamingo" : undefined}
           />
           <FieldError id="expense-title-error">{getError("title")}</FieldError>
+        </div>
+        <div>
+          <Label htmlFor="expense-description">Description (optional)</Label>
+          <Textarea
+            id="expense-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onBlur={() => markTouched("description")}
+            maxLength={500}
+            rows={3}
+            placeholder="Add details about this expense"
+            aria-invalid={getError("description") ? true : undefined}
+            aria-describedby={getError("description")
+              ? "expense-description-error"
+              : "expense-description-hint"}
+            className={getError("description") ? "border-flamingo" : undefined}
+          />
+          <FieldError id="expense-description-error">
+            {getError("description")}
+          </FieldError>
+          <p id="expense-description-hint" className="mt-1 text-xs text-ink/60">
+            Optional details, up to 500 characters.
+          </p>
         </div>
         <div className="rounded-xl border-2 border-ink bg-butter p-3 shadow-brutal-sm">
           <p className="font-display text-xs font-bold uppercase tracking-wide">Currency converter</p>
