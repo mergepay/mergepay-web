@@ -67,9 +67,9 @@ export const expenseFormSchema = z
     description: z
       .string()
       .trim()
+      .min(1, "Description cannot be empty")
       .max(500, "Description must be 500 characters or fewer")
       .regex(/^[^\u0000-\u001f\u007f]*$/, "Description must not contain control characters")
-      .nullable()
       .optional(),
     amount: z
       .string()
