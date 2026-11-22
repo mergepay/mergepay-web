@@ -244,8 +244,9 @@ export function useDeleteExpenseMutation(groupId: string) {
   const invalidate = useInvalidator();
 
   return useMutation({
-    mutationFn: (expenseId: string): Promise<{ ok: boolean }> =>
-      api.deleteExpense(expenseId),
+    mutationFn: (expenseId: string): Promise<void> => {
+      return api.deleteExpense(expenseId);
+    },
 
     onMutate: async (expenseId: string) => {
       const keys = expenseWriteKeys(groupId);
@@ -265,7 +266,7 @@ export function useDeleteExpenseMutation(groupId: string) {
       return { previousExpenses, previousActivity };
     },
 
-    onError: (_err, _expenseId, context) => {
+    onError: (err, _expenseId, context) => {
       // Restore every entry we emptied.
       if (context?.previousExpenses) {
         for (const [queryKey, queryData] of context.previousExpenses) {
@@ -275,12 +276,14 @@ export function useDeleteExpenseMutation(groupId: string) {
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
       }
-      toast.error("Could not delete expense. It has been restored.");
+      handleApiError(err, "Could not delete expense");
     },
 
     onSuccess: () => {
-      toast.success("Expense deleted");
+      invalidate(expenseCacheKeys(groupId));
+      qc.invalidateQueries({ queryKey: qk.activity(groupId) });
       qc.invalidateQueries({ queryKey: qk.history });
+      toast.success("Expense deleted successfully");
     },
 
     onSettled: () => {
