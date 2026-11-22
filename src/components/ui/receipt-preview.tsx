@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Download, ExternalLink, Maximize2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ export function ReceiptPreview({
   title?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   // Escape, focus containment and the vertical overflow guard all come from
   // the shared dialog behaviour: the lightbox stacks over the expense dialog,
@@ -45,6 +46,7 @@ export function ReceiptPreview({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
         aria-label={title}
         tabIndex={-1}
         className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border-3 border-ink bg-cream shadow-brutal-xl focus:outline-none"
@@ -52,7 +54,7 @@ export function ReceiptPreview({
         <div className="flex items-center justify-between gap-2 border-b-3 border-ink bg-butter px-4 py-2.5 rounded-t-[13px]">
           <span className="flex min-w-0 items-center gap-2 font-display text-sm uppercase tracking-tight">
             <Maximize2 className="h-4 w-4 shrink-0" />
-            <span className="truncate">{title}</span>
+            <span id={titleId} className="truncate">{title}</span>
           </span>
           <button
             type="button"
