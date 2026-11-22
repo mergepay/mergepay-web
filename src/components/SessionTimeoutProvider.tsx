@@ -1,6 +1,6 @@
 "use client";
 
-import React from "use client";
+import React from "react";
 import { useWallet } from "@/lib/hooks/use-wallet";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 

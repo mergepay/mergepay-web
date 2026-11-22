@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { isConnected, getPublicKey, setAllowed } from '@stellar/freighter-api';
+import { isConnected, getPublicKey } from '@stellar/freighter-api';
 
 export interface WalletState {
   isConnected: boolean;
@@ -67,7 +67,9 @@ export function useWallet() {
   const reconnect = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
-      await setAllowed();
+      if (typeof (window as any).freighter?.setAllowed === 'function') {
+        await (window as any).freighter.setAllowed();
+      }
       await checkConnection();
     } catch (err: any) {
       setState(prev => ({

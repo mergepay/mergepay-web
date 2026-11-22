@@ -5,10 +5,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@stellar/freighter-api", () => ({
   isConnected: vi.fn(),
   getPublicKey: vi.fn(),
-  setAllowed: vi.fn(),
 }));
 
-import { isConnected, getPublicKey, setAllowed } from "@stellar/freighter-api";
+import { isConnected, getPublicKey } from "@stellar/freighter-api";
 
 describe("useWallet session timeout and reconnection", () => {
   beforeEach(() => {
@@ -28,7 +27,6 @@ describe("useWallet session timeout and reconnection", () => {
   });
 
   it("reconnects successfully when requested", async () => {
-    vi.mocked(setAllowed).mockResolvedValue(true as any);
     vi.mocked(isConnected).mockResolvedValue(true);
     vi.mocked(getPublicKey).mockResolvedValue("G12345...");
 
