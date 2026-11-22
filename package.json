@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && tsx --test src/lib/__tests__/*.test.ts",
+    "test": "vitest run --coverage && tsx --test src/lib/__tests__/*.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
