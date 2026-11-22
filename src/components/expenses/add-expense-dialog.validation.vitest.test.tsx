@@ -215,6 +215,51 @@ describe("AddExpenseDialog — inline validation errors shown on submit attempt 
     expect(screen.getByText(/title is required/i)).toBeInTheDocument();
   });
 
+  it("shows a description error and blocks submission for whitespace-only input", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/^title$/i), {
+      target: { value: "Dinner" },
+    });
+    fireEvent.change(screen.getByLabelText(/^amount$/i), {
+      target: { value: "20" },
+    });
+    const description = screen.getByLabelText(/^description \(optional\)$/i);
+    fireEvent.change(description, { target: { value: "   " } });
+    fireEvent.blur(description);
+
+    expect(description).toHaveAttribute("aria-invalid", "true");
+    expect(description).toHaveAttribute("aria-describedby", "expense-description-error");
+    expect(screen.getByText("Description cannot be empty")).toBeInTheDocument();
+    expect(submitButton()).toBeDisabled();
+
+    fireEvent.submit(document.querySelector("form")!);
+    await waitFor(() => expect(mutateAsync).not.toHaveBeenCalled());
+
+    fireEvent.change(description, { target: { value: "  Shared meal  " } });
+    expect(description).not.toHaveAttribute("aria-invalid");
+    expect(screen.queryByText("Description cannot be empty")).not.toBeInTheDocument();
+    expect(submitButton()).not.toBeDisabled();
+  });
+
+  it("trims a valid description before sending the expense to the API", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/^title$/i), {
+      target: { value: "Dinner" },
+    });
+    fireEvent.change(screen.getByLabelText(/^amount$/i), {
+      target: { value: "20" },
+    });
+    fireEvent.change(screen.getByLabelText(/^description \(optional\)$/i), {
+      target: { value: "  Shared meal  " },
+    });
+
+    fireEvent.click(screen.getByTestId("add-expense-confirm"));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ description: "Shared meal" })
+    );
+  });
+
   it("shows amount error when zero is entered and field is blurred", () => {
     renderDialog();
     fireEvent.change(screen.getByLabelText(/^amount$/i), {
