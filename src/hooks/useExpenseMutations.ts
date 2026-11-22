@@ -76,7 +76,7 @@ export function useCreateExpenseMutation(groupId: string) {
       const keys = expenseWriteKeys(groupId);
 
       // Stop any in-flight refetch from clobbering the prediction.
-      await Promise.all(keys.map((queryKey) => qc.cancelQueries({ queryKey })));
+      await Promise.all(keys.map(async (queryKey) => { await qc.cancelQueries({ queryKey }); }));
 
       const previousExpenses = qc.getQueriesData({ queryKey: qk.expenses(groupId) });
       const previousBalances = qc.getQueryData<BalancesResponse>(qk.balances(groupId));
