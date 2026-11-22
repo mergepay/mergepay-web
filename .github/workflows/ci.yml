@@ -27,7 +27,7 @@ jobs:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
       # Serves the build above (see playwright.config.ts). The specs read the
       # same env to pick the network their wallet and Horizon mocks answer for.
-      - run: npm run test:e2e
+      - run: npm run test:e2e -- e2e
         timeout-minutes: 15
         env:
           NEXT_PUBLIC_API_URL: http://localhost:4000
