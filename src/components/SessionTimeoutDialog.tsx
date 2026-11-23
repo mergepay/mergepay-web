@@ -1,42 +1,62 @@
-"use client";
+"client";
 
-import { Dialog } from "@/components/ui/dialog";
+import React from "react";
+import { Clock, AlertTriangle } from "lucide-react";
+import { AccessibleDialog } from "@/components/ui/AccessibleDialog";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle } from "lucide-react";
 
-interface SessionTimeoutDialogProps {
+export interface SessionTimeoutDialogProps {
   open: boolean;
-  onContinue: () => void;
-  onLogout: () => void;
+  remainingSeconds?: number;
+  onContinue?: () => void;
+  onLogout?: () => void;
 }
 
 export function SessionTimeoutDialog({
   open,
+  remainingSeconds = 120,
   onContinue,
   onLogout,
 }: SessionTimeoutDialogProps) {
+  const minutes = Math.floor(remainingSeconds / 60);
+  const secs = remainingSeconds % 60;
+  const timeDisplay = `${minutes}:${secs < 10 ? "0" : ""}${secs}`;
+
   return (
-    <Dialog
-      open={open}
-      onClose={() => {}}
-      title="Session Expiring"
-      description="Your session will expire soon due to inactivity."
+    <AccessibleDialog
+      isOpen={open}
+      onClose={onContinue || (() => {})}
+      title="Session Inactivity Warning"
+      dismissible={false}
     >
-      <div className="space-y-4">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-flamingo mt-0.5 flex-shrink-0" />
-          <p className="text-sm text-ink">
-            You've been inactive for a while. Your session will expire in 1 minute.
-            Would you like to continue your session or log out now?
+      <div className="flex flex-col gap-4 py-2">
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-tangerine-pale border-2 border-ink text-ink">
+          <AlertTriangle className="h-6 w-6 shrink-0 text-tangerine-dark" />
+          <p className="text-sm font-medium">
+            Your session is about to expire due to inactivity to protect your wallet. You will be logged out in{" "}
+            <span className="font-mono font-bold text-base">
+              {timeDisplay}
+            </span>
+            .
           </p>
         </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onLogout}>
-            Log Out
+        <div className="flex flex-col sm:flex-row gap-3 justify-end pt-2">
+          <Button
+            variant="outline"
+            onClick={onLogout}
+            className="w-full sm:w-auto"
+          >
+            Log out now
           </Button>
-          <Button onClick={onContinue}>Continue Session</Button>
+          <Button
+            variant="primary"
+            onClick={onContinue}
+            className="w-full sm:w-auto"
+          >
+            Stay signed in
+          </Button>
         </div>
       </div>
-    </Dialog>
+    </AccessibleDialog>
   );
 }

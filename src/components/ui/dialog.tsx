@@ -91,5 +91,5 @@ export function Dialog({
         </div>
       </div>
     </div>
-  );
-}
+      );
+    }
