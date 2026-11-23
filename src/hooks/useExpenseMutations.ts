@@ -246,6 +246,7 @@ export function useDeleteExpenseMutation(groupId: string) {
   return useMutation({
     mutationFn: async (expenseId: string): Promise<void> => {
       await api.deleteExpense(expenseId);
+      return;
     },
 
     onMutate: async (expenseId: string) => {
