@@ -1,5 +1,6 @@
 import * as React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, test, expect, vi } from "vitest";
 import { Dialog } from "../dialog";
 
 describe("Dialog Focus Trap and Accessibility", () => {
@@ -39,7 +40,7 @@ describe("Dialog Focus Trap and Accessibility", () => {
   });
 
   test("Tab and Shift+Tab wrap focus strictly inside open dialog elements and Escape closes dialog", async () => {
-    const handleClose = jest.fn();
+    const handleClose = vi.fn();
 
     render(
       <Dialog open={true} onClose={handleClose} title="Trap Dialog">
