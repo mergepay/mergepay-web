@@ -15,7 +15,7 @@ describe("useWallet session timeout and reconnection", () => {
   });
 
   it("detects expired or disconnected wallet state", async () => {
-    vi.mocked(isConnected).mockResolvedValue({ isConnected: false });
+    vi.mocked(isConnected).mockResolvedValue(false as any);
 
     const { result } = renderHook(() => useWallet());
 
@@ -27,7 +27,7 @@ describe("useWallet session timeout and reconnection", () => {
   });
 
   it("reconnects successfully when requested", async () => {
-    vi.mocked(isConnected).mockResolvedValue({ isConnected: true });
+    vi.mocked(isConnected).mockResolvedValue(true as any);
     vi.mocked(getPublicKey).mockResolvedValue("G12345...");
 
     const { result } = renderHook(() => useWallet());
