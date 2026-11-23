@@ -1,10 +1,10 @@
 import * as React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { describe, test, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Dialog } from "../dialog";
 
 describe("Dialog Focus Trap and Accessibility", () => {
-  test("focus moves to the first focusable element when dialog opens and returns to trigger on close", async () => {
+  it("focus moves to the first focusable element when dialog opens and returns to trigger on close", async () => {
     function TestComponent() {
       const [open, setOpen] = React.useState(false);
       return (
@@ -39,7 +39,7 @@ describe("Dialog Focus Trap and Accessibility", () => {
     });
   });
 
-  test("Tab and Shift+Tab wrap focus strictly inside open dialog elements and Escape closes dialog", async () => {
+  it("Tab and Shift+Tab wrap focus strictly inside open dialog elements and Escape closes dialog", async () => {
     const handleClose = vi.fn();
 
     render(

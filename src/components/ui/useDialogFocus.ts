@@ -49,7 +49,8 @@ export function useDialogFocus({
       previouslyFocusedElement.current = document.activeElement as HTMLElement;
 
       const timer = setTimeout(() => {
-        const container = (contentRef ? contentRef.current : null) || panelRef.current;
+        const content = contentRef?.current;
+        const container = content || panelRef.current;
         if (container) {
           const focusables = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
           if (focusables.length > 0) {
@@ -79,7 +80,8 @@ export function useDialogFocus({
       }
 
       if (event.key === "Tab") {
-        const container = (contentRef ? contentRef.current : null) || panelRef.current;
+        const content = contentRef?.current;
+        const container = content || panelRef.current;
         if (!container) return;
 
         const focusables = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
