@@ -1,7 +1,5 @@
 import * as React from "react";
 
-
-
 export interface DialogFocusOptions {
   open: boolean;
   onClose: () => void;
