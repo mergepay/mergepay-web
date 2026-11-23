@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Copy } from "lucide-react";
+import { motion } from "framer-motion";
 
 import { useClipboard } from "@/hooks/use-clipboard";
 import { cn } from "@/lib/utils";
@@ -40,12 +41,27 @@ export default function CopyButton({
         className
       )}
     >
-      {copied ? (
-        <Check className="h-4 w-4" aria-hidden="true" />
-      ) : (
-        <Copy className="h-4 w-4" aria-hidden="true" />
+      <motion.span
+        initial={false}
+        animate={{ scale: copied ? [1, 1.2, 1] : 1 }}
+        transition={{ duration: 0.2 }}
+        className="inline-flex items-center"
+      >
+        {copied ? (
+          <Check className="h-4 w-4" aria-hidden="true" data-testid="check-icon" />
+        ) : (
+          <Copy className="h-4 w-4" aria-hidden="true" data-testid="copy-icon" />
+        )}
+      </motion.span>
+      {label && (
+        <motion.span
+          initial={false}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          {copied ? "Copied" : label}
+        </motion.span>
       )}
-      {label && <span>{copied ? "Copied" : label}</span>}
       <span className="sr-only" role="status" aria-live="polite">
         {copied ? `${what} copied to clipboard` : ""}
       </span>

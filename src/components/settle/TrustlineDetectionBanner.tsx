@@ -12,12 +12,39 @@
  */
 
 import { useEffect, useState } from "react";
+import type { JSX } from "react";
 import { AlertTriangle, Loader2, ShieldCheck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { hasTrustline } from "@/lib/stellar";
 
 type DetectionStatus = "checking" | "ok" | "missing" | "error";
+
+export function TrustlineBalanceVerificationWarningBanner({
+  publicKey,
+  assetCode,
+  assetIssuer,
+  onSetupTrustline,
+}: {
+  publicKey: string;
+  assetCode: string;
+  assetIssuer: string | null;
+  onSetupTrustline: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-ink bg-tangerine-pale px-4 py-2.5 text-sm shadow-brutal-sm" role="alert">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-tangerine-dark" />
+        <span>
+          Trustline Missing for <Badge tone="tangerine">{assetCode}</Badge> before settlement.
+        </span>
+      </div>
+      <Button size="sm" onClick={onSetupTrustline}>
+        <Wallet className="h-3.5 w-3.5" /> Add {assetCode} Trustline
+      </Button>
+    </div>
+  );
+}
 
 export function TrustlineDetectionBanner({
   publicKey,
