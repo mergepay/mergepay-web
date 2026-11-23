@@ -13,21 +13,20 @@ export function useDashboardPreferences(userId?: string) {
   const [preferences, setPreferences] = useState<DashboardPreferences>(
     DEFAULT_DASHBOARD_PREFERENCES,
   );
-  const [hydrated, setHydrated] = useState(false);
+  const [hydratedUser, setHydratedUser] = useState<string | null>(null);
 
   useEffect(() => {
-    setHydrated(false);
     setPreferences(loadDashboardPreferences(userId));
-    setHydrated(true);
+    setHydratedUser(userId ?? "anonymous");
   }, [userId]);
 
   useEffect(() => {
-    if (hydrated) saveDashboardPreferences(preferences, userId);
-  }, [preferences, userId, hydrated]);
+    if (hydratedUser === (userId ?? "anonymous")) saveDashboardPreferences(preferences, userId);
+  }, [preferences, userId, hydratedUser]);
 
   function updatePreferences(patch: Partial<DashboardPreferences>) {
     setPreferences((previous) => ({ ...previous, ...patch }));
   }
 
-  return { preferences, updatePreferences, hydrated };
+  return { preferences, updatePreferences, hydrated: hydratedUser === (userId ?? "anonymous") };
 }
