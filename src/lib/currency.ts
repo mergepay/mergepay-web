@@ -341,6 +341,162 @@ const FALLBACK_USD_RATES: Record<SupportedFiatCurrency, number> = {
   USD: 1, EUR: 1.09, GBP: 1.27, CAD: 0.73, ARS: 0.001, PHP: 0.018,
 };
 
+export interface GroupBalanceCalculationResult {
+  userId: string;
+  user: import('./types').User;
+  net: string;
+  assetCode: string;
+  assetIssuer: string | null;
+  consolidatedNet?: string;
+  unpriced?: boolean;
+}
+
+export function calculateGroupBalances(
+  expenses: import('./types').Expense[],
+  members: import('./types').GroupMember[],
+  rates?: Record<string, number | null | undefined> | null,
+  targetAssetCode?: string
+): GroupBalanceCalculationResult[] {
+  const netBalances = new Map<string, { userId: string; user: import('./types').User; netStroops: bigint; assetCode: string; assetIssuer: string | null }>();
+
+  const getMemberUser = (userId: string): import('./types').User => {
+    const member = members.find((m) => m.userId === userId);
+    if (member && member.user) return member.user;
+    const expenseMember = expenses.find((e) => e.payerUserId === userId)?.payer;
+    if (expenseMember) return expenseMember;
+    for (const exp of expenses) {
+      const share = exp.shares.find((s) => s.userId === userId);
+      if (share && share.user) return share.user;
+    }
+    return {
+      id: userId,
+      stellarPublicKey: `G${userId.toUpperCase()}`,
+      displayName: userId,
+      avatarUrl: null,
+      createdAt: new Date().toISOString(),
+    };
+  };
+
+  for (const exp of expenses) {
+    const assetCode = normalizeAssetCode(exp.assetCode) ?? "XLM";
+    const assetIssuer = assetCode === "XLM" ? null : exp.assetIssuer ?? null;
+    const key = `${userIdKey(exp.payerUserId)}:${assetCode}:${assetIssuer ?? ""}`;
+    const amountStroops = amountToStroops(exp.amount);
+    if (amountStroops === null || amountStroops <= 0n) continue;
+
+    let entry = netBalances.get(key);
+    if (!entry) {
+      entry = {
+        userId: exp.payerUserId,
+        user: exp.payer ?? getMemberUser(exp.payerUserId),
+        netStroops: 0n,
+        assetCode,
+        assetIssuer,
+      };
+      netBalances.set(key, entry);
+    }
+    entry.netStroops += amountStroops;
+
+    const totalSharesAmount = exp.shares.reduce((acc, s) => {
+      const sStroops = amountToStroops(s.shareAmount);
+      return sStroops !== null ? acc + sStroops : acc;
+    }, 0n);
+
+    for (const share of exp.shares) {
+      const shareStroops = amountToStroops(share.shareAmount);
+      if (shareStroops === null || shareStroops <= 0n) continue;
+      const shareKey = `${userIdKey(share.userId)}:${assetCode}:${assetIssuer ?? ""}`;
+      let shareEntry = netBalances.get(shareKey);
+      if (!shareEntry) {
+        shareEntry = {
+          userId: share.userId,
+          user: share.user ?? getMemberUser(share.userId),
+          netStroops: 0n,
+          assetCode,
+          assetIssuer,
+        };
+        netBalances.set(shareKey, shareEntry);
+      }
+      shareEntry.netStroops -= shareStroops;
+    }
+  }
+
+  const results: GroupBalanceCalculationResult[] = [];
+  for (const [_, entry] of netBalances.entries()) {
+    const dec = stroopsToDecimal(entry.netStroops);
+    results.push({
+      userId: entry.userId,
+      user: entry.user,
+      net: dec,
+      assetCode: entry.assetCode,
+      assetIssuer: entry.assetIssuer,
+    });
+  }
+
+  if (targetAssetCode) {
+    const normalizedTarget = normalizeAssetCode(targetAssetCode) ?? "XLM";
+    const userConsolidated = new Map<string, { user: import('./types').User; totalStroops: bigint; unpriced: boolean }>();
+
+    for (const res of results) {
+      const curCode = normalizeAssetCode(res.assetCode) ?? "XLM";
+      const stroops = amountToStroops(res.net) ?? 0n;
+      let uEntry = userConsolidated.get(res.userId);
+      if (!uEntry) {
+        uEntry = { user: res.user, totalStroops: 0n, unpriced: false };
+        userConsolidated.set(res.userId, uEntry);
+      }
+
+      if (curCode === normalizedTarget) {
+        uEntry.totalStroops += stroops;
+      } else {
+        let rate: number | null = null;
+        const rateKey1 = `${curCode}->${normalizedTarget}`;
+        const rateKey2 = `${normalizedTarget}->${curCode}`;
+        if (rates) {
+          if (typeof rates[rateKey1] === "number") rate = rates[rateKey1]!;
+          else if (typeof rates[rateKey2] === "number" && rates[rateKey2]! > 0) rate = 1 / rates[rateKey2]!;
+          else if (typeof rates[curCode.toLowerCase()] === "number" && typeof rates[normalizedTarget.toLowerCase()] === "number" && rates[normalizedTarget.toLowerCase()]! > 0) {
+            rate = rates[curCode.toLowerCase()]! / rates[normalizedTarget.toLowerCase()]!;
+          }
+        }
+
+        if (rate !== null && rate > 0) {
+          const convertedStroops = BigInt(Math.round(Number(stroops) * rate));
+          uEntry.totalStroops += convertedStroops;
+        } else {
+          uEntry.totalStroops += stroops;
+          uEntry.unpriced = true;
+        }
+      }
+    }
+
+    return Array.from(userConsolidated.entries()).map(([userId, data]) => ({
+      userId,
+      user: data.user,
+      net: stroopsToDecimal(data.totalStroops),
+      assetCode: normalizedTarget,
+      assetIssuer: null,
+      consolidatedNet: stroopsToDecimal(data.totalStroops),
+      unpriced: data.unpriced,
+    }));
+  }
+
+  return results;
+}
+
+function userIdKey(id: string): string {
+  return id;
+}
+
+function stroopsToDecimal(stroops: bigint): string {
+  const isNegative = stroops < 0n;
+  const abs = isNegative ? -stroops : stroops;
+  const str = abs.toString().padStart(8, "0");
+  const intPart = str.slice(0, str.length - 7);
+  const fracPart = str.slice(str.length - 7);
+  return `${isNegative ? "-" : ""}${intPart}.${fracPart}`;
+}
+
 export function currencyRate(currency: SupportedFiatCurrency): number {
   return FALLBACK_USD_RATES[currency];
 }
