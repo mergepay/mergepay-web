@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useDashboardPreferences } from "@/lib/use-dashboard-preferences";
+import { useAuth } from "@/hooks/useAuth";
 import Link from "next/link";
 import { Plus, Users, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,7 +22,19 @@ export default function GroupsPage() {
   // The group the user was last in is persisted, so a reload puts it back at
   // the top of the list instead of making them hunt for it (#494).
   const activeGroupId = useGroupStore((s) => s.selectedGroupId);
-  const groups = orderGroupsByActive(data?.groups ?? [], activeGroupId);
+  const { user } = useAuth();
+  const { preferences, updatePreferences } = useDashboardPreferences(user?.id);
+  const groups = orderGroupsByActive(data?.groups ?? [], activeGroupId)
+    .filter((group) => preferences.activeGroupTab === "all" ||
+      (preferences.activeGroupTab === "archived" ? group.archived : !group.archived))
+    .sort((a, b) => {
+      switch (preferences.groupSortOrder) {
+        case "name-asc": return a.name.localeCompare(b.name);
+        case "name-desc": return b.name.localeCompare(a.name);
+        case "oldest": return a.createdAt.localeCompare(b.createdAt);
+        default: return b.createdAt.localeCompare(a.createdAt);
+      }
+    });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -50,6 +64,26 @@ export default function GroupsPage() {
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-3" aria-label="Group display preferences">
+          <label className="text-sm font-bold" htmlFor="group-tab">Show</label>
+          <select id="group-tab" value={preferences.activeGroupTab}
+            onChange={(event) => updatePreferences({ activeGroupTab: event.target.value as typeof preferences.activeGroupTab })}
+            className="rounded-lg border-2 border-ink bg-paper px-3 py-2 text-sm">
+            <option value="all">All groups</option>
+            <option value="active">Active groups</option>
+            <option value="archived">Archived groups</option>
+          </select>
+          <label className="text-sm font-bold" htmlFor="group-sort">Sort</label>
+          <select id="group-sort" value={preferences.groupSortOrder}
+            onChange={(event) => updatePreferences({ groupSortOrder: event.target.value as typeof preferences.groupSortOrder })}
+            className="rounded-lg border-2 border-ink bg-paper px-3 py-2 text-sm">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name-asc">Name A–Z</option>
+            <option value="name-desc">Name Z–A</option>
+          </select>
+        </div>
+
         {isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -63,7 +97,7 @@ export default function GroupsPage() {
               </div>
             ))}
           </div>
-        ) : groups.length === 0 ? (
+        ) : (data?.groups?.length ?? 0) === 0 ? (
           <EmptyState
             icon={<Users className="h-8 w-8 text-ink" />}
             title="No groups yet"
