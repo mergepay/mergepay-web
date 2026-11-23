@@ -24,7 +24,7 @@ export default function GroupsPage() {
   const activeGroupId = useGroupStore((s) => s.selectedGroupId);
   const { user } = useAuth();
   const { preferences, updatePreferences } = useDashboardPreferences(user?.id);
-  const groups = orderGroupsByActive(data?.groups ?? [], activeGroupId)
+  const groups = (data?.groups ?? [])
     .filter((group) => preferences.activeGroupTab === "all" ||
       (preferences.activeGroupTab === "archived" ? group.archived : !group.archived))
     .sort((a, b) => {
@@ -35,6 +35,7 @@ export default function GroupsPage() {
         default: return b.createdAt.localeCompare(a.createdAt);
       }
     });
+  const displayedGroups = orderGroupsByActive(groups, activeGroupId);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -113,6 +114,8 @@ export default function GroupsPage() {
               </div>
             }
           />
+        ) : groups.length === 0 ? (
+          <p role="status" className="rounded-xl border-2 border-ink/20 p-5 text-sm">No groups match the selected filter.</p>
         ) : (
           <motion.div
             initial={{ opacity: 0 }}
@@ -120,7 +123,7 @@ export default function GroupsPage() {
             transition={{ duration: 0.3 }}
             className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
           >
-            {groups.map((group) => (
+            {displayedGroups.map((group) => (
               <Link
                 key={group.id}
                 href={`/groups/${group.id}`}
