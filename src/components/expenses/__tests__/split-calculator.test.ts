@@ -5,7 +5,7 @@ describe("Currency and Split Validation & Formatting Rules", () => {
   it("strictly rejects negative amounts and excessive decimal places in the expense form", () => {
     const res = expenseFormSchema.safeParse({
       title: "Dinner",
-      amount: "10.12345678", // 8 decimal places
+      amount: "10.12345678",
       assetCode: "XLM",
       splitType: "equal",
       shares: [{ userId: "u1" }],
@@ -30,6 +30,50 @@ describe("Currency and Split Validation & Formatting Rules", () => {
     expect(res.success).toBe(false);
   });
 
+  it("validates custom split amounts sum to total amount", () => {
+    const validRes = splitCalculatorSchema.safeParse({
+      totalAmount: "100",
+      mode: "custom",
+      allocations: [
+        { userId: "u1", amount: "40", percent: "" },
+        { userId: "u2", amount: "60", percent: "" },
+      ],
+    });
+    expect(validRes.success).toBe(true);
+
+    const invalidRes = splitCalculatorSchema.safeParse({
+      totalAmount: "100",
+      mode: "custom",
+      allocations: [
+        { userId: "u1", amount: "40", percent: "" },
+        { userId: "u2", amount: "50", percent: "" },
+      ],
+    });
+    expect(invalidRes.success).toBe(false);
+  });
+
+  it("validates percentage splits sum to 100%", () => {
+    const validRes = splitCalculatorSchema.safeParse({
+      totalAmount: "100",
+      mode: "percentage",
+      allocations: [
+        { userId: "u1", amount: "", percent: "50" },
+        { userId: "u2", amount: "", percent: "50" },
+      ],
+    });
+    expect(validRes.success).toBe(true);
+
+    const invalidRes = splitCalculatorSchema.safeParse({
+      totalAmount: "100",
+      mode: "percentage",
+      allocations: [
+        { userId: "u1", amount: "", percent: "40" },
+        { userId: "u2", amount: "40" },
+      ],
+    });
+    expect(invalidRes.success).toBe(false);
+  });
+
   it("accepts valid positive decimals up to 7 places", () => {
     const res = expenseFormSchema.safeParse({
       title: "Coffee",
@@ -39,7 +83,6 @@ describe("Currency and Split Validation & Formatting Rules", () => {
       shares: [{ userId: "u1" }],
       payerUserId: "u1",
     });
-    // 12.3456789 has 7 decimal places: 3456789
     expect(res.success).toBe(true);
   });
 

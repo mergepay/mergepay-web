@@ -11,8 +11,9 @@ import { useGroups } from "@/lib/queries";
 import { orderGroupsByActive, useGroupStore } from "@/lib/group-store";
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
 import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
-import { ListSkeleton, GroupCardSkeleton } from "@/components/ui/skeleton";
+import { ListSkeleton, GroupCardSkeleton, DashboardCardSkeleton } from "@/components/ui/skeleton";
 import { GroupListSkeleton } from "@/components/groups/GroupListSkeleton";
+import { motion } from "framer-motion";
 
 export default function GroupsPage() {
   const { data, isLoading, refetch } = useGroups();
@@ -50,7 +51,18 @@ export default function GroupsPage() {
         </div>
 
         {isLoading ? (
-          <GroupListSkeleton count={6} />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-cream border-3 border-ink rounded-2xl shadow-brutal p-5 space-y-3">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="h-10 w-10 rounded-xl border-3 border-ink bg-ink/15 animate-pulse" />
+                  <div className="h-4 w-16 bg-ink/15 rounded animate-pulse" />
+                </div>
+                <div className="h-6 w-3/4 bg-ink/15 rounded animate-pulse" />
+                <div className="h-4 w-1/2 bg-ink/15 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
         ) : groups.length === 0 ? (
           <EmptyState
             icon={<Users className="h-8 w-8 text-ink" />}
@@ -68,7 +80,12 @@ export default function GroupsPage() {
             }
           />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          >
             {groups.map((group) => (
               <Link
                 key={group.id}
@@ -111,7 +128,7 @@ export default function GroupsPage() {
                 </Card>
               </Link>
             ))}
-          </div>
+          </motion.div>
         )}
 
         <CreateGroupDialog open={createOpen} onClose={() => setCreateOpen(false)} />
