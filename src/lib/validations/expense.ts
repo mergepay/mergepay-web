@@ -398,10 +398,17 @@ export const splitCalculatorSchema = z
 
     const calc = calculateSplit(data.mode, data.totalAmount, data.allocations);
     if (calc.balance === "under" || calc.balance === "over") {
+      const messageText = describeSplitImbalance(calc) ?? "Split does not add up";
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["allocations"],
-        message: describeSplitImbalance(calc) ?? "Split does not add up",
+        message: messageText,
+      });
+      // Also attach explicit error metadata/badges support for custom split remainder or percentage sum mismatch
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["totalAmount"],
+        message: messageText,
       });
     }
   });

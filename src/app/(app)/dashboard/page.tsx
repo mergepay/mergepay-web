@@ -21,7 +21,7 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { TreasuryBalanceWidget } from "@/components/treasury/TreasuryBalanceWidget";
 import type { AnchorSessionKind, Group } from "@/lib/types";
-import { GroupListSkeleton } from "@/components/groups/GroupListSkeleton";
+import { GroupCardSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -95,12 +95,7 @@ export default function DashboardPage() {
         </Card>
 
         <ErrorBoundary>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {isLoading && (
-              <div className="col-span-full">
-                <GroupListSkeleton count={3} />
-              </div>
-            )}
+          <SkeletonBoundary isPending={isLoading} skeleton={<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"><GroupCardSkeleton /><GroupCardSkeleton /><GroupCardSkeleton /></div>}>
             {error && (
               <div className="col-span-full rounded-2xl border-3 border-ink bg-flamingo-pale p-6">
                 <p className="font-bold">Could not load groups</p>
@@ -152,7 +147,7 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             ))}
-          </div>
+          </SkeletonBoundary>
         </ErrorBoundary>
 
         <CreateGroupDialog open={createOpen} onClose={() => setCreateOpen(false)} />

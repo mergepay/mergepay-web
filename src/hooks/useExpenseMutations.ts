@@ -45,6 +45,7 @@ import type {
   ExpenseResponse,
   GroupActivityResponse,
   GroupDetail,
+  Role,
   SettlementIntentResponse,
   User,
 } from "@/lib/types";
@@ -159,6 +160,80 @@ export function useCreateExpenseMutation(groupId: string) {
       // Whether it succeeded or failed, the server's list wins over the
       // optimistic entry.
       invalidate([qk.expenses(groupId)]);
+    },
+  });
+}
+
+export function useUpdateGroupMemberRoleMutation(groupId: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidator();
+
+  return useMutation({
+    mutationFn: (variables: { userId: string; role: Role }) => {
+      return api.updateMemberRole(groupId, variables.userId, variables.role);
+    },
+    onMutate: async ({ userId, role }) => {
+      await qc.cancelQueries({ queryKey: qk.group(groupId) });
+      const previousGroup = qc.getQueryData<GroupDetail>(qk.group(groupId));
+
+      if (previousGroup) {
+        qc.setQueryData<GroupDetail>(qk.group(groupId), {
+          ...previousGroup,
+          members: previousGroup.members.map((m) =>
+            m.userId === userId ? { ...m, role } : m
+          ),
+        });
+      }
+
+      return { previousGroup };
+    },
+    onError: (err, _variables, context) => {
+      if (context?.previousGroup) {
+        qc.setQueryData(qk.group(groupId), context.previousGroup);
+      }
+      handleApiError(err, "Failed to update member role");
+    },
+    onSuccess: () => {
+      toast.success("Member role updated successfully");
+    },
+    onSettled: () => {
+      invalidate([qk.group(groupId)]);
+    },
+  });
+}
+
+export function useRemoveGroupMemberMutation(groupId: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidator();
+
+  return useMutation({
+    mutationFn: (userId: string) => {
+      return api.removeMember(groupId, userId);
+    },
+    onMutate: async (userId: string) => {
+      await qc.cancelQueries({ queryKey: qk.group(groupId) });
+      const previousGroup = qc.getQueryData<GroupDetail>(qk.group(groupId));
+
+      if (previousGroup) {
+        qc.setQueryData<GroupDetail>(qk.group(groupId), {
+          ...previousGroup,
+          members: previousGroup.members.filter((m) => m.userId !== userId),
+        });
+      }
+
+      return { previousGroup };
+    },
+    onError: (err, _userId, context) => {
+      if (context?.previousGroup) {
+        qc.setQueryData(qk.group(groupId), context.previousGroup);
+      }
+      handleApiError(err, "Failed to remove member");
+    },
+    onSuccess: () => {
+      toast.success("Member removed successfully");
+    },
+    onSettled: () => {
+      invalidate([qk.group(groupId)]);
     },
   });
 }
