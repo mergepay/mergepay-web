@@ -68,7 +68,7 @@ const CSV_FORMULA_PREFIXES = ["=", "+", "-", "@", "\t", "\r"];
  */
 export function escapeCsv(value: string | number | null | undefined): string {
   let s = value == null ? "" : String(value);
-  if (/^[\\s\\uFEFF\\u200B]*[=+\\-@]/u.test(s) || (s.length > 0 && CSV_FORMULA_PREFIXES.includes(s[0] as string))) {
+  if (/^[\s\uFEFF\u200B]*[=+\-@]/u.test(s) || (s.length > 0 && CSV_FORMULA_PREFIXES.includes(s[0] as string))) {
     s = `'${s}`;
   }
   if (/[",\n\r\t]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -172,7 +172,7 @@ export function buildHistoryCsv(
     );
   }
 
-  return rows.join("\n");
+  return rows.join("\r\n") + "\r\n";
 }
 
 export function exportHistoryCsv(expenses: Expense[], settlements: Settlement[]) {
