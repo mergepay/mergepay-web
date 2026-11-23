@@ -244,9 +244,8 @@ export function useDeleteExpenseMutation(groupId: string) {
   const invalidate = useInvalidator();
 
   return useMutation({
-    mutationFn: async (expenseId: string): Promise<void> => {
-      await api.deleteExpense(expenseId);
-      return;
+    mutationFn: async (expenseId: string) => {
+      return api.deleteExpense(expenseId);
     },
 
     onMutate: async (expenseId: string) => {
