@@ -28,7 +28,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setSessionExpiredHandler(() => {
       queryClient.clear();
-      toast.error("Your session expired. Please sign in again.");
+      toast.error("Your session expired", {
+        id: "session-expired",
+        description: "Re-sign with Freighter to continue.",
+      });
     });
     return () => setSessionExpiredHandler(null);
   }, [queryClient]);

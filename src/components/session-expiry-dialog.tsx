@@ -13,7 +13,7 @@ export function SessionExpiryDialog() {
       open={true} 
       onClose={() => {}}
       title="Session Expired"
-      description="Your session has expired. Please sign in again to continue."
+      description="Your session has expired. Re-sign with Freighter to continue."
       dismissible={false}
     >
       <div className="flex flex-col items-center gap-6 py-4">
@@ -21,8 +21,8 @@ export function SessionExpiryDialog() {
           <ShieldAlert className="h-8 w-8 text-flamingo" />
         </div>
         <p className="text-sm text-ink/70">
-          For your security, your session has expired. Please re-authenticate
-          with your wallet to continue where you left off.
+          For your security, your session has expired. Re-sign with Freighter
+          to continue where you left off.
         </p>
         <Button
           size="lg"
