@@ -67,9 +67,9 @@ export const expenseFormSchema = z
     description: z
       .string()
       .trim()
+      .min(1, "Description cannot be empty")
       .max(500, "Description must be 500 characters or fewer")
       .regex(/^[^\u0000-\u001f\u007f]*$/, "Description must not contain control characters")
-      .nullable()
       .optional(),
     amount: z
       .string()
@@ -398,10 +398,17 @@ export const splitCalculatorSchema = z
 
     const calc = calculateSplit(data.mode, data.totalAmount, data.allocations);
     if (calc.balance === "under" || calc.balance === "over") {
+      const messageText = describeSplitImbalance(calc) ?? "Split does not add up";
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["allocations"],
-        message: describeSplitImbalance(calc) ?? "Split does not add up",
+        message: messageText,
+      });
+      // Also attach explicit error metadata/badges support for custom split remainder or percentage sum mismatch
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["totalAmount"],
+        message: messageText,
       });
     }
   });

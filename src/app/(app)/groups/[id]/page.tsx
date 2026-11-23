@@ -12,6 +12,7 @@ import { Plus, Users, Receipt, ArrowLeft, SearchX, Download } from "lucide-react
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
+import { CurrencyTicker } from "@/components/CurrencyTicker";
 import { InviteMemberModal } from "@/components/groups/InviteMemberModal";
 import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import { BalancesPanel } from "@/components/balances/balances-panel";
@@ -116,25 +117,36 @@ export default function GroupDetailPage() {
         </div>
 
         <ErrorBoundary>
-          <SkeletonBoundary
-            isPending={groupQuery.isPending}
-            skeleton={<GroupHeaderSkeleton />}
-          >
-            <div className="rounded-2xl border-3 border-ink bg-paper p-6 shadow-brutal">
+          {groupQuery.isPending ? (
+            <div className="rounded-2xl border-3 border-ink bg-paper p-6 shadow-brutal space-y-3">
+              <div className="h-8 w-1/3 bg-ink/15 rounded-lg animate-pulse" />
+              <div className="h-4 w-2/3 bg-ink/15 rounded-lg animate-pulse" />
+            </div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="rounded-2xl border-3 border-ink bg-paper p-6 shadow-brutal"
+            >
               <h1 className="font-display text-2xl uppercase tracking-tight" data-testid="group-title">
                 {group?.name ?? "Group"}
               </h1>
               {group?.description && (
                 <p className="mt-1 text-sm text-ink/70">{group.description}</p>
               )}
-            </div>
-          </SkeletonBoundary>
+            </motion.div>
+          )}
         </ErrorBoundary>
 
         {/* Settling a non-native asset fails on-chain without a trustline,
             so warn here — before the user starts a settle — and let them
-            add it without leaving the group. */}
+            add it without leaving the group */}
         {!group?.archived && <TrustlineBanner />}
+
+        <ErrorBoundary>
+          <CurrencyTicker />
+        </ErrorBoundary>
 
         <ErrorBoundary>
           <SkeletonBoundary
