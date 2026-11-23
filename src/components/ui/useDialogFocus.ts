@@ -8,8 +8,8 @@ export interface DialogFocusOptions {
    * focus is parked when the dialog has no controls to Tab to, and a plain
    * `div` cannot receive focus, so the trap would silently do nothing.
    */
-  panelRef: React.RefObject<HTMLElement | null>;
-  contentRef?: React.RefObject<HTMLElement | null>;
+  panelRef: React.RefObject<HTMLElement | null> | React.MutableRefObject<HTMLElement | null>;
+  contentRef?: React.RefObject<HTMLElement | null> | React.MutableRefObject<HTMLElement | null>;
   /** When false, Escape is ignored — e.g. a settlement mid-signature. */
   dismissible?: boolean;
 }
@@ -21,14 +21,14 @@ export interface UseDialogFocusOptions {
    * focus is parked when the dialog has no controls to Tab to, and a plain
    * `div` cannot receive focus, so the trap would silently do nothing.
    */
-  panelRef: React.RefObject<HTMLElement | null>;
+  panelRef: React.RefObject<HTMLElement | null> | React.MutableRefObject<HTMLElement | null>;
   /**
    * The dialog body when it can be told apart from the title bar. Initial
    * focus prefers the first control here over the close button; without it
    * the panel itself takes focus. Marking the body with a ref instead of a
    * class selector keeps the rule working through a styling change.
    */
-  contentRef?: React.RefObject<HTMLElement | null>;
+  contentRef?: React.RefObject<HTMLElement | null> | React.MutableRefObject<HTMLElement | null>;
   /** When false, Escape is ignored — e.g. a settlement mid-signature. */
   dismissible?: boolean;
 }
@@ -50,7 +50,7 @@ export function useDialogFocus({
 
       const timer = setTimeout(() => {
         const content = contentRef?.current;
-        const container = content || panelRef.current;
+        const container = content ?? panelRef.current;
         if (container) {
           const focusables = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
           if (focusables.length > 0) {
@@ -81,7 +81,7 @@ export function useDialogFocus({
 
       if (event.key === "Tab") {
         const content = contentRef?.current;
-        const container = content || panelRef.current;
+        const container = content ?? panelRef.current;
         if (!container) return;
 
         const focusables = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
