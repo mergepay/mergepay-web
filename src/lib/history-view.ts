@@ -58,6 +58,7 @@ function sanitiseFilters(value: unknown): HistoryFilters {
       ? (raw.fromDate as string)
       : undefined,
     toDate: isOptionalText(raw.toDate) ? (raw.toDate as string) : undefined,
+    status: isOptionalText(raw.status) ? (raw.status as string) : undefined,
   };
 }
 
