@@ -270,22 +270,16 @@ export function GroupCardSkeleton({ className }: { className?: string }) {
  */
 export function DashboardSkeleton({ className }: { className?: string }) {
   return (
-    <SkeletonBoundary
-      isPending
-      skeleton={<div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <GroupCardSkeleton />
-        <GroupCardSkeleton />
-        <GroupCardSkeleton />
-      </div>}
-      className={className}
-    >
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <GroupCardSkeleton />
-        <GroupCardSkeleton />
-        <GroupCardSkeleton />
-      </div>
-    </SkeletonBoundary>
+    <div className={cn("grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3", className)}>
+      <GroupCardSkeleton />
+      <GroupCardSkeleton />
+      <GroupCardSkeleton />
+    </div>
   );
+}
+
+export function DashboardCardSkeleton({ className }: { className?: string }) {
+  return <GroupCardSkeleton className={className} />;
 }
 
 /**
