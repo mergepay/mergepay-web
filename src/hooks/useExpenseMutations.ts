@@ -45,7 +45,6 @@ import type {
   ExpenseResponse,
   GroupActivityResponse,
   GroupDetail,
-  Role,
   SettlementIntentResponse,
   User,
 } from "@/lib/types";
@@ -164,80 +163,6 @@ export function useCreateExpenseMutation(groupId: string) {
   });
 }
 
-export function useUpdateGroupMemberRoleMutation(groupId: string) {
-  const qc = useQueryClient();
-  const invalidate = useInvalidator();
-
-  return useMutation({
-    mutationFn: (variables: { userId: string; role: Role }) => {
-      return api.updateMemberRole(groupId, variables.userId, variables.role);
-    },
-    onMutate: async ({ userId, role }) => {
-      await qc.cancelQueries({ queryKey: qk.group(groupId) });
-      const previousGroup = qc.getQueryData<GroupDetail>(qk.group(groupId));
-
-      if (previousGroup) {
-        qc.setQueryData<GroupDetail>(qk.group(groupId), {
-          ...previousGroup,
-          members: previousGroup.members.map((m) =>
-            m.userId === userId ? { ...m, role } : m
-          ),
-        });
-      }
-
-      return { previousGroup };
-    },
-    onError: (err, _variables, context) => {
-      if (context?.previousGroup) {
-        qc.setQueryData(qk.group(groupId), context.previousGroup);
-      }
-      handleApiError(err, "Failed to update member role");
-    },
-    onSuccess: () => {
-      toast.success("Member role updated successfully");
-    },
-    onSettled: () => {
-      invalidate([qk.group(groupId)]);
-    },
-  });
-}
-
-export function useRemoveGroupMemberMutation(groupId: string) {
-  const qc = useQueryClient();
-  const invalidate = useInvalidator();
-
-  return useMutation({
-    mutationFn: (userId: string) => {
-      return api.removeMember(groupId, userId);
-    },
-    onMutate: async (userId: string) => {
-      await qc.cancelQueries({ queryKey: qk.group(groupId) });
-      const previousGroup = qc.getQueryData<GroupDetail>(qk.group(groupId));
-
-      if (previousGroup) {
-        qc.setQueryData<GroupDetail>(qk.group(groupId), {
-          ...previousGroup,
-          members: previousGroup.members.filter((m) => m.userId !== userId),
-        });
-      }
-
-      return { previousGroup };
-    },
-    onError: (err, _userId, context) => {
-      if (context?.previousGroup) {
-        qc.setQueryData(qk.group(groupId), context.previousGroup);
-      }
-      handleApiError(err, "Failed to remove member");
-    },
-    onSuccess: () => {
-      toast.success("Member removed successfully");
-    },
-    onSettled: () => {
-      invalidate([qk.group(groupId)]);
-    },
-  });
-}
-
 export function useSettleBalanceMutation(groupId: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidator();
@@ -319,8 +244,9 @@ export function useDeleteExpenseMutation(groupId: string) {
   const invalidate = useInvalidator();
 
   return useMutation({
-    mutationFn: (expenseId: string): Promise<{ ok: boolean }> =>
-      api.deleteExpense(expenseId),
+    mutationFn: async (expenseId: string) => {
+      return api.deleteExpense(expenseId);
+    },
 
     onMutate: async (expenseId: string) => {
       const keys = expenseWriteKeys(groupId);
@@ -340,7 +266,7 @@ export function useDeleteExpenseMutation(groupId: string) {
       return { previousExpenses, previousActivity };
     },
 
-    onError: (_err, _expenseId, context) => {
+    onError: (err, _expenseId, context) => {
       // Restore every entry we emptied.
       if (context?.previousExpenses) {
         for (const [queryKey, queryData] of context.previousExpenses) {
@@ -350,12 +276,14 @@ export function useDeleteExpenseMutation(groupId: string) {
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
       }
-      toast.error("Could not delete expense. It has been restored.");
+      handleApiError(err, "Could not delete expense");
     },
 
     onSuccess: () => {
-      toast.success("Expense deleted");
+      invalidate(expenseCacheKeys(groupId));
+      qc.invalidateQueries({ queryKey: qk.activity(groupId) });
       qc.invalidateQueries({ queryKey: qk.history });
+      toast.success("Expense deleted successfully");
     },
 
     onSettled: () => {
