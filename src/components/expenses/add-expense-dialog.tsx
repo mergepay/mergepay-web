@@ -676,8 +676,8 @@ export function AddExpenseDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={pending} disabled={submitBlocked || !isFormValid} data-testid="add-expense-confirm">
-            {isOffline ? "Save offline" : "Add Expense"}
+          <Button type="submit" loading={pending} disabled={submitBlocked || !isFormValid || pending} data-testid="add-expense-confirm">
+            {pending ? (isOffline ? "Saving..." : "Submitting...") : isOffline ? "Save offline" : "Add Expense"}
           </Button>
         </div>
       </form>
