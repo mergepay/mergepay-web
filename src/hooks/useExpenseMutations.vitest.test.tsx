@@ -577,8 +577,6 @@ describe("useCreateExpenseMutation — balances & activity cache transitions (#3
 
     await waitFor(() => {
       expect(nets()).toEqual(["20", "-20"]);
-    });
-    await waitFor(() => {
       expect(activity()?.activities).toHaveLength(1);
     });
 
