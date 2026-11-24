@@ -14,6 +14,7 @@ import {
 } from "@/lib/stellar";
 import { shortKey } from "@/lib/format";
 import { isSessionExpired, resetSessionExpired } from "@/lib/api";
+import { clearClientSession } from "@/lib/sessionMonitor";
 import { shouldPurgeAccountData } from "@/lib/walletSession";
 import { track } from "@/lib/telemetry";
 
@@ -55,7 +56,7 @@ export function useAuth() {
       // Groups, balances and history are all scoped to the authenticated
       // account, so nothing cached may survive into the next session.
       queryClient.clear();
-      useAuthStore.getState().forgetWallet();
+      clearClientSession();
     }
   }, [queryClient]);
 

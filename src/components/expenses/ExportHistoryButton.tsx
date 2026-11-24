@@ -14,6 +14,7 @@ import {
 } from "@/lib/utils";
 import type { Expense } from "@/lib/types";
 import { exportExpenseJson } from "@/lib/export";
+import { EXPORT_MIME_TYPES, downloadTextFile } from "@/lib/utils/export";
 
 /**
  * Triggers a local, client-side export of a group's expense history to CSV.
@@ -48,13 +49,13 @@ export function ExportHistoryButton({
     });
     const filename = buildExportFilename(groupId);
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    // The shared helper attaches the anchor, clicks it and revokes the object
+    // URL on the next tick. Revoking immediately (as this used to do) can
+    // cancel the download in Safari before it starts (#889).
+    if (!downloadTextFile(csv, filename, EXPORT_MIME_TYPES.csv)) {
+      toast.error("Downloads are not available in this browser.");
+      return;
+    }
 
     setOpen(false);
     toast.success("Expense history exported");
@@ -64,8 +65,13 @@ export function ExportHistoryButton({
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <Download className="h-4 w-4" /> Export
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        aria-label="Export expense history as CSV"
+      >
+        <Download className="h-4 w-4" aria-hidden="true" /> Export
       </Button>
 
       <Dialog
@@ -127,6 +133,7 @@ export function ExportHistoryButton({
               onClick={() => exportExpenseJson(expenses, `mergepay-${groupId}.json`)}
               loading={isLoading}
               disabled={!hasExpenses}
+              aria-label="Export expense history as JSON"
             >JSON</Button>
             <Button
               onClick={handleExport}
