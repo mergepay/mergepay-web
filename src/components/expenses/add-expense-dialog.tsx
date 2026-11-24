@@ -359,16 +359,14 @@ export function AddExpenseDialog({
     toast.error("Please fix the errors before submitting");
   }
 
-  const lastSubmitAttemptRef = useRef(0);
-
   async function handleValidSubmit(values: ExpenseFormValues) {
     setShowErrors(true);
     setSubmitError(null);
-    const now = Date.now();
-    if (now - lastSubmitAttemptRef.current < 500) return;
-    lastSubmitAttemptRef.current = now;
+    if (submitBlocked || create.isPending || submitting || submissionLock.current) return;
 
-    if (submitBlocked || create.isPending || submissionLock.current || submitting) return;
+    const now = Date.now();
+    if (now - (window as any).__lastExpenseSubmit < 400) return;
+    (window as any).__lastExpenseSubmit = now;
 
     submissionLock.current = true;
     setSubmitting(true);
@@ -682,7 +680,7 @@ export function AddExpenseDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={pending} disabled={submitBlocked || !isFormValid} data-testid="add-expense-confirm">
+          <Button type="submit" disabled={submitBlocked || !isFormValid} onClick={() => setShowErrors(true)} data-testid="add-expense-confirm">
             {isOffline ? "Save offline" : "Add Expense"}
           </Button>
         </div>
