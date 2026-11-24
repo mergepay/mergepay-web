@@ -52,7 +52,7 @@ describe('AddExpenseDialog Rate Limiting', () => {
     const titleInput = screen.getByLabelText(/Title/i);
     fireEvent.change(titleInput, { target: { value: 'Dinner' } });
 
-    const amountInput = screen.getByLabelText(/Amount/i);
+    const amountInput = screen.getByLabelText(/^amount$/i);
     fireEvent.change(amountInput, { target: { value: '10' } });
     fireEvent.blur(amountInput);
 
