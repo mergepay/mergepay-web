@@ -24,7 +24,6 @@ import {
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import {
-  calculateOptimisticBalances,
   expenseCacheKeys,
   qk,
   useInvalidator,
@@ -39,6 +38,7 @@ import {
 import {
   applyOptimisticSettlement,
   buildOptimisticExpense,
+  calculateOptimisticBalances,
   insertOptimisticExpense,
   patchOptimisticExpense,
   removeOptimisticExpense,
