@@ -66,7 +66,7 @@ export async function withTimeout<T>(
 }
 
 export async function hasTrustline(publicKey: string, assetCode: string, issuer: string): Promise<boolean> {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org"}/accounts/${encodeURIComponent(publicKey)}`);
+  const response = await fetch(`${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`);
   if (response.status === 404) return false;
   if (!response.ok) throw new Error("Could not check the asset trustline");
   const account = (await response.json()) as { balances?: Array<{ asset_code?: string; asset_issuer?: string }> };
@@ -155,7 +155,7 @@ export function buildTrustlineXdr(publicKey: string, sequence: string, assetCode
 }
 
 export async function prepareTrustlineXdr(publicKey: string, assetCode: string, issuer: string): Promise<string> {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org"}/accounts/${encodeURIComponent(publicKey)}`);
+  const response = await fetch(`${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`);
   if (!response.ok) throw new Error("Could not load the wallet sequence");
   const account = (await response.json()) as { sequence: string };
   return buildTrustlineXdr(publicKey, account.sequence, assetCode, issuer);
