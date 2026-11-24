@@ -198,9 +198,9 @@ export function MembersPanel({
 
       {qrOpen && (
         <Dialog
-          open={qrOpen}
+          isOpen={qrOpen}
           onClose={() => setQrOpen(false)}
-          title="Group Invite QR Code"
+          title="Group QR Code"
         >
           {invite && (
             <div className="flex flex-col items-center space-y-4">

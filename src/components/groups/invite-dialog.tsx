@@ -61,7 +61,7 @@ export function InviteDialog({
 
   return (
     <Dialog
-      open={open}
+      isOpen={open}
       onClose={onClose}
       title="Invite members"
     >
