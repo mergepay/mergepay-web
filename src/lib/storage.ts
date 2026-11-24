@@ -1,9 +1,3 @@
-/**
- * Local storage utility for persisting user group preferences and filter states.
- * Handles SSR safety and defensive JSON parsing.
- */
-
-
 export interface NotificationPreferencesState {
   pushEnabled: boolean;
   expenseAdded: boolean;
@@ -45,34 +39,48 @@ export function setStoredNotificationPreferences(prefs: NotificationPreferencesS
     // ignore storage quota / private mode exceptions
   }
 }
-export const STORAGE_KEYS = {
-  GROUP_PREFERENCES: 'mergepay:group_preferences',
-  ACTIVE_FILTERS: 'mergepay:active_filters',
-} as const;
 
-export function safeGetStorage<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
-    return fallback;
+export interface GroupPreferencesState {
+  activeTab: string;
+  sortOrder: string;
+  historyFilters: Record<string, unknown>;
+}
+
+export const DEFAULT_GROUP_PREFERENCES: GroupPreferencesState = {
+  activeTab: "overview",
+  sortOrder: "newest",
+  historyFilters: {},
+};
+
+const GROUP_PREFERENCES_STORAGE_KEY_PREFIX = "mergepay:group_preferences:";
+
+export function getStoredGroupPreferences(groupId: string): GroupPreferencesState {
+  if (typeof window === "undefined") {
+    return DEFAULT_GROUP_PREFERENCES;
   }
   try {
-    const item = window.localStorage.getItem(key);
-    if (item === null) {
-      return fallback;
-    }
-    return JSON.parse(item) as T;
-  } catch (err) {
-    console.warn(`Failed to read key "${key}" from localStorage:`, err);
-    return fallback;
+    const raw = localStorage.getItem(`${GROUP_PREFERENCES_STORAGE_KEY_PREFIX}${groupId}`);
+    if (!raw) return DEFAULT_GROUP_PREFERENCES;
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_GROUP_PREFERENCES,
+      ...(typeof parsed === "object" && parsed !== null ? parsed : {}),
+    };
+  } catch {
+    return DEFAULT_GROUP_PREFERENCES;
   }
 }
 
-export function safeSetStorage<T>(key: string, value: T): void {
-  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
-    return;
+export function setStoredGroupPreferences(groupId: string, prefs: Partial<GroupPreferencesState>): GroupPreferencesState {
+  if (typeof window === "undefined") {
+    return DEFAULT_GROUP_PREFERENCES;
   }
   try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    console.warn(`Failed to write key "${key}" to localStorage:`, err);
+    const current = getStoredGroupPreferences(groupId);
+    const next = { ...current, ...prefs };
+    localStorage.setItem(`${GROUP_PREFERENCES_STORAGE_KEY_PREFIX}${groupId}`, JSON.stringify(next));
+    return next;
+  } catch {
+    return getStoredGroupPreferences(groupId);
   }
 }
