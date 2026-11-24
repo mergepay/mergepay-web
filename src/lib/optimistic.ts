@@ -229,6 +229,73 @@ export function removeOptimisticExpense<T>(cache: T, expenseId: string): T {
   return cache;
 }
 
+/** Editable fields of an expense, mirroring `UpdateExpenseRequest`. */
+export type ExpensePatch = Partial<
+  Pick<Expense, "title" | "description" | "memo" | "receiptUrl">
+>;
+
+/**
+ * Merge `patch` into the expense with `expenseId` in whichever expense-list
+ * cache shape is stored (flat array, `{ expenses }`, or infinite `pages`) —
+ * used to render an edit immediately while `PATCH /expenses/:id` is in
+ * flight (#892).
+ *
+ * `pending` is set on the patched entry so the card can show a "Saving…"
+ * state; pass `pending: false` with the server's copy to clear it. Entries
+ * that don't match, and unrecognised cache shapes, are returned untouched
+ * (same reference), so an unrelated cache is never re-rendered.
+ */
+export function patchOptimisticExpense<T>(
+  cache: T,
+  expenseId: string,
+  patch: ExpensePatch & { pending?: boolean }
+): T {
+  if (cache === undefined || cache === null) return cache;
+
+  const apply = (list: Expense[]): Expense[] => {
+    let changed = false;
+    const next = list.map((e) => {
+      if (e.id !== expenseId) return e;
+      changed = true;
+      const merged: Expense = { ...e };
+      for (const [key, value] of Object.entries(patch)) {
+        if (value !== undefined) (merged as unknown as Record<string, unknown>)[key] = value;
+      }
+      if (patch.pending === undefined) merged.pending = true;
+      return merged;
+    });
+    return changed ? next : list;
+  };
+
+  if (Array.isArray(cache)) {
+    const list = cache as unknown as Expense[];
+    const next = apply(list);
+    return (next === list ? cache : next) as unknown as T;
+  }
+
+  const pages = (cache as ExpensePagesLike).pages;
+  if (Array.isArray(pages)) {
+    let changed = false;
+    const nextPages = pages.map((page) => {
+      const list = (page as ExpenseListLike)?.expenses;
+      if (!isExpenseArray(list)) return page;
+      const next = apply(list);
+      if (next === list) return page;
+      changed = true;
+      return { ...(page as object), expenses: next };
+    });
+    return changed ? ({ ...(cache as object), pages: nextPages } as T) : cache;
+  }
+
+  const list = (cache as ExpenseListLike).expenses;
+  if (isExpenseArray(list)) {
+    const next = apply(list);
+    return next === list ? cache : ({ ...(cache as object), expenses: next } as T);
+  }
+
+  return cache;
+}
+
 export interface OptimisticTransfer {
   /** Who signs and pays. */
   fromUserId: string;
