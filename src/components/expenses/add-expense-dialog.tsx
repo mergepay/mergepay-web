@@ -359,10 +359,16 @@ export function AddExpenseDialog({
     toast.error("Please fix the errors before submitting");
   }
 
+  const lastSubmitAttemptRef = useRef(0);
+
   async function handleValidSubmit(values: ExpenseFormValues) {
     setShowErrors(true);
     setSubmitError(null);
-    if (submitBlocked || create.isPending || submissionLock.current) return;
+    const now = Date.now();
+    if (now - lastSubmitAttemptRef.current < 500) return;
+    lastSubmitAttemptRef.current = now;
+
+    if (submitBlocked || create.isPending || submissionLock.current || submitting) return;
 
     submissionLock.current = true;
     setSubmitting(true);
