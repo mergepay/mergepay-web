@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { QRCodeSVG } from "@/components/ui/lazy-qr-code";
 import { Share2 } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog } from "@/components/ui/dialog";
+import { AccessibleDialog as Dialog } from "@/components/ui/AccessibleDialog";
 import { Button } from "@/components/ui/button";
 import { Input, Label, FieldHint } from "@/components/ui/input";
 import CopyButton from "@/components/ui/CopyButton";
@@ -57,12 +57,13 @@ export function InviteDialog({
     await navigator.share({ title: "Join my MergePay group", url: shareUrl });
   }
 
+  if (!open) return null;
+
   return (
     <Dialog
       open={open}
       onClose={onClose}
       title="Invite members"
-      description="Generate a shareable code and link that lets people join this group."
     >
       {!invite ? (
         <div className="space-y-4">
