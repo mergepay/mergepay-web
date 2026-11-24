@@ -58,6 +58,11 @@ declare module "@stellar/stellar-sdk" {
     type: string;
     value: string;
   }
+  export class StrKey {
+    static isValidEd25519PublicKey(publicKey: string): boolean;
+    static isValidEd25519SecretSeed(seed: string): boolean;
+    static isValidMed25519PublicKey(publicKey: string): boolean;
+  }
 }
 
 declare module "tailwind-merge" {

@@ -15,7 +15,12 @@
  * tested without a React tree.
  */
 
-import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import {
@@ -35,6 +40,7 @@ import {
   applyOptimisticSettlement,
   buildOptimisticExpense,
   insertOptimisticExpense,
+  patchOptimisticExpense,
   removeOptimisticExpense,
 } from "@/lib/optimistic";
 import type {
@@ -47,8 +53,19 @@ import type {
   GroupDetail,
   Role,
   SettlementIntentResponse,
+  UpdateExpenseRequest,
   User,
 } from "@/lib/types";
+
+type QuerySnapshot = ReadonlyArray<readonly [QueryKey, unknown]>;
+
+/** Put back every cache entry captured by `getQueriesData`. */
+function restoreSnapshots(qc: QueryClient, snapshot: QuerySnapshot | undefined): void {
+  if (!snapshot) return;
+  for (const [queryKey, queryData] of snapshot) {
+    qc.setQueryData(queryKey, queryData);
+  }
+}
 
 /** The query keys an expense write can touch (prefix-matched). */
 function expenseWriteKeys(groupId: string): readonly QueryKey[] {
@@ -328,25 +345,29 @@ export function useDeleteExpenseMutation(groupId: string) {
       // Stop any in-flight refetch from clobbering the removal.
       await Promise.all(keys.map((queryKey) => qc.cancelQueries({ queryKey })));
 
+      await qc.cancelQueries({ queryKey: qk.history });
+
       const previousExpenses = qc.getQueriesData({ queryKey: qk.expenses(groupId) });
+      const previousHistory = qc.getQueriesData({ queryKey: qk.history });
       const previousActivity = qc.getQueryData<GroupActivityResponse>(qk.activity(groupId));
 
       // Remove the expense from both flat and infinite cache shapes
-      // immediately so the card disappears before the network responds.
+      // immediately so the card disappears before the network responds —
+      // in the group list and in the cross-group history view alike.
       qc.setQueriesData({ queryKey: qk.expenses(groupId) }, (old: unknown) =>
         removeOptimisticExpense(old, expenseId)
       );
+      qc.setQueriesData({ queryKey: qk.history }, (old: unknown) =>
+        removeOptimisticExpense(old, expenseId)
+      );
 
-      return { previousExpenses, previousActivity };
+      return { previousExpenses, previousHistory, previousActivity };
     },
 
     onError: (_err, _expenseId, context) => {
       // Restore every entry we emptied.
-      if (context?.previousExpenses) {
-        for (const [queryKey, queryData] of context.previousExpenses) {
-          qc.setQueryData(queryKey, queryData);
-        }
-      }
+      restoreSnapshots(qc, context?.previousExpenses);
+      restoreSnapshots(qc, context?.previousHistory);
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
       }
@@ -362,6 +383,91 @@ export function useDeleteExpenseMutation(groupId: string) {
       // Always reconcile with the server's list.
       invalidate(expenseCacheKeys(groupId));
       qc.invalidateQueries({ queryKey: qk.activity(groupId) });
+    },
+  });
+}
+
+export interface UpdateExpenseVariables {
+  expenseId: string;
+  data: UpdateExpenseRequest;
+}
+
+/**
+ * Edit an expense's title, description, memo or receipt with an optimistic
+ * cache update (#892).
+ *
+ *  1. `onMutate`  — cancel in-flight refetches of the group's expense list and
+ *     the history feed, snapshot them, and merge the edit into every cached
+ *     copy (flagged `pending` so the card shows "Saving…").
+ *  2. `onError`   — restore the snapshots and tell the user the edit was
+ *     reverted.
+ *  3. `onSuccess` — swap the prediction for the server's copy.
+ *  4. `onSettled` — invalidate so the canonical list replaces everything.
+ */
+export function useUpdateExpenseMutation(groupId: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidator();
+
+  return useMutation({
+    mutationFn: ({ expenseId, data }: UpdateExpenseVariables): Promise<ExpenseResponse> =>
+      api.updateExpense(expenseId, data),
+
+    onMutate: async ({ expenseId, data }: UpdateExpenseVariables) => {
+      await Promise.all([
+        qc.cancelQueries({ queryKey: qk.expenses(groupId) }),
+        qc.cancelQueries({ queryKey: qk.history }),
+      ]);
+
+      const previousExpenses = qc.getQueriesData({ queryKey: qk.expenses(groupId) });
+      const previousHistory = qc.getQueriesData({ queryKey: qk.history });
+
+      const patch = {
+        title: data.title,
+        // An emptied optional field is stored as null by the server.
+        description: data.description === undefined ? undefined : data.description || null,
+        memo: data.memo === undefined ? undefined : data.memo || null,
+        receiptUrl: data.receiptUrl,
+      };
+      qc.setQueriesData({ queryKey: qk.expenses(groupId) }, (old: unknown) =>
+        patchOptimisticExpense(old, expenseId, patch)
+      );
+      qc.setQueriesData({ queryKey: qk.history }, (old: unknown) =>
+        patchOptimisticExpense(old, expenseId, patch)
+      );
+
+      return { previousExpenses, previousHistory };
+    },
+
+    onError: (_err, _variables, context) => {
+      restoreSnapshots(qc, context?.previousExpenses);
+      restoreSnapshots(qc, context?.previousHistory);
+      toast.error("Could not save your changes. The expense has been restored.");
+    },
+
+    onSuccess: (response, { expenseId }) => {
+      const server = response?.expense;
+      if (server) {
+        const confirmed = {
+          title: server.title,
+          description: server.description,
+          memo: server.memo,
+          receiptUrl: server.receiptUrl,
+          pending: false,
+        };
+        qc.setQueriesData({ queryKey: qk.expenses(groupId) }, (old: unknown) =>
+          patchOptimisticExpense(old, expenseId, confirmed)
+        );
+        qc.setQueriesData({ queryKey: qk.history }, (old: unknown) =>
+          patchOptimisticExpense(old, expenseId, confirmed)
+        );
+      }
+      toast.success("Expense updated");
+    },
+
+    onSettled: () => {
+      invalidate([qk.expenses(groupId)]);
+      qc.invalidateQueries({ queryKey: qk.activity(groupId) });
+      qc.invalidateQueries({ queryKey: qk.history });
     },
   });
 }
