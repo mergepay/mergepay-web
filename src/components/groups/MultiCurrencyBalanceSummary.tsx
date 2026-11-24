@@ -57,7 +57,7 @@ export function MultiCurrencyBalanceSummary({
           </h3>
           {baseAsset && convertedTotal !== null && (
             <span className="text-xs font-bold text-ink">
-              Total: {formatAssetAmountText(convertedTotal, baseAsset)}
+              Total in {baseAsset}: {formatAssetAmountText(convertedTotal, baseAsset)}
             </span>
           )}
         </div>
@@ -81,6 +81,11 @@ export function MultiCurrencyBalanceSummary({
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm">{item.assetCode}</span>
+                    {item.assetIssuer && (
+                      <span className="text-xs text-ink/60" title={item.assetIssuer}>
+                        {item.assetIssuer.slice(0, 5)}…{item.assetIssuer.slice(-4)}
+                      </span>
+                    )}
                     {!hasTrustline && (
                       <Badge tone="flamingo" className="gap-1">
                         <AlertTriangle className="h-3 w-3" aria-hidden="true" />

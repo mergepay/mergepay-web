@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { GroupQRCode } from "./GroupQRCode";
 
-vi.mock("qrcode.react", () => ({
-  QRCodeSVG: ({ value, ...props }: { value: string; [key: string]: unknown }) => (
-    <svg data-testid="qr-svg" data-value={value} {...props} />
-  ),
+vi.mock("@/components/ui/lazy-qr-code", () => ({
+  QRCodeSVG: forwardRef(({ value, ...props }: { value: string; [key: string]: unknown }, ref) => (
+    <svg ref={ref} data-testid="qr-svg" data-value={value} {...props} />
+  )),
 }));
 
 vi.mock("sonner", () => ({
