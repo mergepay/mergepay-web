@@ -1,70 +1,106 @@
-import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { AddExpenseDialog } from '../add-expense-dialog';
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { GroupMember } from "@/lib/types";
 
-vi.mock('@/lib/queries', () => ({
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
+
+const mutateAsync = vi.fn().mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve({ expense: { id: "e1" } }), 100)));
+
+vi.mock("@/lib/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/queries")>()),
   useCreateExpense: () => ({
-    mutateAsync: vi.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100))),
+    mutate: vi.fn(),
+    mutateAsync,
     isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
   }),
 }));
 
-vi.mock('@/lib/asset-store', () => ({
-  useAssetStore: (selector: any) => selector({
-    activeAsset: { code: 'XLM', issuer: null },
-    setActiveAsset: vi.fn(),
-  }),
-  isActiveAsset: () => true,
-}));
-
-vi.mock('@/lib/wallet-store', () => ({
+vi.mock("@/lib/wallet-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/wallet-store")>()),
   useWalletDisconnected: () => false,
 }));
 
-vi.mock('@/lib/store/offlineStore', () => ({
-  useOfflineStore: (selector: any) => selector({ isOnline: true }),
+vi.mock("@/lib/useLocalStorageDraft", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/useLocalStorageDraft")>()),
+  useLocalStorageDraft: () => ({
+    draft: null,
+    isRestored: false,
+    saveDraft: vi.fn(),
+    clearDraft: vi.fn(),
+    acknowledgeRestored: vi.fn(),
+  }),
 }));
 
-describe('AddExpenseDialog Rate Limiting', () => {
-  const members = [
-    { id: 'm-1', groupId: 'group-1', userId: 'user-1', role: 'member' as const, joinedAt: new Date().toISOString(), user: { id: 'user-1', displayName: 'Alice', stellarPublicKey: 'GBALICE...', createdAt: new Date().toISOString(), avatarUrl: null } },
-    { id: 'm-2', groupId: 'group-1', userId: 'user-2', role: 'member' as const, joinedAt: new Date().toISOString(), user: { id: 'user-2', displayName: 'Bob', stellarPublicKey: 'GBBOB...', createdAt: new Date().toISOString(), avatarUrl: null } },
-  ];
+vi.mock("@/lib/store/offlineStore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/store/offlineStore")>()),
+  useOfflineStore: () => ({ isOnline: true, pendingCount: 0 }),
+}));
 
+import { AddExpenseDialog } from "../add-expense-dialog";
+
+const ALICE: GroupMember = {
+  id: "m-alice",
+  groupId: "g1",
+  userId: "user-alice",
+  role: "admin",
+  joinedAt: "2026-01-01T00:00:00.000Z",
+  user: {
+    id: "user-alice",
+    stellarPublicKey: "GALICE",
+    displayName: "Alice",
+    avatarUrl: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+} as unknown as GroupMember;
+
+function renderDialog() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <AddExpenseDialog
+        open
+        onClose={vi.fn()}
+        groupId="g1"
+        members={[ALICE]}
+        currentUserId="user-alice"
+      />
+    </QueryClientProvider>
+  );
+}
+
+describe("AddExpenseDialog — rate limiting and request debouncing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (window as any).__lastExpenseSubmit = 0;
   });
 
-  it('prevents rapid successive clicks from triggering multiple submissions', async () => {
-    const onClose = vi.fn();
-    render(
-      <AddExpenseDialog
-        open={true}
-        onClose={onClose}
-        groupId="group-1"
-        members={members}
-        currentUserId="user-1"
-      />
-    );
+  it("prevents multiple rapid submissions when clicked multiple times", async () => {
+    renderDialog();
 
-    const titleInput = screen.getByLabelText(/Title/i);
-    fireEvent.change(titleInput, { target: { value: 'Dinner' } });
+    fireEvent.change(screen.getByLabelText(/^title$/i), {
+      target: { value: "Groceries" },
+    });
+    fireEvent.change(screen.getByLabelText(/^amount$/i), {
+      target: { value: "45" },
+    });
 
-    const amountInput = screen.getByLabelText(/^amount$/i);
-    fireEvent.change(amountInput, { target: { value: '10' } });
-    fireEvent.blur(amountInput);
+    const confirmButton = screen.getByTestId("add-expense-confirm");
+    expect(confirmButton).not.toBeDisabled();
 
-    const submitButton = screen.getByTestId('add-expense-confirm');
-    
     // Rapid successive clicks
-    fireEvent.click(submitButton);
-    fireEvent.click(submitButton);
-    fireEvent.click(submitButton);
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
 
     await waitFor(() => {
-      expect(submitButton).toBeDefined();
+      expect(mutateAsync).toHaveBeenCalledTimes(1);
     });
   });
 });
