@@ -17,6 +17,7 @@ import { handleApiError } from "@/lib/errorHandler";
 import { SETTLEMENT_ASSETS, SETTLEMENT_MEMO_PREFIX } from "@/lib/constants";
 import { AssetSelector } from "@/components/expenses/AssetSelector";
 import { ExpenseSplitPreview } from "@/components/expenses/ExpenseSplitPreview";
+import { ParticipantPicker } from "@/components/expenses/ParticipantPicker";
 import { SplitCalculator, type SplitCalculatorChange } from "@/components/expenses/SplitCalculator";
 import type { CreateExpenseRequest, GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
 import {
@@ -644,6 +645,8 @@ export function AddExpenseDialog({
           )}
         </div>
 
+        <ParticipantPicker members={members} selected={participants} onChange={setParticipants} />
+
         <SplitCalculator
           key={calculatorKey}
           totalAmount={amount}
@@ -676,8 +679,8 @@ export function AddExpenseDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={pending} disabled={submitBlocked || !isFormValid} data-testid="add-expense-confirm">
-            {isOffline ? "Save offline" : "Add Expense"}
+          <Button type="submit" loading={pending} disabled={submitBlocked || !isFormValid || pending} data-testid="add-expense-confirm">
+            {pending ? (isOffline ? "Saving..." : "Submitting...") : isOffline ? "Save offline" : "Add Expense"}
           </Button>
         </div>
       </form>
