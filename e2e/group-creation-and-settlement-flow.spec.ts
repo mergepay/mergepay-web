@@ -343,7 +343,7 @@ test("group creation, member addition, expense entry, and settlement initiation 
   }
 
   expect(groupCreated).toBe(true);
-  expect(memberAdded || true).toBe(true);
-  expect(expenseCreated || true).toBe(true);
-  expect(settlementInitiated || true).toBe(true);
+  expect(memberAdded).toBe(true);
+  expect(expenseCreated).toBe(true);
+  expect(settlementInitiated).toBe(true);
 });
