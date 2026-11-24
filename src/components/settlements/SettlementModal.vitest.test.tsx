@@ -27,6 +27,7 @@ vi.mock("framer-motion", async (importOriginal) => {
 
 vi.mock("@/lib/queries", () => ({
   useConfirmSettlement: () => ({ mutateAsync }),
+  useSettlementCacheRefresh: () => vi.fn(),
 }));
 
 vi.mock("@/components/wallet/TrustlineBanner", () => ({

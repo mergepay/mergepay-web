@@ -19,8 +19,9 @@ import { formatMoney } from "@/lib/format";
 import { connectWallet, signXdr, WalletError, WalletErrorCode, NotInstalledMessage } from "@/lib/stellar";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
 import { WalletPrerequisiteNotice } from "@/components/wallet/wallet-status";
-import { useConfirmSettlement, useSettlementStatus } from "@/lib/queries";
-import { classifySettlementError } from "@/lib/stellar/transactions";
+import { useConfirmSettlement, useSettlementCacheRefresh, useSettlementStatus } from "@/lib/queries";
+import { classifySettlementError, isAmbiguousSubmissionError, transactionHashFromXdr } from "@/lib/stellar/transactions";
+import { useHorizonConfirmationFallback } from "@/hooks/useHorizonConfirmationFallback";
 import { notifySettlementFailure, notifySettlementStatusUnknown } from "@/lib/settlementToasts";
 import { validateSettlementInput } from "@/lib/paymentValidation";
 import {
@@ -218,12 +219,28 @@ export function SettleDialog({
   const [reconnecting, setReconnecting] = useState(false);
   const [failedAt, setFailedAt] = useState(FAILED_AT_SIGNING);
   const statusQuery = useSettlementStatus(settlementId, step === "submitted", groupId);
-  // Once status checks have stalled or run out of time the dialog is waiting on
-  // nothing it can observe, so the user must be free to leave instead of being
-  // held here until a reload. The payment may still confirm; the ledger and
-  // history pick it up when it does.
+  const refreshSettlementCaches = useSettlementCacheRefresh(groupId);
+  // Hash of the envelope the wallet signed, derived locally so the outcome can
+  // be read straight from Horizon when the API is slow to report it (#814).
+  const [signedHash, setSignedHash] = useState<string | null>(null);
+  const horizon = useHorizonConfirmationFallback({
+    txHash: signedHash,
+    enabled: step === "submitted",
+  });
+  // Still waiting on Horizon: inside the grace period or actively polling.
+  const horizonChecking =
+    step === "submitted" &&
+    Boolean(signedHash) &&
+    (horizon.state.status === "idle" || horizon.state.status === "polling");
+  // Once status checks have stalled or run out of time — and the direct
+  // Horizon check has nothing more to add — the dialog is waiting on nothing it
+  // can observe, so the user must be free to leave instead of being held here
+  // until a reload. The payment may still confirm; the ledger and history pick
+  // it up when it does.
   const statusUnknown =
-    step === "submitted" && Boolean(statusQuery.pollingStalled || statusQuery.pollingTimedOut);
+    step === "submitted" &&
+    Boolean(statusQuery.pollingStalled || statusQuery.pollingTimedOut) &&
+    !horizonChecking;
   const transactionInFlight = step === "submitting" || (step === "submitted" && !statusUnknown);
   // The settle target lives in props and is never mutated here, so a failed
   // attempt leaves the amount, asset, and recipient intact for the retry.
@@ -286,7 +303,7 @@ export function SettleDialog({
     onClose();
     // reset after the close animation
     setTimeout(() => {
-      setStep("review"); setTxHash(null); setMemo(null); setError(""); setErrorCode(null); setSettlementId(null); setAttempts(0); setReconnecting(false); setFailedAt(FAILED_AT_SIGNING); setSettleMethod("wallet");
+      setStep("review"); setTxHash(null); setSignedHash(null); setMemo(null); setError(""); setErrorCode(null); setSettlementId(null); setAttempts(0); setReconnecting(false); setFailedAt(FAILED_AT_SIGNING); setSettleMethod("wallet");
     }, 200);
   }
 
@@ -326,10 +343,12 @@ export function SettleDialog({
     if (!validation.valid) { setError(validation.error ?? "Invalid payment input"); setErrorCode(null); setFailedAt(FAILED_AT_REVIEW); setStep("failed"); return; }
     // Clear the previous attempt's residue so a retry never shows a stale tx
     // hash or keeps polling the settlement that already failed.
-    setError(""); setErrorCode(null); setTxHash(null); setMemo(null); setSettlementId(null); setAttempts((n) => n + 1);
+    setError(""); setErrorCode(null); setTxHash(null); setSignedHash(null); setMemo(null); setSettlementId(null); setAttempts((n) => n + 1);
     // Set once the wallet has signed: from then on a failure may still be a
     // payment that reached the network, which the failure toast has to say.
     let signed = false;
+    let pendingSettlementId: string | null = null;
+    let localHash: string | null = null;
     try {
       const intent = target.expenseId
         ? await api.settleExpense(target.expenseId, {
@@ -347,13 +366,16 @@ export function SettleDialog({
       setMemo(intent.settlement.memo ?? null);
       const signedXdr = await signXdr(intent.xdr, intent.networkPassphrase);
       signed = true;
+      pendingSettlementId = intent.settlement.id;
+      localHash = transactionHashFromXdr(signedXdr, intent.networkPassphrase);
+      setSignedHash(localHash);
       const { settlement } = await confirm.mutateAsync({
         settlementId: intent.settlement.id,
         data: { signedXdr },
         optimisticTransfer: intent.settlement,
       });
       setSettlementId(intent.settlement.id);
-      setTxHash(settlement.stellarTxHash ?? null);
+      setTxHash(settlement.stellarTxHash ?? localHash);
       setMemo(settlement.memo ?? intent.settlement.memo ?? null);
       setStep("submitted");
       if (settlement.status === "confirmed") {
@@ -366,6 +388,18 @@ export function SettleDialog({
         notifySettlementFailure(stellarRejection());
       }
     } catch (e) {
+      // The wallet signed but the hand-off to the API was lost (timeout, 5xx,
+      // dropped connection): the payment may already be on Stellar, so asking
+      // the user to retry could pay twice. Wait on the chain instead — the API
+      // record and Horizon are both polled from "submitted", and "Check status"
+      // stays available if neither has an answer (#814).
+      if (signed && localHash && pendingSettlementId && isAmbiguousSubmissionError(e)) {
+        setSettlementId(pendingSettlementId);
+        setTxHash(localHash);
+        setStep("submitted");
+        toast.warning("Couldn't confirm the submission with Mergepay. Checking Stellar directly — don't retry yet.");
+        return;
+      }
       // Every failure lands in "failed" with the reason on screen and the
       // dialog still open, so the user retries instead of starting over.
       if (e instanceof WalletError) { setErrorCode(e.code); setError(e.code === "not_installed" ? <NotInstalledMessage /> : e.message); }
@@ -412,13 +446,33 @@ export function SettleDialog({
     }
   }, [step, statusQuery.data]);
 
+  // Horizon answered before the API did: trust the ledger, then refresh the
+  // group so balances and history catch up with it.
+  useEffect(() => {
+    if (step !== "submitted") return;
+    if (horizon.state.status === "confirmed") {
+      if (signedHash) setTxHash(signedHash);
+      setStep("confirmed");
+      toast.success("Settled on Stellar");
+      void refreshSettlementCaches();
+    } else if (horizon.state.status === "failed") {
+      setFailedAt(FAILED_AT_NETWORK);
+      setStep("failed");
+      setError(STELLAR_REJECTED_MESSAGE);
+      notifySettlementFailure(stellarRejection());
+      void refreshSettlementCaches();
+    }
+    // Only a change of outcome matters; the setters and helpers are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, horizon.state.status]);
+
   // Say so once when status checks give up (lost connection, or still pending
   // after the polling window), so the dialog never looks like it is still working.
   const statusUnknownReason = statusQuery.pollingTimedOut ? "timed_out" : statusQuery.pollingStalled ? "stalled" : null;
   useEffect(() => {
-    if (step !== "submitted" || !statusUnknownReason) return;
+    if (step !== "submitted" || !statusUnknownReason || horizonChecking) return;
     notifySettlementStatusUnknown(statusUnknownReason);
-  }, [step, statusUnknownReason]);
+  }, [step, statusUnknownReason, horizonChecking]);
 
   // `active` resolves to bulkTarget in bulk mode and target in single mode;
   // both share the {to, amount, assetCode, label} shape we render here.
@@ -521,7 +575,11 @@ export function SettleDialog({
           tone="butter"
           icon={<Loader2 className="h-7 w-7 animate-spin" />}
           title="Waiting for confirmation"
-          body="Polling the network for the terminal transaction state. Keep this dialog open until the result is known."
+          body={
+            horizon.state.status === "polling"
+              ? "Mergepay hasn't reported back yet, so we're checking Stellar directly. Nothing new is being submitted."
+              : "Polling the network for the terminal transaction state. Keep this dialog open until the result is known."
+          }
           live
         />
       )}
@@ -536,7 +594,7 @@ export function SettleDialog({
           </p>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={close}>Close</Button>
-            <Button variant="outline" onClick={() => { statusQuery.restartPolling(); void statusQuery.refetch(); }}><RefreshCcw className="h-4 w-4" /> Check status</Button>
+            <Button variant="outline" onClick={() => { statusQuery.restartPolling(); void statusQuery.refetch(); if (signedHash) horizon.restart(); }}><RefreshCcw className="h-4 w-4" /> Check status</Button>
           </div>
         </div>
       )}
