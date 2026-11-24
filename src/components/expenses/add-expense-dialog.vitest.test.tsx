@@ -111,7 +111,7 @@ function fillValidForm(title: string, amount: string) {
   fireEvent.change(screen.getByLabelText("Title"), {
     target: { value: title },
   });
-  fireEvent.change(screen.getByLabelText("Amount"), {
+  fireEvent.change(screen.getByLabelText(/^amount$/i), {
     target: { value: amount },
   });
 }
