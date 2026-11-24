@@ -11,6 +11,7 @@ import { api, getInviteByCode } from "./api";
 import { ApiRequestError, handleApiError } from "./errorHandler";
 import { toast } from "sonner";
 import { useAuth } from "./auth-store";
+import { telemetryErrorCode, track } from "./telemetry";
 import type {
   BalancesResponse,
   BulkSettleRequest,
@@ -685,7 +686,13 @@ export function useCreateGroup() {
     mutationFn: (data: CreateGroupRequest) => api.createGroup(data),
     // Exact, everywhere the list is invalidated: `["groups"]` is a prefix of
     // every per-group key, so a loose match refetches all a user's groups.
-    onSuccess: () => invalidate([{ queryKey: qk.groups, exact: true }]),
+    onSuccess: (_data, vars) => {
+      // The group's name and description are user content; only whether a
+      // description was given is recorded.
+      track("group_created", { hasDescription: Boolean(vars.description?.trim()) });
+      return invalidate([{ queryKey: qk.groups, exact: true }]);
+    },
+    onError: (err) => track("group_create_failed", { errorCode: telemetryErrorCode(err) }),
   });
 }
 
@@ -910,10 +917,12 @@ export function useCreateExpense(groupId: string) {
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
       }
+      track("expense_create_failed", { errorCode: telemetryErrorCode(err) });
       handleApiError(err, "Failed to create expense. Balances and activity reverted.");
     },
     // Confirm the expense landed on the server and notify the user.
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
+      track("expense_created", { splitType: vars.splitType, participantCount: vars.shares.length });
       toast.success("Expense added successfully");
       // Keep the transaction history in sync alongside the group list so
       // the history page reflects the new expense without a manual refresh.
@@ -1005,6 +1014,8 @@ export function useBulkSettle(groupId: string) {
   return useMutation({
     mutationFn: (data: BulkSettleRequest) =>
       api.bulkSettleExpenses(groupId, data),
+    onSuccess: (_data, vars) => track("bulk_settlement_submitted", { expenseCount: vars.expenseIds.length }),
+    onError: (err) => track("bulk_settlement_failed", { errorCode: telemetryErrorCode(err) }),
   });
 }
 
@@ -1045,12 +1056,15 @@ export function useConfirmSettlement(groupId: string) {
       return { previousBalances };
     },
     onError: (_error, _variables, context) => {
+      // The signed transaction and hash in `data` are never recorded.
+      track("settlement_failed", { errorCode: telemetryErrorCode(_error) });
       if (context?.previousBalances) {
         qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
       toast.error("Settlement submission failed. Balances were restored.");
     },
     onSuccess: (_data, vars) => {
+      track("settlement_submitted", { status: _data.settlement.status });
       // Seed the polled cache so the dialog reflects "submitted" without
       // forcing an immediate refetch before its first interval tick. Keep the
       // optimistic balance until the status poll reaches a terminal state.

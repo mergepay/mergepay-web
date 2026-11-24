@@ -19,6 +19,7 @@ import {
 import { api } from "./api";
 import { Asset, Operation, TransactionBuilder, Account } from "@stellar/stellar-sdk";
 import { useAuth } from "./auth-store";
+import { telemetryErrorCode, track, type WalletLoginStage } from "./telemetry";
 import { z } from "zod";
 import {
   describeNetwork,
@@ -842,9 +843,21 @@ export async function retryWallet<T>(
  * function and take the tab with it.
  */
 export async function loginWithWallet(): Promise<User> {
+  // SEP-10 funnel telemetry: only the stage reached, a coarse error category
+  // and timing are recorded — never the public key, challenge, signed XDR,
+  // token or error message (see src/lib/telemetry.ts).
+  const startedAt = Date.now();
+  let stage: WalletLoginStage = "connect";
+  track("wallet_connect_started");
+
   const available = await isFreighterAvailable();
   if (!available) {
     const err = new WalletNotInstalledError();
+    track("wallet_connect_failed", {
+      stage,
+      errorCode: "not_installed",
+      durationMs: Date.now() - startedAt,
+    });
     useAuth.getState().setWalletError({
       code: "not_installed",
       message: err.message,
@@ -862,10 +875,18 @@ export async function loginWithWallet(): Promise<User> {
     // Checked after access is granted (Freighter only reports its network to an
     // allowed origin) and before the challenge is built: a challenge for one
     // network signed against another fails with an opaque error.
+    stage = "network_check";
     await assertWalletNetwork();
 
+    stage = "challenge";
     const challenge = await api.authChallenge(publicKey);
+    track("wallet_sep10_challenge_received");
+
+    stage = "sign";
     const signed = await signXdr(challenge.transaction, challenge.networkPassphrase);
+    track("wallet_sep10_challenge_signed");
+
+    stage = "verify";
     const { token, user } = await api.authVerify(signed);
 
     // The verifier is authoritative: the API never returns an unauthorized
@@ -885,8 +906,14 @@ export async function loginWithWallet(): Promise<User> {
 
     useAuth.getState().clearWalletError();
     useAuth.getState().setSession(token, user);
+    track("wallet_connect_succeeded", { durationMs: Date.now() - startedAt });
     return user;
   } catch (err) {
+    track("wallet_connect_failed", {
+      stage,
+      errorCode: telemetryErrorCode(err),
+      durationMs: Date.now() - startedAt,
+    });
     if (err instanceof WalletError) {
       useAuth.getState().setWalletError({
         code: err.code,
