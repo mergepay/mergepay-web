@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { LogoMark } from "./logo";
-import { isSessionExpired } from "@/lib/api";
 import { SessionExpiryDialog } from "./session-expiry-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -173,7 +172,7 @@ export function IdleSessionWarningModal() {
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { token, restoring, logout } = useAuth();
   const router = useRouter();
-  const expired = isSessionExpired();
+  const sessionExpired = useAuthStore((s) => s.sessionExpired);
 
   // Proactive, `exp`-claim-driven session timeout (#393): sign out right as
   // the token expires even if no network call surfaces a 401. Defined with
@@ -186,8 +185,16 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
+    // The expired flag owns the screen until the user re-signs. Redirecting
+    // to /login here would fight that dialog and bounce the route on every
+    // 401 that follows.
+    if (sessionExpired) return;
     if (!restoring && !token) router.replace("/login");
-  }, [restoring, token, router]);
+  }, [restoring, token, router, sessionExpired]);
+
+  if (sessionExpired) {
+    return <SessionExpiryDialog />;
+  }
 
   if (restoring || !token) {
     return (
@@ -206,12 +213,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // If the session is expired, we still render the children (so forms aren't lost),
-  // but we overlay the expiry dialog to force re-auth.
   return (
     <>
       {children}
-      {expired && <SessionExpiryDialog />}
       <IdleSessionWarningModal />
     </>
   );
