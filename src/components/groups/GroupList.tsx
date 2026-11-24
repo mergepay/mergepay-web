@@ -30,6 +30,8 @@ export interface GroupListProps {
  * Neobrutalist GroupList component.
  * Displays a grid of user groups or a helpful placeholder empty state when no groups exist.
  */
+import { getStoredGroupPreferences, setStoredGroupPreferences } from "@/lib/storage";
+
 export function GroupList({
   groups = [],
   isLoading = false,
@@ -39,6 +41,18 @@ export function GroupList({
   emptyDescription = "You haven't joined any groups yet. Create a new group to get started!",
 }: GroupListProps) {
   const [internalCreateOpen, setInternalCreateOpen] = useState(false);
+  const [activeTab, setActiveTab] = React.useState<string>(() => getStoredGroupPreferences().activeTab ?? "all");
+  const [sortOrder, setSortOrder] = React.useState<string>(() => getStoredGroupPreferences().sortOrder ?? "recent");
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    setStoredGroupPreferences({ activeTab: tab });
+  };
+
+  const handleSortChange = (sort: string) => {
+    setSortOrder(sort);
+    setStoredGroupPreferences({ sortOrder: sort });
+  };
   const [internalJoinOpen, setInternalJoinOpen] = useState(false);
 
   const handleCreate = () => {
