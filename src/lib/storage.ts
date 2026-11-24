@@ -20,6 +20,18 @@ export interface FilterPreferencesState {
   [key: string]: any;
 }
 
+export const DEFAULT_GROUP_PREFERENCES: GroupPreferencesState = {
+  activeGroupTab: "overview",
+  sortOrder: "newest",
+  transactionFilter: "all",
+};
+
+export const DEFAULT_FILTER_PREFERENCES: FilterPreferencesState = {
+  activeGroupTab: "overview",
+  sortOrder: "newest",
+  transactionFilter: "all",
+};
+
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferencesState = {
   pushEnabled: false,
   expenseAdded: true,
