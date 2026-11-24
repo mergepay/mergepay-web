@@ -39,3 +39,52 @@ export function setStoredNotificationPreferences(prefs: NotificationPreferencesS
     // ignore storage quota / private mode exceptions
   }
 }
+
+export interface UserGroupFilterPreferences {
+  activeGroupTab: string;
+  sortOrder: string;
+  transactionHistoryFilter: string;
+}
+
+export const DEFAULT_USER_GROUP_FILTER_PREFERENCES: UserGroupFilterPreferences = {
+  activeGroupTab: "all",
+  sortOrder: "date-desc",
+  transactionHistoryFilter: "all",
+};
+
+const STORAGE_KEY = "mergepay:user_group_filter_preferences";
+
+export function getStoredUserGroupFilterPreferences(): UserGroupFilterPreferences {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return DEFAULT_USER_GROUP_FILTER_PREFERENCES;
+  }
+  try {
+    const item = window.localStorage.getItem(STORAGE_KEY);
+    if (!item) {
+      return DEFAULT_USER_GROUP_FILTER_PREFERENCES;
+    }
+    const parsed = JSON.parse(item);
+    return {
+      ...DEFAULT_USER_GROUP_FILTER_PREFERENCES,
+      ...parsed,
+    };
+  } catch (error) {
+    console.error("Failed to load user group filter preferences from localStorage:", error);
+    return DEFAULT_USER_GROUP_FILTER_PREFERENCES;
+  }
+}
+
+export function setStoredUserGroupFilterPreferences(
+  prefs: Partial<UserGroupFilterPreferences>
+): UserGroupFilterPreferences {
+  const current = getStoredUserGroupFilterPreferences();
+  const updated = { ...current, ...prefs };
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch (error) {
+      console.error("Failed to save user group filter preferences to localStorage:", error);
+    }
+  }
+  return updated;
+}
