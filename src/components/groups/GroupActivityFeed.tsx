@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useId } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useGroupActivityPolling } from "@/hooks/useGroupActivityPolling";
 import { Avatar } from "@/components/ui/avatar";
@@ -11,13 +11,29 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton, ActivityFeedSkeleton } from "@/components/ui/skeleton";
 import { SectionBoundary, SectionError, SectionLoading } from "@/components/ui/section";
 import { ExpenseFilterBar, type ActivityFilters } from "@/components/expenses/ExpenseFilterBar";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import {
+  ACTIVITY_TYPES,
+  ACTIVITY_TYPE_LABELS,
+  activityFiltersFromSearchParams,
+  activityFiltersToSearchParams,
+  activityMemo,
+  countActiveActivityFilters,
+  filterActivityEvents,
+  type ActivityFeedFilters,
+} from "@/lib/activityFilters";
 import {
   Activity,
   CheckCircle2,
   Clock,
+  FilterX,
   Loader2,
   PlusCircle,
   Radio,
+  SearchX,
+  Tag,
   Trash2,
   UserPlus,
 } from "lucide-react";
@@ -96,16 +112,43 @@ function getActivityConfig(type: GroupActivityType) {
 
 function ActivityList({
   activities,
+  totalCount,
+  activeFilterCount,
+  onResetFilters,
+  onFilterByMemo,
 }: {
   activities: GroupActivityEvent[];
+  /** Events before filtering — tells "nothing yet" apart from "nothing matches". */
+  totalCount: number;
+  activeFilterCount: number;
+  onResetFilters: () => void;
+  onFilterByMemo: (memo: string) => void;
 }) {
   if (activities.length === 0) {
+    if (totalCount === 0 || activeFilterCount === 0) {
+      return (
+        <EmptyState
+          icon={<Activity className="h-7 w-7" />}
+          title="No activity yet"
+          description="Expenses, settlements and new members will show up here as they happen."
+        />
+      );
+    }
     return (
-      <EmptyState
-        icon={<Activity className="h-7 w-7" />}
-        title="No matching activity found"
-        description="Try adjusting your search query or filter criteria."
-      />
+      <div data-testid="activity-empty-filtered">
+        <EmptyState
+          icon={<SearchX className="h-7 w-7" />}
+          title="No matching activity found"
+          description={`None of the ${totalCount} ${totalCount === 1 ? "event" : "events"} in this group match your ${
+            activeFilterCount === 1 ? "filter" : `${activeFilterCount} filters`
+          }. Try a broader search, or clear the filters to see everything.`}
+          action={
+            <Button variant="outline" onClick={onResetFilters} data-testid="activity-reset-filters">
+              <FilterX className="h-4 w-4" aria-hidden="true" /> Clear all filters
+            </Button>
+          }
+        />
+      </div>
     );
   }
 
@@ -113,10 +156,72 @@ function ActivityList({
     <div className="space-y-4">
       <ul className="space-y-3" aria-label="Group activity events">
         {activities.map((event: GroupActivityEvent) => (
-          <ActivityItem key={event.id} event={event} />
+          <ActivityItem key={event.id} event={event} onFilterByMemo={onFilterByMemo} />
         ))}
       </ul>
     </div>
+  );
+}
+
+const fieldLabel = "mb-1 block font-display text-xs uppercase tracking-widest text-ink";
+
+/** Memo-tag search and event-type toggles, rendered inside the shared filter bar. */
+function ActivityExtraFilters({
+  filters,
+  onChange,
+}: {
+  filters: ActivityFeedFilters;
+  onChange: (patch: Partial<ActivityFeedFilters>) => void;
+}) {
+  const id = useId();
+  const selected = filters.types ?? [];
+  const toggle = (type: GroupActivityType) => {
+    const next = selected.includes(type) ? selected.filter((t) => t !== type) : [...selected, type];
+    onChange({ types: next.length > 0 ? next : undefined });
+  };
+
+  return (
+    <>
+      <div className="min-w-0">
+        <label htmlFor={`${id}-memo`} className={fieldLabel}>
+          Memo tag
+        </label>
+        <Input
+          id={`${id}-memo`}
+          aria-label="Filter by memo tag"
+          placeholder="MP:dinner…"
+          className="font-mono"
+          value={filters.memo ?? ""}
+          onChange={(e) => onChange({ memo: e.target.value || undefined })}
+        />
+      </div>
+      <div className="min-w-0 min-[420px]:col-span-2 lg:col-span-4">
+        <span className={fieldLabel} id={`${id}-types`}>
+          Event type
+        </span>
+        <div className="flex flex-wrap gap-2" role="group" aria-labelledby={`${id}-types`}>
+          {ACTIVITY_TYPES.map((type) => {
+            const pressed = selected.includes(type);
+            return (
+              <button
+                key={type}
+                type="button"
+                aria-pressed={pressed}
+                onClick={() => toggle(type)}
+                className={cn(
+                  "rounded-lg border-2 px-3 py-1.5 font-display text-xs uppercase tracking-wider transition-all duration-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40",
+                  pressed
+                    ? "border-ink bg-grape text-white shadow-brutal-sm"
+                    : "border-ink/20 bg-cream text-ink/70 hover:border-ink hover:text-ink"
+                )}
+              >
+                {ACTIVITY_TYPE_LABELS[type]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -158,27 +263,23 @@ export function GroupActivityFeed({
   const router = useRouter();
   const pathname = usePathname();
 
-  const [filters, setFilters] = useState<ActivityFilters>(() => ({
-    keyword: searchParams.get("q") || undefined,
-    participant: searchParams.get("participant") || undefined,
-    fromDate: searchParams.get("from") || undefined,
-    toDate: searchParams.get("to") || undefined,
-    assetCode: searchParams.get("asset") || undefined,
-  }));
+  const [filters, setFilters] = useState<ActivityFeedFilters>(() =>
+    activityFiltersFromSearchParams(searchParams)
+  );
 
-  // Synchronize state changes to URL query parameters for shareable views
+  // Mirror the filters into the URL so a filtered view can be shared as a
+  // link. Unrelated query params are kept, and the URL is only replaced when
+  // it would actually change.
+  const currentQuery = searchParams.toString();
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (filters.keyword) params.set("q", filters.keyword);
-    if (filters.participant) params.set("participant", filters.participant);
-    if (filters.fromDate) params.set("from", filters.fromDate);
-    if (filters.toDate) params.set("to", filters.toDate);
-    if (filters.assetCode) params.set("asset", filters.assetCode);
+    const next = activityFiltersToSearchParams(filters, currentQuery);
+    if (next === currentQuery) return;
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+  }, [filters, currentQuery, pathname, router]);
 
-    const queryStr = params.toString();
-    const newUrl = queryStr ? `${pathname}?${queryStr}` : pathname;
-    router.replace(newUrl, { scroll: false });
-  }, [filters, pathname, router]);
+  const resetFilters = () => setFilters({});
+  const activeFilterCount = countActiveActivityFilters(filters);
+  const extraActiveCount = (filters.memo?.trim() ? 1 : 0) + (filters.types?.length ? 1 : 0);
 
   const options = polling
     ? { intervalMs: pollingIntervalMs ?? 15_000, enabled: true }
@@ -196,42 +297,11 @@ export function GroupActivityFeed({
     pollingStalled,
   } = pollingResult;
 
-  // Filter activities instantly client-side
-  const activities = useMemo(() => {
-    return rawActivities.filter((event) => {
-      if (filters.keyword) {
-        const q = filters.keyword.toLowerCase();
-        const matchesDesc = event.description.toLowerCase().includes(q);
-        const matchesActor = event.actor.displayName.toLowerCase().includes(q);
-        if (!matchesDesc && !matchesActor) return false;
-      }
-
-      if (filters.participant) {
-        const p = filters.participant.toLowerCase();
-        const matchesActor = event.actor.displayName.toLowerCase().includes(p);
-        if (!matchesActor) return false;
-      }
-
-      if (filters.assetCode) {
-        if (event.assetCode && event.assetCode !== filters.assetCode) return false;
-      }
-
-      if (filters.fromDate) {
-        const eventDate = new Date(event.timestamp).getTime();
-        const fromTime = new Date(filters.fromDate).getTime();
-        if (!isNaN(fromTime) && eventDate < fromTime) return false;
-      }
-
-      if (filters.toDate) {
-        const eventDate = new Date(event.timestamp).getTime();
-        // Set to end of day for inclusivity
-        const toTime = new Date(filters.toDate).getTime() + 86399999;
-        if (!isNaN(toTime) && eventDate > toTime) return false;
-      }
-
-      return true;
-    });
-  }, [rawActivities, filters]);
+  // Filter client-side, recomputed only when the events or filters change.
+  const activities = useMemo(
+    () => filterActivityEvents(rawActivities, filters),
+    [rawActivities, filters]
+  );
 
   return (
     <SectionBoundary subject="the activity feed">
@@ -253,15 +323,41 @@ export function GroupActivityFeed({
         {!isLoading && !isError && (
           <>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
+              <h3
+                className="font-display text-sm uppercase tracking-widest text-ink/60"
+                aria-live="polite"
+                data-testid="activity-count"
+              >
                 Activity Feed ({activities.length}{rawActivities.length !== activities.length ? ` of ${rawActivities.length}` : ""})
               </h3>
               {polling && <PollingIndicator isPolling={live} pollingStalled={pollingStalled} />}
             </div>
 
-            <ExpenseFilterBar value={filters} onChange={setFilters} />
+            <ExpenseFilterBar
+              value={filters}
+              // The shared bar owns the common fields; memo and type live in
+              // the extras below and survive its edits.
+              onChange={(next: ActivityFilters) =>
+                setFilters((prev) => ({ ...next, memo: prev.memo, types: prev.types }))
+              }
+              searchLabel="Search activity by memo or participant"
+              searchPlaceholder="Search description, member, memo or amount…"
+              extraActiveCount={extraActiveCount}
+              onClearExtras={resetFilters}
+            >
+              <ActivityExtraFilters
+                filters={filters}
+                onChange={(patch) => setFilters((prev) => ({ ...prev, ...patch }))}
+              />
+            </ExpenseFilterBar>
 
-            <ActivityList activities={activities} />
+            <ActivityList
+              activities={activities}
+              totalCount={rawActivities.length}
+              activeFilterCount={activeFilterCount}
+              onResetFilters={resetFilters}
+              onFilterByMemo={(memo) => setFilters((prev) => ({ ...prev, memo }))}
+            />
           </>
         )}
       </div>
@@ -269,8 +365,15 @@ export function GroupActivityFeed({
   );
 }
 
-function ActivityItem({ event }: { event: GroupActivityEvent }) {
+function ActivityItem({
+  event,
+  onFilterByMemo,
+}: {
+  event: GroupActivityEvent;
+  onFilterByMemo: (memo: string) => void;
+}) {
   const config = getActivityConfig(event.type);
+  const memo = activityMemo(event);
   const isOptimistic = Boolean(event.isOptimistic);
   const isPending = ["pending", "submitted", "settling"].includes(event.status ?? "");
 
@@ -328,14 +431,31 @@ function ActivityItem({ event }: { event: GroupActivityEvent }) {
           {event.description}
         </p>
 
-        {event.amount && (
-          <div className="mt-2.5 flex items-center gap-2">
-            <AssetBadge code={event.assetCode ?? "XLM"} />
-            <Money
-              value={event.amount}
-              assetCode={event.assetCode ?? "XLM"}
-              className="font-mono font-bold text-sm"
-            />
+        {(event.amount || memo) && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            {event.amount && (
+              <>
+                <AssetBadge code={event.assetCode ?? "XLM"} />
+                <Money
+                  value={event.amount}
+                  assetCode={event.assetCode ?? "XLM"}
+                  className="font-mono font-bold text-sm"
+                />
+              </>
+            )}
+            {memo && (
+              <button
+                type="button"
+                onClick={() => onFilterByMemo(memo)}
+                aria-label={`Show only activity with memo ${memo}`}
+                title="Filter by this memo"
+                data-testid="activity-memo"
+                className="inline-flex items-center gap-1 rounded-md border-2 border-ink bg-butter-pale px-1.5 py-0.5 font-mono text-[11px] text-ink transition-colors hover:bg-butter focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
+              >
+                <Tag className="h-3 w-3" aria-hidden="true" />
+                {memo}
+              </button>
+            )}
           </div>
         )}
       </div>
