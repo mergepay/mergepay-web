@@ -393,7 +393,7 @@ describe("buildExpenseExportCsv", () => {
     )[0];
     assert.equal(
       header,
-      "Date,Description,Base Amount,Asset Code,Payer Address,Split Mode,Your Share,Settlement Status"
+      "Date,Description,Base Amount,Asset Code,Payer Address,Split Mode,Participants,Your Share,Settlement Status"
     );
   });
 
@@ -416,7 +416,25 @@ describe("buildExpenseExportCsv", () => {
     const [, row] = csv.split("\n");
     assert.equal(
       row,
-      "2024-05-01,Dinner,100.0000000,XLM,GPAYER123,equal,50.0000000,Settled"
+      "2024-05-01,Dinner,100.0000000,XLM,GPAYER123,equal,me: 50.0000000 (settled),50.0000000,Settled"
+    );
+  });
+
+  it("lists every participant with their share and settlement status", () => {
+    const csv = buildExpenseExportCsv(
+      [
+        expense({
+          shares: [
+            share("me", "settled", "33.5000000"),
+            share("other", "pending", "66.5000000"),
+          ],
+        }),
+      ],
+      "me",
+      { status: "all" }
+    );
+    assert.ok(
+      csv.includes("me: 33.5000000 (settled); other: 66.5000000 (pending)")
     );
   });
 
@@ -521,7 +539,7 @@ describe("buildExpenseExportCsv", () => {
     const dataRows = records.slice(1);
     // Every record has the same number of columns.
     const rowCounts = dataRows.map(countCsvColumns);
-    assert.ok(rowCounts.every((n) => n === 8));
+    assert.ok(rowCounts.every((n) => n === 9));
     // Each record is individually declosable (no dangling opening quote).
     for (const row of dataRows) assert.equal(hasBalancedQuotes(row), true);
   });
