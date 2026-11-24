@@ -72,8 +72,14 @@ function member(id: string, displayName: string): GroupMember {
     userId: id,
     role: "member",
     joinedAt: "2026-01-01T00:00:00.000Z",
-    user: { id, displayName, avatarUrl: null },
-  } as unknown as GroupMember;
+    user: {
+      id,
+      stellarPublicKey: "G" + id.toUpperCase().padEnd(55, "A"),
+      displayName,
+      avatarUrl: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  };
 }
 
 const ADA = member("user-a", "Ada");
