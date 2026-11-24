@@ -304,3 +304,54 @@ describe("AddExpenseDialog — currency converter inputs (#520)", () => {
     expect(document.getElementById("conversion-rate-error")).toHaveTextContent(/greater than zero/i);
   });
 });
+
+/**
+ * Issue #897 — pasted amounts are sanitised when the intended value is
+ * unambiguous, and refused with an inline explanation when it is not.
+ */
+describe("AddExpenseDialog — pasted amount sanitisation (#897)", () => {
+  function paste(text: string) {
+    fireEvent.paste(amountInput(), {
+      clipboardData: { getData: () => text },
+    });
+  }
+
+  it("cleans currency symbols and thousands separators out of a paste", () => {
+    renderDialog();
+    paste("$1,234.50");
+    expect(amountInput()).toHaveValue("1234.50");
+    expect(screen.getByText(/cleaned up to 1234\.50/i)).toBeInTheDocument();
+  });
+
+  it("strips a trailing asset code and whitespace", () => {
+    renderDialog();
+    paste("  12.5 USDC ");
+    expect(amountInput()).toHaveValue("12.5");
+  });
+
+  it("expands scientific notation exactly", () => {
+    renderDialog();
+    paste("1.5e-3");
+    expect(amountInput()).toHaveValue("0.0015");
+  });
+
+  it("refuses a negative paste and explains why", () => {
+    renderDialog();
+    paste("-25");
+    expect(amountInput()).toHaveValue("");
+    expect(screen.getByText(/can't be negative/i)).toBeInTheDocument();
+  });
+
+  it("refuses a paste beyond 7 decimal places", () => {
+    renderDialog();
+    paste("1.123456789");
+    expect(amountInput()).toHaveValue("");
+    expect(screen.getByText(/at most 7 decimal places/i)).toBeInTheDocument();
+  });
+
+  it("explains a refused keystroke inline", () => {
+    renderDialog();
+    fireEvent.change(amountInput(), { target: { value: "2.00000009" } });
+    expect(screen.getByText(/at most 7 decimal places/i)).toBeInTheDocument();
+  });
+});

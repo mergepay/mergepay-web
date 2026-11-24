@@ -13,6 +13,7 @@ import {
 import { PageHeader } from "@/components/app-shell";
 import { HistoryFilterBar } from "@/components/history/HistoryFilterBar";
 import { TransactionFilter, type AssetFilter, type StatusFilter } from "@/components/history/TransactionFilter";
+import { ExportFilteredCsvButton } from "@/components/history/ExportFilteredCsvButton";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
@@ -187,6 +188,13 @@ export default function HistoryPage() {
               >
                 <RefreshCcw className="h-4 w-4" /> Refresh
               </Button>
+              <ExportFilteredCsvButton
+                items={filteredItems}
+                assetCode={selectedAsset}
+                startDate={startDate}
+                endDate={endDate}
+                filtered={searching}
+              />
               <GroupExportMenu
                 groupId="all"
                 expenses={expenses}
