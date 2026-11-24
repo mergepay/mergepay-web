@@ -41,26 +41,26 @@ function isOptionalText(value: unknown): boolean {
  * shape the filter helpers expect — a hand-edited or stale payload must not
  * reach `matchesHistoryFilters`.
  */
-function sanitiseFilters(value: unknown): HistoryFilters {
+function sanitiseFilters(value: unknown, parentKind: HistoryKind): HistoryFilters {
   if (typeof value !== "object" || value === null) {
-    return { kind: "all" };
+    return { kind: parentKind };
   }
   const raw = value as Record<string, unknown>;
-  const kind = isKind(raw.kind) ? raw.kind : "all";
+  const kind = isKind(raw.kind) ? raw.kind : parentKind;
   return {
     kind,
-    keyword: isOptionalText(raw.keyword) ? (raw.keyword as string) : undefined,
-    assetCode: isOptionalText(raw.assetCode)
+    keyword: isOptionalText(raw.keyword) && raw.keyword ? (raw.keyword as string) : undefined,
+    assetCode: isOptionalText(raw.assetCode) && raw.assetCode
       ? (raw.assetCode as string)
       : undefined,
-    participant: isOptionalText(raw.participant)
+    participant: isOptionalText(raw.participant) && raw.participant
       ? (raw.participant as string)
       : undefined,
-    fromDate: isOptionalText(raw.fromDate)
+    fromDate: isOptionalText(raw.fromDate) && raw.fromDate
       ? (raw.fromDate as string)
       : undefined,
-    toDate: isOptionalText(raw.toDate) ? (raw.toDate as string) : undefined,
-    status: isOptionalText(raw.status) ? (raw.status as string) : undefined,
+    toDate: isOptionalText(raw.toDate) && raw.toDate ? (raw.toDate as string) : undefined,
+    status: isOptionalText(raw.status) && raw.status ? (raw.status as string) : undefined,
   };
 }
 
@@ -85,10 +85,11 @@ export function readHistoryView(): HistoryView {
       return DEFAULT_HISTORY_VIEW;
     }
     const { kind, filters, sortOrder } = parsed as { kind?: unknown; filters?: unknown; sortOrder?: unknown };
+    const resolvedKind = isKind(kind) ? kind : DEFAULT_HISTORY_VIEW.kind;
     return {
-      kind: isKind(kind) ? kind : DEFAULT_HISTORY_VIEW.kind,
-      filters: sanitiseFilters(filters),
-      sortOrder: sortOrder === "oldest" ? "oldest" : "newest",
+      kind: resolvedKind,
+      filters: sanitiseFilters(filters, resolvedKind),
+      sortOrder: sortOrder === "oldest" ? "oldest" : undefined,
     };
   } catch {
     return DEFAULT_HISTORY_VIEW;
