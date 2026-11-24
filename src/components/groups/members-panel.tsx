@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { PubkeyChip } from "@/components/tx-link";
-import { Dialog } from "@/components/ui/dialog";
+import { AccessibleDialog as Dialog } from "@/components/ui/AccessibleDialog";
 import { InviteMemberModal } from "./InviteMemberModal";
 import { useCreateInvite } from "@/lib/queries";
 import { describeInviteFailure, isSafeInviteUrl } from "@/lib/inviteLink";
@@ -144,6 +144,11 @@ export function MembersPanel({
                       onChange={(e) => handleRoleChange(m.id, e.target.value as Role)}
                       disabled={updateRole.isPending}
                       aria-label={`Change role for ${m.user.displayName}`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.currentTarget.blur();
+                        }
+                      }}
                       className="rounded-lg border-2 border-ink bg-paper px-2 py-1 text-xs font-bold shadow-brutal-sm focus:outline-none focus:ring-2 focus:ring-grape"
                     >
                       <option value="admin">Admin</option>
@@ -191,40 +196,41 @@ export function MembersPanel({
         groupName={detail.group.name}
       />
 
-      <Dialog
-        open={qrOpen}
-        onClose={() => setQrOpen(false)}
-        title="Group Invite QR Code"
-        description="Share this QR code to let others join this group instantly"
-      >
-        {invite && (
-          <div className="flex flex-col items-center space-y-4">
-            <div className="rounded-2xl border-3 border-ink bg-white p-4 shadow-brutal">
-              <QRCodeSVG value={invite.url} size={200} fgColor="#18130E" bgColor="#FFFFFF" level="M" />
-            </div>
-            <div className="w-full space-y-1.5">
-              <label className="font-display text-xs uppercase tracking-widest text-ink/70">
-                Invite code
-              </label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 rounded-xl border-2 border-ink bg-paper px-3 py-2 font-mono text-xs select-all">
-                  {invite.code}
+      {qrOpen && (
+        <Dialog
+          isOpen={qrOpen}
+          onClose={() => setQrOpen(false)}
+          title="Group QR Code"
+        >
+          {invite && (
+            <div className="flex flex-col items-center space-y-4">
+              <div className="rounded-2xl border-3 border-ink bg-white p-4 shadow-brutal">
+                <QRCodeSVG value={invite.url} size={200} fgColor="#18130E" bgColor="#FFFFFF" level="M" />
+              </div>
+              <div className="w-full space-y-1.5">
+                <label className="font-display text-xs uppercase tracking-widest text-ink/70">
+                  Invite code
+                </label>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 rounded-xl border-2 border-ink bg-paper px-3 py-2 font-mono text-xs select-all">
+                    {invite.code}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      navigator.clipboard.writeText(invite.code);
+                      toast.success("Invite code copied");
+                    }}
+                  >
+                    Copy
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    navigator.clipboard.writeText(invite.code);
-                    toast.success("Invite code copied");
-                  }}
-                >
-                  Copy
-                </Button>
               </div>
             </div>
-          </div>
-        )}
-      </Dialog>
+          )}
+        </Dialog>
+      )}
     </div>
   );
 }
