@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { forwardRef } from "react";
 import { toast } from "sonner";
 import { GroupQRCode } from "./GroupQRCode";
 
 vi.mock("@/components/ui/lazy-qr-code", () => ({
-  QRCodeSVG: forwardRef(({ value, ...props }: { value: string; [key: string]: unknown }, ref) => (
+  QRCodeSVG: forwardRef(({ value, ...props }: { value: string; [key: string]: unknown }, ref: any) => (
     <svg ref={ref} data-testid="qr-svg" data-value={value} {...props} />
   )),
 }));
