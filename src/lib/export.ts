@@ -68,7 +68,7 @@ const CSV_FORMULA_PREFIXES = ["=", "+", "-", "@", "\t", "\r"];
  */
 export function escapeCsv(value: string | number | null | undefined): string {
   let s = value == null ? "" : String(value);
-  if (s.length > 0 && CSV_FORMULA_PREFIXES.includes(s[0] as string)) {
+  if (/^[\s\uFEFF\u200B]*[=+\-@]/u.test(s) || (s.length > 0 && CSV_FORMULA_PREFIXES.includes(s[0] as string))) {
     s = `'${s}`;
   }
   if (/[",\n\r\t]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -102,8 +102,13 @@ function download(filename: string, content: string, type: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  document.body.appendChild(a);
+  try {
+    a.click();
+  } finally {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function buildHistoryCsv(
@@ -121,6 +126,9 @@ export function buildHistoryCsv(
       "status",
       "memo",
       "stellar_tx_hash",
+      "description",
+      "payer_or_sender",
+      "recipient",
     ].join(",")
   );
 
@@ -134,6 +142,9 @@ export function buildHistoryCsv(
         e.assetCode,
         e.splitType,
         e.memo ?? "",
+        "",
+        e.description ?? "",
+        e.payer.displayName,
         "",
       ]
         .map(escapeCsv)
@@ -152,13 +163,16 @@ export function buildHistoryCsv(
         s.status,
         s.memo ?? "",
         s.stellarTxHash ?? "",
+        "",
+        s.from.displayName,
+        s.to.displayName,
       ]
         .map(escapeCsv)
         .join(",")
     );
   }
 
-  return rows.join("\n");
+  return rows.join("\r\n") + "\r\n";
 }
 
 export function exportHistoryCsv(expenses: Expense[], settlements: Settlement[]) {

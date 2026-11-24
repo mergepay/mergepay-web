@@ -30,7 +30,7 @@ import {
   sortHistoryRows,
   type HistoryFilters,
 } from "@/lib/historyFilter";
-import { printReceipt } from "@/lib/export";
+import { printReceipt, exportHistoryCsv } from "@/lib/export";
 import {
   DEFAULT_HISTORY_VIEW,
   readHistoryView,
@@ -186,6 +186,17 @@ export default function HistoryPage() {
                 aria-label="Refresh history"
               >
                 <RefreshCcw className="h-4 w-4" /> Refresh
+              </Button>
+              <Button
+                variant="outline"
+                disabled={filteredItems.length === 0}
+                onClick={() => exportHistoryCsv(
+                  filteredItems.filter((entry) => entry.type === "expense").map((entry) => entry.item as typeof expenses[number]),
+                  filteredItems.filter((entry) => entry.type === "settlement").map((entry) => entry.item as typeof settlements[number])
+                )}
+                aria-label="Export filtered history as CSV"
+              >
+                <FileDown className="h-4 w-4" /> Export CSV
               </Button>
               <GroupExportMenu
                 groupId="all"
