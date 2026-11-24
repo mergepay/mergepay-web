@@ -5,6 +5,21 @@ export interface NotificationPreferencesState {
   expenseRequested: boolean;
 }
 
+export interface GroupPreferencesState {
+  activeGroupTab?: string;
+  sortOrder?: string;
+  transactionFilter?: string;
+  historyFilters?: any;
+  [key: string]: any;
+}
+
+export interface FilterPreferencesState {
+  activeGroupTab?: string;
+  sortOrder?: string;
+  transactionFilter?: string;
+  [key: string]: any;
+}
+
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferencesState = {
   pushEnabled: false,
   expenseAdded: true,
@@ -13,6 +28,8 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferencesState = {
 };
 
 const NOTIFICATION_STORAGE_KEY = "mergepay:notification_preferences";
+const GROUP_PREFERENCES_STORAGE_KEY = "mergepay:group_preferences";
+const FILTER_PREFERENCES_STORAGE_KEY = "mergepay:filter_preferences";
 
 export function getStoredNotificationPreferences(): NotificationPreferencesState {
   if (typeof window === "undefined") {
@@ -40,96 +57,44 @@ export function setStoredNotificationPreferences(prefs: NotificationPreferencesS
   }
 }
 
-export interface GroupPreferencesState {
-  activeTab?: string;
-  sortOrder?: string;
-  filterState?: Record<string, unknown>;
-}
-
-export const DEFAULT_GROUP_PREFERENCES: GroupPreferencesState = {
-  activeTab: "all",
-  sortOrder: "newest",
-  filterState: {},
-};
-
-const GROUP_PREFERENCES_STORAGE_KEY = "mergepay:group_preferences";
-
 export function getStoredGroupPreferences(): GroupPreferencesState {
-  if (typeof window === "undefined") {
-    return DEFAULT_GROUP_PREFERENCES;
-  }
+  if (typeof window === "undefined") return {};
   try {
     const raw = localStorage.getItem(GROUP_PREFERENCES_STORAGE_KEY);
-    if (!raw) return DEFAULT_GROUP_PREFERENCES;
-    const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULT_GROUP_PREFERENCES,
-      ...(typeof parsed === "object" && parsed !== null ? parsed : {}),
-    };
+    if (!raw) return {};
+    return JSON.parse(raw);
   } catch {
-    return DEFAULT_GROUP_PREFERENCES;
+    return {};
   }
 }
 
-export function setStoredGroupPreferences(prefs: Partial<GroupPreferencesState>): GroupPreferencesState {
-  if (typeof window === "undefined") {
-    return DEFAULT_GROUP_PREFERENCES;
-  }
+export function setStoredGroupPreferences(prefs: Partial<GroupPreferencesState>): void {
+  if (typeof window === "undefined") return;
   try {
     const current = getStoredGroupPreferences();
-    const next = { ...current, ...prefs };
-    localStorage.setItem(GROUP_PREFERENCES_STORAGE_KEY, JSON.stringify(next));
-    return next;
+    localStorage.setItem(GROUP_PREFERENCES_STORAGE_KEY, JSON.stringify({ ...current, ...prefs }));
   } catch {
-    return getStoredGroupPreferences();
+    // ignore
   }
 }
-
-export interface FilterPreferencesState {
-  transactionSearch?: string;
-  transactionStatus?: string;
-  category?: string;
-  startDate?: string;
-  endDate?: string;
-}
-
-export const DEFAULT_FILTER_PREFERENCES: FilterPreferencesState = {
-  transactionSearch: "",
-  transactionStatus: "all",
-  category: "all",
-  startDate: "",
-  endDate: "",
-};
-
-const FILTER_PREFERENCES_STORAGE_KEY = "mergepay:filter_preferences";
 
 export function getStoredFilterPreferences(): FilterPreferencesState {
-  if (typeof window === "undefined") {
-    return DEFAULT_FILTER_PREFERENCES;
-  }
+  if (typeof window === "undefined") return {};
   try {
     const raw = localStorage.getItem(FILTER_PREFERENCES_STORAGE_KEY);
-    if (!raw) return DEFAULT_FILTER_PREFERENCES;
-    const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULT_FILTER_PREFERENCES,
-      ...(typeof parsed === "object" && parsed !== null ? parsed : {}),
-    };
+    if (!raw) return {};
+    return JSON.parse(raw);
   } catch {
-    return DEFAULT_FILTER_PREFERENCES;
+    return {};
   }
 }
 
-export function setStoredFilterPreferences(prefs: Partial<FilterPreferencesState>): FilterPreferencesState {
-  if (typeof window === "undefined") {
-    return DEFAULT_FILTER_PREFERENCES;
-  }
+export function setStoredFilterPreferences(prefs: Partial<FilterPreferencesState>): void {
+  if (typeof window === "undefined") return;
   try {
     const current = getStoredFilterPreferences();
-    const next = { ...current, ...prefs };
-    localStorage.setItem(FILTER_PREFERENCES_STORAGE_KEY, JSON.stringify(next));
-    return next;
+    localStorage.setItem(FILTER_PREFERENCES_STORAGE_KEY, JSON.stringify({ ...current, ...prefs }));
   } catch {
-    return getStoredFilterPreferences();
+    // ignore
   }
 }
