@@ -621,6 +621,8 @@ export interface GroupActivityEvent {
   timestamp: string;
   isOptimistic?: boolean;
   status?: SettlementStatus;
+  /** On-chain memo tag (`MP:…`) of the expense or settlement, when it has one. */
+  memo?: string | null;
   metadata?: Record<string, unknown>;
 }
 

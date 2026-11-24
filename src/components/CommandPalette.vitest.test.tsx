@@ -136,4 +136,30 @@ describe("CommandPalette", () => {
 
     document.body.removeChild(editable);
   });
+
+  // #813: the palette's shortcuts must not exist while it is closed, or they
+  // swallow Enter/Tab/arrows for every other control in the app.
+  it.each(["Enter", "Tab", "ArrowDown", "ArrowUp", "n"])(
+    "leaves %j alone for the rest of the app while closed",
+    (key) => {
+      renderCommandPalette(false);
+      const button = document.createElement("button");
+      document.body.appendChild(button);
+      button.focus();
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      button.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+      expect(mockPush).not.toHaveBeenCalled();
+      document.body.removeChild(button);
+    }
+  );
+
+  it("stops claiming keys once it closes", () => {
+    const view = renderCommandPalette(true);
+    view.rerender(<CommandPalette open={false} onClose={view.onClose} />);
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    document.body.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
 });
