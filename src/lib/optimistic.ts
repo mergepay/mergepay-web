@@ -61,7 +61,7 @@ export function calculateOptimisticBalances(
   expense: CreateExpenseRequest,
   currentUserId: string
 ): BalancesResponse {
-  if (!currentBalances) return { balances: [] };
+  if (!currentBalances) return { balances: [], suggestions: [] };
   // Basic optimistic balance adjustments
   return currentBalances;
 }
