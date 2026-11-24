@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { PubkeyChip } from "@/components/tx-link";
+import { AccessibleDialog as Dialog } from "@/components/ui/AccessibleDialog";
 import { Dialog } from "@/components/ui/dialog";
 import { InviteMemberModal } from "./InviteMemberModal";
 import { useCreateInvite } from "@/lib/queries";
@@ -144,6 +145,11 @@ export function MembersPanel({
                       onChange={(e) => handleRoleChange(m.id, e.target.value as Role)}
                       disabled={updateRole.isPending}
                       aria-label={`Change role for ${m.user.displayName}`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.currentTarget.blur();
+                        }
+                      }}
                       className="rounded-lg border-2 border-ink bg-paper px-2 py-1 text-xs font-bold shadow-brutal-sm focus:outline-none focus:ring-2 focus:ring-grape"
                     >
                       <option value="admin">Admin</option>

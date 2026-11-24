@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { QRCodeSVG } from "@/components/ui/lazy-qr-code";
 import { Share2 } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog } from "@/components/ui/dialog";
+import { AccessibleDialog as Dialog } from "@/components/ui/AccessibleDialog";
 import { Button } from "@/components/ui/button";
 import { Input, Label, FieldHint } from "@/components/ui/input";
 import CopyButton from "@/components/ui/CopyButton";
