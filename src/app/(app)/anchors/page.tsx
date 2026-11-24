@@ -22,8 +22,8 @@ import { handleApiError } from "@/lib/errorHandler";
 import { signXdr, WalletError, NotInstalledMessage } from "@/lib/stellar";
 import { Timestamp } from "@/components/timestamp";
 import type { AnchorSessionKind } from "@/lib/types";
-import { AnchorInteractiveModal } from "@/components/AnchorInteractiveModal";
-import { Sep24Modal } from "@/components/anchors/Sep24Modal";
+import { LazyAnchorInteractiveModal, LazySep24Modal } from "@/components/lazy-modals";
+import { useMountOnFirstOpen } from "@/components/ui/lazy-overlay";
 
 export default function AnchorsPage() {
   const anchors = useAnchors();
@@ -31,6 +31,9 @@ export default function AnchorsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [newTransferOpen, setNewTransferOpen] = useState(false);
+  // Code-split dialogs (#887): fetched on first open, not with the page.
+  const mountSessionModal = useMountOnFirstOpen(activeSessionId !== null);
+  const mountTransferModal = useMountOnFirstOpen(newTransferOpen);
 
   async function startFlow(
     kind: AnchorSessionKind,
@@ -220,17 +223,21 @@ export default function AnchorsPage() {
       ) : (
         <p className="text-sm text-ink/50">No anchor transfers yet.</p>
       )}
-      <AnchorInteractiveModal
-        sessionId={activeSessionId}
-        onClose={() => setActiveSessionId(null)}
-      />
-      <Sep24Modal
-        open={newTransferOpen}
-        onClose={() => setNewTransferOpen(false)}
-        onSessionStarted={() => {
-          void sessions.refetch();
-        }}
-      />
+      {mountSessionModal && (
+        <LazyAnchorInteractiveModal
+          sessionId={activeSessionId}
+          onClose={() => setActiveSessionId(null)}
+        />
+      )}
+      {mountTransferModal && (
+        <LazySep24Modal
+          open={newTransferOpen}
+          onClose={() => setNewTransferOpen(false)}
+          onSessionStarted={() => {
+            void sessions.refetch();
+          }}
+        />
+      )}
     </>
   );
 }
