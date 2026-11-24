@@ -13,6 +13,7 @@
 
 import { useEffect, useId, useRef } from "react";
 import { dialogStack, shouldCloseOnEscape } from "@/lib/dialog";
+import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
 
 export interface AccessibleDialogProps {
   /** Whether the dialog is open. */
@@ -40,11 +41,30 @@ export function AccessibleDialog({
   const stackId = useId();
   const titleId = useId();
 
-  // Register with the shared stack so only the topmost dialog reacts to Escape.
+  // `showModal()` makes the page inert but does not stop it scrolling behind
+  // the backdrop; share the app's reference-counted lock so stacked overlays
+  // release it only when the last one closes.
+  useBodyScrollLock(isOpen);
+
+  // Whatever had focus when the dialog opened, noted during render — before
+  // `showModal()` moves focus inside.
+  const openerRef = useRef<HTMLElement | null>(null);
+  if (isOpen && !wasOpenRef.current && typeof document !== "undefined") {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
+  // Register with the shared stack so only the topmost dialog reacts to Escape,
+  // and hand focus back to the trigger when the dialog closes or unmounts.
+  // Browsers restore focus after `close()`, but not when React removes the
+  // element outright, so this does it explicitly for both paths.
   useEffect(() => {
     if (!isOpen) return;
     dialogStack.push(stackId);
-    return () => dialogStack.remove(stackId);
+    const opener = openerRef.current;
+    return () => {
+      dialogStack.remove(stackId);
+      if (opener?.isConnected && typeof opener.focus === "function") opener.focus();
+    };
   }, [isOpen, stackId]);
 
   // Keep the native element in sync with the React-driven open state.
@@ -101,7 +121,18 @@ export function AccessibleDialog({
       aria-labelledby={title ? titleId : undefined}
       aria-label={title}
       onKeyDown={(e) => {
-        if (e.key === "Escape" && dismissible && dialogStack.isTopmost(stackId)) {
+        if (e.key !== "Escape") return;
+        // Always swallow the native default: otherwise the browser also fires
+        // `cancel`, and `onClose` would run twice for one key press.
+        e.preventDefault();
+        if (
+          shouldCloseOnEscape({
+            key: e.key,
+            dismissible,
+            isTopmost: dialogStack.isTopmost(stackId),
+            isComposing: e.nativeEvent.isComposing,
+          })
+        ) {
           e.stopPropagation();
           onClose();
         }
