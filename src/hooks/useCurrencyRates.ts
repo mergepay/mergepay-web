@@ -99,7 +99,7 @@ function fallbackRates(currency: SupportedFiatCurrency): CryptoToFiatRates {
   return { ...rates, live: false };
 }
 
-export type { CryptoToFiatRates };
+export type { CryptoToFiatRates, CryptoToFiatRates as RateData };
 
 /**
  * React Query hook for live crypto-to-fiat conversion rates.
