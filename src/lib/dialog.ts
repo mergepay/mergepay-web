@@ -70,8 +70,14 @@ export function shouldCloseOnEscape(args: {
   key: string;
   dismissible: boolean;
   isTopmost: boolean;
+  /**
+   * The key press belongs to an IME composition. Escape there cancels the
+   * candidate list (Japanese, Chinese and Korean input), and closing the
+   * dialog would throw away everything typed into it.
+   */
+  isComposing?: boolean;
 }): boolean {
-  return args.key === "Escape" && args.dismissible && args.isTopmost;
+  return args.key === "Escape" && args.dismissible && args.isTopmost && !args.isComposing;
 }
 
 /**
