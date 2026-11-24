@@ -110,13 +110,14 @@ export default function GroupDetailPage() {
               size="sm"
               onClick={() => setExportOpen(true)}
               disabled={!hasExportableHistory(expenses, settlements)}
+              aria-label="Export group expense history"
               title={
                 hasExportableHistory(expenses, settlements)
                   ? undefined
                   : "No expenses or settlements to export yet"
               }
             >
-              <Download className="h-4 w-4 mr-1" /> Export
+              <Download className="h-4 w-4 mr-1" aria-hidden="true" /> Export
             </Button>
             <ExportGroupStatementButton groupId={groupId} expenses={expenses} settlements={settlements} />
             <Button variant="outline" onClick={() => setInviteOpen(true)}>
