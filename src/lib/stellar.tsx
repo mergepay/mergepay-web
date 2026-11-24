@@ -19,6 +19,7 @@ import {
 import { api } from "./api";
 import { Asset, Operation, TransactionBuilder, Account } from "@stellar/stellar-sdk";
 import { useAuth } from "./auth-store";
+import { clearClientSession } from "./sessionMonitor";
 import { telemetryErrorCode, track, type WalletLoginStage } from "./telemetry";
 import { z } from "zod";
 import {
@@ -940,7 +941,9 @@ export async function logout() {
   } catch {
     // best effort — clear local session regardless
   }
-  useAuth.getState().clear();
+  // Clear the selected group and active asset alongside the auth token so a
+  // different wallet cannot inherit the previous account's state (#898).
+  clearClientSession();
 }
 
 /**

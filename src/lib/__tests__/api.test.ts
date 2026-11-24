@@ -99,6 +99,49 @@ describe("ApiTimeoutError", () => {
   });
 });
 
+describe("401 session handling (#898)", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    const { resetSessionExpired } = require("../api");
+    const { useAuth } = require("../auth-store");
+    const { useGroupStore } = require("../group-store");
+    resetSessionExpired();
+    useAuth.getState().forgetWallet();
+    useGroupStore.getState().clear();
+  });
+
+  it("clears account state and flags expiry when a request returns 401", async () => {
+    const { api, isSessionExpired, resetSessionExpired } = require("../api");
+    const { useAuth } = require("../auth-store");
+    const { useGroupStore } = require("../group-store");
+
+    resetSessionExpired();
+    useAuth.getState().setSession("jwt-token", {
+      id: "u1",
+      stellarPublicKey: "GABC",
+      displayName: "Alice",
+      avatarUrl: null,
+      createdAt: "2026-01-01T00:00:00Z",
+    });
+    useGroupStore.getState().setSelectedGroup("g1");
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+
+    await assert.rejects(() => api.me());
+
+    assert.equal(isSessionExpired(), true);
+    assert.equal(useAuth.getState().token, null);
+    assert.equal(useAuth.getState().user, null);
+    assert.equal(useGroupStore.getState().selectedGroupId, null);
+  });
+});
+
 describe("createExpense idempotency", () => {
   const originalFetch = globalThis.fetch;
 
