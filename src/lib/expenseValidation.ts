@@ -141,9 +141,22 @@ export function isBlockedDecimalKey(key: string): boolean {
   return BLOCKED_DECIMAL_KEYS.includes(key);
 }
 
-/** May `value` sit in a Stellar amount input while it is being typed? */
-export function isTypableAmount(value: string): boolean {
-  return value === "" || TYPABLE_AMOUNT.test(value);
+/**
+ * May `value` sit in a Stellar amount input while it is being typed?
+ *
+ * `decimalPlaces` narrows the rule for assets configured with less than
+ * Stellar's 7-decimal maximum (#897); it is clamped to 0–7.
+ */
+export function isTypableAmount(
+  value: string,
+  decimalPlaces: number = AMOUNT_DECIMAL_PLACES
+): boolean {
+  if (value === "") return true;
+  if (decimalPlaces === AMOUNT_DECIMAL_PLACES) return TYPABLE_AMOUNT.test(value);
+  const places = Math.max(0, Math.min(AMOUNT_DECIMAL_PLACES, Math.floor(decimalPlaces)));
+  const pattern =
+    places === 0 ? /^\d*$/ : new RegExp(`^\\d*(?:\\.\\d{0,${places}})?$`);
+  return pattern.test(value);
 }
 
 /** The same rule for a percentage input: unsigned, at most two decimals. */

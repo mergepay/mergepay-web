@@ -33,6 +33,7 @@ import {
   splitEqualUnits,
 } from "@/lib/expenseValidation";
 import { formatAmountInput } from "@/lib/amountInput";
+import { amountSanitizeMessage, getAssetDecimalPlaces, sanitizePastedAmount } from "@/lib/amountSanitize";
 import {
   createExpenseFormSchema,
   type ExpenseFormValues,
@@ -78,6 +79,8 @@ export function AddExpenseDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  // Transient notice when a keystroke or paste was refused or cleaned up (#897).
+  const [amountNotice, setAmountNotice] = useState<string | null>(null);
   const [fiatCurrency, setFiatCurrency] = useState<SupportedFiatCurrency>("USD");
   const [fiatAmount, setFiatAmount] = useState("");
   const [rateOverride, setRateOverride] = useState("");
@@ -199,6 +202,7 @@ export function AddExpenseDialog({
     () => SETTLEMENT_ASSETS.find((a) => a.code === assetKey) ?? SETTLEMENT_ASSETS[0],
     [assetKey]
   );
+  const amountDecimalPlaces = getAssetDecimalPlaces(asset.code);
 
   const memberIds = useMemo(() => members.map((m) => m.userId), [members]);
 
@@ -570,13 +574,42 @@ export function AddExpenseDialog({
             autoComplete="off"
             value={amount}
             onChange={(e) => {
-              if (isTypableAmount(e.target.value)) {
+              if (isTypableAmount(e.target.value, amountDecimalPlaces)) {
                 setAmount(e.target.value);
+                setAmountNotice(null);
+              } else {
+                // Refuse rather than repair a typed value, but say why.
+                const tooPrecise = /^\d*\.\d+$/.test(e.target.value);
+                setAmountNotice(
+                  amountSanitizeMessage(tooPrecise ? "too_precise" : "not_a_number", amountDecimalPlaces)
+                );
+              }
+            }}
+            onPaste={(e) => {
+              const text = e.clipboardData?.getData("text") ?? "";
+              const input = e.currentTarget;
+              const start = input.selectionStart ?? amount.length;
+              const end = input.selectionEnd ?? amount.length;
+              // Only a paste that replaces the whole value is sanitised; a
+              // paste into the middle of a number goes through onChange.
+              if (start !== 0 || end !== amount.length) return;
+              e.preventDefault();
+              const result = sanitizePastedAmount(text, amountDecimalPlaces);
+              if (result.ok) {
+                setAmount(result.value);
+                setAmountNotice(
+                  result.value !== text.trim() ? `Pasted value cleaned up to ${result.value}.` : null
+                );
+              } else {
+                setAmountNotice(result.message);
               }
             }}
             onKeyDown={(e) => {
               if (isBlockedDecimalKey(e.key)) {
                 e.preventDefault();
+                setAmountNotice(
+                  e.key === "-" ? amountSanitizeMessage("negative") : amountSanitizeMessage("not_a_number")
+                );
               }
             }}
             onBlur={() => {
@@ -590,7 +623,12 @@ export function AddExpenseDialog({
             aria-describedby={getError("amount") ? "expense-amount-error" : undefined}
             className={getError("amount") ? "border-flamingo" : undefined}
           />
-          <FieldError id="expense-amount-error">{getError("amount")}</FieldError>
+          <FieldError id="expense-amount-error" badge="Amount">{getError("amount")}</FieldError>
+          {amountNotice && !getError("amount") && (
+            <p id="expense-amount-notice" className="mt-1 text-xs text-ink/70 font-body" aria-live="polite">
+              {amountNotice}
+            </p>
+          )}
         </div>
 
         {/* Optional on-chain reconciliation tag. Validated on blur so the
@@ -658,7 +696,7 @@ export function AddExpenseDialog({
           onChange={handleSplitChange}
         />
 
-        <FieldError id="expense-shares-error">{getError("shares")}</FieldError>
+        <FieldError id="expense-shares-error" badge="Split">{getError("shares")}</FieldError>
 
         <ExpenseSplitPreview
           amount={amount}

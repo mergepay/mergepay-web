@@ -953,23 +953,30 @@ export function useDeleteExpense(groupId: string) {
         qc.cancelQueries({ queryKey: activityKey }),
       ]);
 
+      await qc.cancelQueries({ queryKey: qk.history });
+
       // Snapshot everything we touch so onError can roll back cleanly.
       const previousExpenses = qc.getQueriesData({ queryKey: expensesKey });
+      const previousHistory = qc.getQueriesData({ queryKey: qk.history });
       const previousActivity = qc.getQueryData<GroupActivityResponse>(activityKey);
 
       // Remove the expense from every cache entry that holds it (flat +
-      // infinite variants handled by removeOptimisticExpense).
+      // infinite variants handled by removeOptimisticExpense), including the
+      // cross-group history feed (#892).
       qc.setQueriesData({ queryKey: expensesKey }, (old: unknown) =>
         removeOptimisticExpense(old, expenseId)
       );
+      qc.setQueriesData({ queryKey: qk.history }, (old: unknown) =>
+        removeOptimisticExpense(old, expenseId)
+      );
 
-      return { previousExpenses, previousActivity };
+      return { previousExpenses, previousHistory, previousActivity };
     },
 
     onError: (_err, _expenseId, context) => {
       // Put every cache entry back the way it was.
-      if (context?.previousExpenses) {
-        for (const [queryKey, queryData] of context.previousExpenses) {
+      for (const snapshot of [context?.previousExpenses, context?.previousHistory]) {
+        for (const [queryKey, queryData] of snapshot ?? []) {
           qc.setQueryData(queryKey, queryData);
         }
       }
@@ -982,6 +989,7 @@ export function useDeleteExpense(groupId: string) {
       // Whether it succeeded or failed, let the server's view win.
       invalidate(expenseCacheKeys(groupId));
       qc.invalidateQueries({ queryKey: qk.activity(groupId) });
+      qc.invalidateQueries({ queryKey: qk.history });
     },
   });
 }
