@@ -68,6 +68,7 @@ export default function HistoryPage() {
     DEFAULT_HISTORY_VIEW.filters
   );
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [restored, setRestored] = useState(false);
 
   const [selectedAsset, setSelectedAsset] = useState<AssetFilter>((searchParams.get("asset") as AssetFilter) || "ALL");
@@ -79,13 +80,14 @@ export default function HistoryPage() {
     const stored = readHistoryView();
     setFilter(stored.kind);
     setFilters(stored.filters);
+    setSortOrder(stored.sortOrder ?? "newest");
     setRestored(true);
   }, []);
 
   useEffect(() => {
     if (!restored) return;
-    writeHistoryView({ kind: filter, filters });
-  }, [restored, filter, filters]);
+    writeHistoryView({ kind: filter, filters, sortOrder });
+  }, [restored, filter, filters, sortOrder]);
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -119,8 +121,8 @@ export default function HistoryPage() {
     return sortHistoryRows([
       ...expenses.map((e) => ({ type: "expense" as const, item: e, date: e.createdAt })),
       ...settlements.map((s) => ({ type: "settlement" as const, item: s, date: s.createdAt })),
-    ]);
-  }, [filter, expenses, settlements]);
+    ], sortOrder);
+  }, [filter, expenses, settlements, sortOrder]);
 
   const filteredItems = useMemo(
     () =>
@@ -204,6 +206,12 @@ export default function HistoryPage() {
         }
       />
 
+      <label className="mb-3 flex items-center gap-2 text-sm font-bold" htmlFor="history-sort">Sort transactions
+        <select id="history-sort" value={sortOrder} onChange={(event) => { setSortOrder(event.target.value as "newest" | "oldest"); setCurrentPage(1); }} className="rounded-lg border-2 border-ink bg-paper px-3 py-2">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+        </select>
+      </label>
       <Tabs
         className="mb-6"
         active={filter}
