@@ -10,6 +10,7 @@ import {
 import { api, getInviteByCode } from "./api";
 import { ApiRequestError, handleApiError } from "./errorHandler";
 import { toast } from "sonner";
+import { isAmbiguousSubmissionError } from "./stellar/transactions";
 import { useAuth } from "./auth-store";
 import type {
   BalancesResponse,
@@ -632,6 +633,22 @@ export function invalidationFilters(target: InvalidationTarget): {
   return "queryKey" in target ? target : { queryKey: target };
 }
 
+/**
+ * Refresh everything a settlement changes in one group: expenses, balances,
+ * ledger, the group list row, the activity feed and history. For callers that
+ * learn the outcome without going through `useSettlementStatus` — the settle
+ * dialog's Horizon fallback (#814) — so the page catches up with the chain.
+ */
+export function useSettlementCacheRefresh(groupId: string) {
+  const invalidate = useInvalidator();
+  return useCallback(
+    () => invalidate([...expenseCacheKeys(groupId), qk.activity(groupId), qk.history]),
+    // `invalidate` is rebuilt each render; it only closes over the stable client.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [groupId]
+  );
+}
+
 export function useInvalidator() {
   const qc = useQueryClient();
   return (targets: readonly InvalidationTarget[]) =>
@@ -1048,6 +1065,11 @@ export function useConfirmSettlement(groupId: string) {
       if (context?.previousBalances) {
         qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
+      // A signed payment whose submit request was lost (timeout, 5xx, dropped
+      // connection) may still land on Stellar. The settle dialog then checks
+      // Horizon directly and owns the messaging (#814); "failed" here would
+      // contradict it.
+      if (isAmbiguousSubmissionError(_error)) return;
       toast.error("Settlement submission failed. Balances were restored.");
     },
     onSuccess: (_data, vars) => {
