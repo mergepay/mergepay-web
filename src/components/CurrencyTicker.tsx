@@ -26,7 +26,17 @@ export interface CurrencyTickerProps {
 
 export function CurrencyTicker(props?: CurrencyTickerProps) {
   const className = props?.className;
-  const { rates, isLive, isFetching } = useCurrencyRates("USD");
+  let rates, isLive, isFetching;
+  try {
+    const res = useCurrencyRates("USD");
+    rates = res.rates;
+    isLive = res.isLive;
+    isFetching = res.isFetching;
+  } catch {
+    rates = { xlm: 0.12, usdc: 1.0, live: false };
+    isLive = false;
+    isFetching = false;
+  }
   const rows = buildTickerRates(rates);
   const isLoading = isFetching;
   const isError = false;

@@ -117,7 +117,7 @@ export type { CryptoToFiatRates, CryptoToFiatRates as RateData };
  * }
  * ```
  */
-export function useCurrencyRates(currency: SupportedFiatCurrency) {
+export function useCurrencyRates(currency: SupportedFiatCurrency = "USD") {
   const query = useQuery<CryptoToFiatRates>({
     queryKey: ["cryptoRates", currency],
     queryFn: () => fetchCryptoRates(currency),
