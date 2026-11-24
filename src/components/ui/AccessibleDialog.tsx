@@ -100,6 +100,27 @@ export function AccessibleDialog({
       aria-modal="true"
       aria-labelledby={title ? titleId : undefined}
       aria-label={title}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && dismissible && dialogStack.isTopmost(stackId)) {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      onClick={(e) => {
+        // Click on the backdrop (the dialog element itself outside the box)
+        const dialog = ref.current;
+        if (dialog && dismissible && dialogStack.isTopmost(stackId)) {
+          const rect = dialog.getBoundingClientRect();
+          if (
+            e.clientX < rect.left ||
+            e.clientX > rect.right ||
+            e.clientY < rect.top ||
+            e.clientY > rect.bottom
+          ) {
+            onClose();
+          }
+        }
+      }}
       className={className ?? "flex flex-col w-full max-w-[calc(100vw-2rem)] sm:max-w-lg rounded-2xl border-3 border-ink bg-cream p-4 sm:p-6 shadow-brutal max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"}
     >
       {title && (
