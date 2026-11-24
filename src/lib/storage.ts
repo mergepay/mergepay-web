@@ -39,3 +39,48 @@ export function setStoredNotificationPreferences(prefs: NotificationPreferencesS
     // ignore storage quota / private mode exceptions
   }
 }
+
+export interface GroupPreferencesState {
+  activeTab: string;
+  sortOrder: string;
+  historyFilters: Record<string, unknown>;
+}
+
+export const DEFAULT_GROUP_PREFERENCES: GroupPreferencesState = {
+  activeTab: "overview",
+  sortOrder: "newest",
+  historyFilters: {},
+};
+
+const GROUP_PREFERENCES_STORAGE_KEY_PREFIX = "mergepay:group_preferences:";
+
+export function getStoredGroupPreferences(groupId: string): GroupPreferencesState {
+  if (typeof window === "undefined") {
+    return DEFAULT_GROUP_PREFERENCES;
+  }
+  try {
+    const raw = localStorage.getItem(`${GROUP_PREFERENCES_STORAGE_KEY_PREFIX}${groupId}`);
+    if (!raw) return DEFAULT_GROUP_PREFERENCES;
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_GROUP_PREFERENCES,
+      ...(typeof parsed === "object" && parsed !== null ? parsed : {}),
+    };
+  } catch {
+    return DEFAULT_GROUP_PREFERENCES;
+  }
+}
+
+export function setStoredGroupPreferences(groupId: string, prefs: Partial<GroupPreferencesState>): GroupPreferencesState {
+  if (typeof window === "undefined") {
+    return DEFAULT_GROUP_PREFERENCES;
+  }
+  try {
+    const current = getStoredGroupPreferences(groupId);
+    const next = { ...current, ...prefs };
+    localStorage.setItem(`${GROUP_PREFERENCES_STORAGE_KEY_PREFIX}${groupId}`, JSON.stringify(next));
+    return next;
+  } catch {
+    return getStoredGroupPreferences(groupId);
+  }
+}
