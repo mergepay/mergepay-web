@@ -496,3 +496,46 @@ export function classifySettlementError(error: unknown): ClassifiedSettlementErr
   }
   return { kind: "unknown", title: "Settlement failed", message: message || "Something went wrong. Please try again." };
 }
+
+// ---------------------------------------------------------------------------
+// Horizon confirmation fallback (#814)
+// ---------------------------------------------------------------------------
+
+/**
+ * The network hash of a signed transaction envelope, as Horizon indexes it
+ * under `/transactions/{hash}`. Works for plain and fee-bump envelopes.
+ *
+ * Returns `null` for anything that does not decode under `networkPassphrase`
+ * rather than throwing: the hash only enables the Horizon polling fallback,
+ * and a settlement must never fail because that optional path is unavailable.
+ */
+export function transactionHashFromXdr(
+  signedXdr: string,
+  networkPassphrase: string
+): string | null {
+  if (!signedXdr || !networkPassphrase) return null;
+  try {
+    return StellarSdk.TransactionBuilder.fromXDR(signedXdr, networkPassphrase).hash().toString("hex");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a failure to hand a *signed* transaction to the Mergepay API leaves
+ * its on-chain fate unknown, i.e. it may still have reached Stellar.
+ *
+ * True for a dropped connection (`status` 0, a fetch `TypeError`), a client
+ * timeout, and gateway or server errors (5xx, 408): the API may have submitted
+ * the envelope before the response was lost. A 4xx validation or auth error
+ * is a definite "not submitted" and returns false, as does a wallet error.
+ */
+export function isAmbiguousSubmissionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = (error as { name?: unknown }).name;
+  if (name === "ApiTimeoutError" || error instanceof SettlementTimeoutError) return true;
+  if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) return true;
+  const status = (error as { status?: unknown }).status;
+  if (typeof status !== "number") return false;
+  return status === 0 || status === 408 || status >= 500;
+}

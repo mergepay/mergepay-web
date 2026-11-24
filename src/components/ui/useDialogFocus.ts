@@ -5,6 +5,7 @@ import {
   FOCUSABLE_SELECTOR,
   createFocusContainmentListener,
   dialogStack,
+  escapeBelongsToPopup,
   isPrimaryAction,
   nextFocusIndex,
   pickInitialFocusIndex,
@@ -112,6 +113,9 @@ export function useDialogFocus({
     document.body.style.overflow = "hidden";
 
     function onKeyDown(e: KeyboardEvent) {
+      // Escape inside an open dropdown closes the dropdown, not the dialog:
+      // leave the key for the popup's own handler.
+      if (e.key === "Escape" && escapeBelongsToPopup(e.target, panelRef.current)) return;
       if (
         shouldCloseOnEscape({
           key: e.key,
