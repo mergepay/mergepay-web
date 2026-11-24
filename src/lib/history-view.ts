@@ -15,6 +15,7 @@ export type HistoryKind = "all" | "expenses" | "settlements";
 export interface HistoryView {
   kind: HistoryKind;
   filters: HistoryFilters;
+  sortOrder?: "newest" | "oldest";
 }
 
 const STORAGE_KEY = "mergepay.historyView";
@@ -24,6 +25,7 @@ const KINDS: readonly HistoryKind[] = ["all", "expenses", "settlements"];
 export const DEFAULT_HISTORY_VIEW: HistoryView = {
   kind: "all",
   filters: { kind: "all" },
+  sortOrder: "newest",
 };
 
 function isKind(value: unknown): value is HistoryKind {
@@ -58,6 +60,7 @@ function sanitiseFilters(value: unknown): HistoryFilters {
       ? (raw.fromDate as string)
       : undefined,
     toDate: isOptionalText(raw.toDate) ? (raw.toDate as string) : undefined,
+    status: isOptionalText(raw.status) ? (raw.status as string) : undefined,
   };
 }
 
@@ -81,10 +84,11 @@ export function readHistoryView(): HistoryView {
     if (typeof parsed !== "object" || parsed === null) {
       return DEFAULT_HISTORY_VIEW;
     }
-    const { kind, filters } = parsed as { kind?: unknown; filters?: unknown };
+    const { kind, filters, sortOrder } = parsed as { kind?: unknown; filters?: unknown; sortOrder?: unknown };
     return {
       kind: isKind(kind) ? kind : DEFAULT_HISTORY_VIEW.kind,
       filters: sanitiseFilters(filters),
+      sortOrder: sortOrder === "oldest" ? "oldest" : "newest",
     };
   } catch {
     return DEFAULT_HISTORY_VIEW;
