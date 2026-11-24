@@ -14,8 +14,19 @@ export const API_URL =
  */
 export const STELLAR_NETWORK: StellarNetwork = CONFIGURED_NETWORK;
 
+/** SDF's public Horizon instance for each network. */
+export const DEFAULT_HORIZON_URLS: Record<StellarNetwork, string> = {
+  public: "https://horizon.stellar.org",
+  testnet: "https://horizon-testnet.stellar.org",
+};
+
+/**
+ * Horizon instance for the network this build targets. An explicit
+ * `NEXT_PUBLIC_HORIZON_URL` wins; otherwise it follows `STELLAR_NETWORK`, so a
+ * testnet build never reads (or polls for) testnet transactions on mainnet.
+ */
 export const HORIZON_URL =
-  process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org";
+  process.env.NEXT_PUBLIC_HORIZON_URL ?? DEFAULT_HORIZON_URLS[STELLAR_NETWORK];
 
 /**
  * Prefix stamped on the memo of every settlement payment, so a Mergepay

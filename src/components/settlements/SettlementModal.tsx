@@ -51,7 +51,7 @@ import { WalletPrerequisiteNotice } from "@/components/wallet/wallet-status";
 import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
 import { api } from "@/lib/api";
-import { useConfirmSettlement } from "@/lib/queries";
+import { useConfirmSettlement, useSettlementCacheRefresh } from "@/lib/queries";
 import { signXdr } from "@/lib/stellar";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -59,12 +59,17 @@ import { isNetworkMismatch, type SettleTarget } from "@/lib/useSettlementFlow";
 import { notifySettlementFailure } from "@/lib/settlementToasts";
 import { verifyTrustlineBeforeSettlement } from "@/lib/settlement/trustline";
 import {
+  confirmWithHorizonFallback,
+  type HorizonFallbackOptions,
+} from "@/lib/settlement/confirmWithHorizonFallback";
+import {
   SettlementVerificationError,
   classifySettlementError,
   inspectSettlementXdr,
+  isAmbiguousSubmissionError,
+  transactionHashFromXdr,
   verifySettledMemo,
   verifySettlementEnvelope,
-  waitForSettlementConfirmation,
   withDeadline,
   type ClassifiedSettlementError,
 } from "@/lib/stellar/transactions";
@@ -96,6 +101,11 @@ export interface SettlementModalProps {
   target: SettleTarget | null;
   onSettled?: (settlement: Settlement) => void;
   timeouts?: Partial<SettlementTimeouts>;
+  /**
+   * Direct Horizon status checks while waiting for confirmation (#814).
+   * `false` turns them off; tests pass a `probe` instead of the network.
+   */
+  horizonFallback?: HorizonFallbackOptions | false;
 }
 
 const PROGRESS: { id: Exclude<SettlementModalStep, "error">; label: string }[] = [
@@ -106,7 +116,7 @@ const PROGRESS: { id: Exclude<SettlementModalStep, "error">; label: string }[] =
 ];
 
 type SignPhase = "preparing" | "verifying" | "wallet";
-type SubmitPhase = "sending" | "confirming";
+type SubmitPhase = "sending" | "confirming" | "chain";
 type TrustlineStatus = "checking" | "ready" | "missing" | "unavailable";
 
 interface TrustlineCheck {
@@ -114,9 +124,21 @@ interface TrustlineCheck {
   status: TrustlineStatus;
 }
 
-export function SettlementModal({ open, onClose, groupId, target, onSettled, timeouts }: SettlementModalProps) {
+export function SettlementModal({
+  open,
+  onClose,
+  groupId,
+  target,
+  onSettled,
+  timeouts,
+  horizonFallback = {},
+}: SettlementModalProps) {
   const limits = { ...DEFAULT_SETTLEMENT_TIMEOUTS, ...timeouts };
   const confirm = useConfirmSettlement(groupId);
+  const refreshSettlementCaches = useSettlementCacheRefresh(groupId);
+  // The settlement being confirmed and the hash of its signed envelope, kept
+  // for the Horizon fallback and for "Check status" after a timeout.
+  const pendingRef = useRef<{ settlement: Settlement; txHash: string | null } | null>(null);
   const { refresh: refreshWallet, ...wallet } = useWalletStatus();
   const reduceMotion = useReducedMotion();
 
@@ -190,6 +212,7 @@ export function SettlementModal({ open, onClose, groupId, target, onSettled, tim
       setSettlementId(null);
       setSubmitted(false);
       setSettled(null);
+      pendingRef.current = null;
     }, 200);
     return () => clearTimeout(timer);
   }, [open, cancelInFlight]);
@@ -257,14 +280,26 @@ export function SettlementModal({ open, onClose, groupId, target, onSettled, tim
 
   async function awaitConfirmation(id: string, memo: string, signal: AbortSignal, isCurrent: () => boolean) {
     setSubmitPhase("confirming");
-    const settlement = await waitForSettlementConfirmation({
+    const pending = pendingRef.current;
+    // Race the API's record against Horizon itself, so a slow or stalled API
+    // can't leave the user on a spinner while the ledger already knows (#814).
+    const { settlement, source } = await confirmWithHorizonFallback({
       settlementId: id,
       fetchSettlement: (sid) => api.getSettlement(sid).then((r) => r.settlement),
+      pending: pending?.settlement ?? ({ id, memo, status: "submitted" } as Settlement),
+      txHash: pending?.txHash ?? null,
       signal,
       intervalMs: limits.pollInterval,
       timeoutMs: limits.confirm,
+      horizon: horizonFallback,
+      onHorizonStart: () => {
+        if (isCurrent()) setSubmitPhase("chain");
+      },
     });
     if (!isCurrent()) return;
+    // The API hasn't caught up with the ledger yet; refresh the group so
+    // balances and history follow the chain rather than the stale record.
+    if (source === "horizon") void refreshSettlementCaches();
     await finish(settlement, memo, isCurrent);
   }
 
@@ -331,22 +366,37 @@ export function SettlementModal({ open, onClose, groupId, target, onSettled, tim
       );
       if (!isCurrent()) return;
       verifySettlementEnvelope(inspectSettlementXdr(signedXdr, intent.networkPassphrase), expected);
+      const txHash = transactionHashFromXdr(signedXdr, intent.networkPassphrase);
+      pendingRef.current = { settlement: intent.settlement, txHash };
 
       stage = "submitting";
       setStep("submitting");
       setSubmitPhase("sending");
       setSettlementId(intent.settlement.id);
       setSubmitted(true);
-      const { settlement } = await withDeadline(
-        confirm.mutateAsync({
-          settlementId: intent.settlement.id,
-          data: { signedXdr },
-          optimisticTransfer: intent.settlement,
-        }),
-        limits.submit,
-        signal,
-        "The network is taking longer than usual. Your payment may still go through — check its status before trying again."
-      );
+      let settlement: Settlement;
+      try {
+        ({ settlement } = await withDeadline(
+          confirm.mutateAsync({
+            settlementId: intent.settlement.id,
+            data: { signedXdr },
+            optimisticTransfer: intent.settlement,
+          }),
+          limits.submit,
+          signal,
+          "The network is taking longer than usual. Your payment may still go through — check its status before trying again."
+        ));
+      } catch (submitError) {
+        // The hand-off was lost after signing (timeout, 5xx, dropped
+        // connection): the payment may already be on Stellar. Wait on the
+        // chain rather than report a failure that invites a second payment.
+        if (!isCurrent() || !txHash || horizonFallback === false || !isAmbiguousSubmissionError(submitError)) {
+          throw submitError;
+        }
+        toast.warning("Couldn't confirm the submission with Mergepay. Checking Stellar directly — don't retry yet.");
+        await awaitConfirmation(intent.settlement.id, memo as string, signal, isCurrent);
+        return;
+      }
       if (!isCurrent()) return;
 
       if (settlement.status === "confirmed" || settlement.status === "failed") {
@@ -531,7 +581,9 @@ export function SettlementModal({ open, onClose, groupId, target, onSettled, tim
                 body={
                   submitPhase === "sending"
                     ? "Sending your signed payment to the network…"
-                    : "The network has your payment. Waiting for the ledger to confirm it — this usually takes a few seconds."
+                    : submitPhase === "chain"
+                      ? "Mergepay hasn't reported back yet, so we're checking Stellar directly. Nothing new is being submitted."
+                      : "The network has your payment. Waiting for the ledger to confirm it — this usually takes a few seconds."
                 }
                 footer={expectedMemo && <MemoLine memo={expectedMemo} verified />}
                 live

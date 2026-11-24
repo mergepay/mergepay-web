@@ -39,6 +39,7 @@ export function createOptimisticExpenseEvent(
     description: `Added expense "${request.title}"`,
     amount: request.amount,
     assetCode: request.assetCode ?? "XLM",
+    memo: request.memo ?? null,
     timestamp: new Date().toISOString(),
     isOptimistic: true,
     metadata: {
@@ -105,6 +106,7 @@ export function synthesizeActivityEvents(
       description: `Added expense "${e.title}"`,
       amount: e.amount,
       assetCode: e.assetCode,
+      memo: e.memo ?? null,
       timestamp: e.createdAt,
     });
   }

@@ -74,6 +74,29 @@ export function shouldCloseOnEscape(args: {
   return args.key === "Escape" && args.dismissible && args.isTopmost;
 }
 
+/**
+ * Selector for an open popup a key press can belong to: a menu, or a menu
+ * button whose popup is expanded. A plain `role="listbox"` is deliberately
+ * not included — the command palette renders one as a permanent part of its
+ * dialog, and Escape on one of its options must still close the palette.
+ */
+export const OPEN_POPUP_SELECTOR = '[role="menu"], [aria-haspopup][aria-expanded="true"]';
+
+/**
+ * Whether an Escape press belongs to a popup open inside the dialog rather
+ * than to the dialog itself (#813).
+ *
+ * The dialog hears keys first (it listens on `window` in the capture phase),
+ * so without this check Escape on a dropdown inside a modal would close the
+ * whole modal instead of just the dropdown. WAI-ARIA expects Escape to dismiss
+ * the innermost layer only.
+ */
+export function escapeBelongsToPopup(target: EventTarget | null, container: Element | null): boolean {
+  if (!container || !(target instanceof Element)) return false;
+  const popup = target.closest(OPEN_POPUP_SELECTOR);
+  return popup !== null && popup !== container && container.contains(popup);
+}
+
 export interface FocusCandidate {
   /** Carries an explicit `data-autofocus` marker. */
   autofocus?: boolean;
