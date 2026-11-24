@@ -39,7 +39,14 @@ export function MultiCurrencyBalanceSummary({
   const sortedBalances = getSortedAggregatedBalances(aggregation);
   const baseAsset = sortedBalances[0]?.assetCode;
   const exchange = assetExchangeRates(rates);
-  const convertedTotal = baseAsset ? aggregateBalancesInAsset(sortedBalances, baseAsset, exchange) : null;
+  const comparable = baseAsset !== undefined && sortedBalances.length > 1;
+  const convertedTotal = comparable && baseAsset
+    ? aggregateBalancesInAsset(
+        sortedBalances.map((b) => ({ amount: b.net, assetCode: b.assetCode })),
+        baseAsset,
+        exchange
+      )
+    : null;
 
   return (
     <Card className={className}>
