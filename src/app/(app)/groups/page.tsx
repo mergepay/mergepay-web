@@ -11,8 +11,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { GroupErrorBoundary } from "@/components/groups/GroupErrorBoundary";
 import { useGroups } from "@/lib/queries";
 import { orderGroupsByActive, useGroupStore } from "@/lib/group-store";
-import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
-import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
+import { LazyCreateGroupDialog, LazyJoinGroupDialog } from "@/components/lazy-modals";
+import { useMountOnFirstOpen } from "@/components/ui/lazy-overlay";
 import { ListSkeleton, GroupCardSkeleton, DashboardCardSkeleton } from "@/components/ui/skeleton";
 import { GroupListSkeleton } from "@/components/groups/GroupListSkeleton";
 import { motion } from "framer-motion";
@@ -39,6 +39,9 @@ export default function GroupsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  // Code-split dialogs (#887): fetched on first open, not with the page.
+  const mountCreate = useMountOnFirstOpen(createOpen);
+  const mountJoin = useMountOnFirstOpen(joinOpen);
 
   return (
     <GroupErrorBoundary onReset={() => refetch()}>
@@ -168,8 +171,8 @@ export default function GroupsPage() {
           </motion.div>
         )}
 
-        <CreateGroupDialog open={createOpen} onClose={() => setCreateOpen(false)} />
-        <JoinGroupDialog open={joinOpen} onClose={() => setJoinOpen(false)} />
+        {mountCreate && <LazyCreateGroupDialog open={createOpen} onClose={() => setCreateOpen(false)} />}
+        {mountJoin && <LazyJoinGroupDialog open={joinOpen} onClose={() => setJoinOpen(false)} />}
       </div>
     </GroupErrorBoundary>
   );

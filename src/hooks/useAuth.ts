@@ -15,6 +15,7 @@ import {
 import { shortKey } from "@/lib/format";
 import { isSessionExpired, resetSessionExpired } from "@/lib/api";
 import { shouldPurgeAccountData } from "@/lib/walletSession";
+import { track } from "@/lib/telemetry";
 
 export type WalletChangeAction = "none" | "disconnected" | "changed";
 
@@ -99,9 +100,11 @@ export function useAuth() {
         useAuthStore.getState().setActiveWalletPublicKey(params.address || null);
         const action = walletChangeAction(params, user.stellarPublicKey);
         if (action === "disconnected") {
+          track("wallet_disconnected", { reason: "disconnected" });
           toast.info("Wallet disconnected. Logging out...");
           logout();
         } else if (action === "changed") {
+          track("wallet_disconnected", { reason: "account_changed" });
           // The displayed public key follows the wallet immediately, then
           // the previous account's data is dropped before anything else
           // can render against it.
