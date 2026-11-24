@@ -40,47 +40,51 @@ export function setStoredNotificationPreferences(prefs: NotificationPreferencesS
   }
 }
 
-export interface GroupPreferencesState {
-  activeTab: string;
+export interface UserGroupFilterPreferences {
+  activeGroupTab: string;
   sortOrder: string;
-  historyFilters: Record<string, unknown>;
+  transactionHistoryFilter: string;
 }
 
-export const DEFAULT_GROUP_PREFERENCES: GroupPreferencesState = {
-  activeTab: "overview",
-  sortOrder: "newest",
-  historyFilters: {},
+export const DEFAULT_USER_GROUP_FILTER_PREFERENCES: UserGroupFilterPreferences = {
+  activeGroupTab: "all",
+  sortOrder: "date-desc",
+  transactionHistoryFilter: "all",
 };
 
-const GROUP_PREFERENCES_STORAGE_KEY_PREFIX = "mergepay:group_preferences:";
+const STORAGE_KEY = "mergepay:user_group_filter_preferences";
 
-export function getStoredGroupPreferences(groupId: string): GroupPreferencesState {
-  if (typeof window === "undefined") {
-    return DEFAULT_GROUP_PREFERENCES;
+export function getStoredUserGroupFilterPreferences(): UserGroupFilterPreferences {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return DEFAULT_USER_GROUP_FILTER_PREFERENCES;
   }
   try {
-    const raw = localStorage.getItem(`${GROUP_PREFERENCES_STORAGE_KEY_PREFIX}${groupId}`);
-    if (!raw) return DEFAULT_GROUP_PREFERENCES;
-    const parsed = JSON.parse(raw);
+    const item = window.localStorage.getItem(STORAGE_KEY);
+    if (!item) {
+      return DEFAULT_USER_GROUP_FILTER_PREFERENCES;
+    }
+    const parsed = JSON.parse(item);
     return {
-      ...DEFAULT_GROUP_PREFERENCES,
-      ...(typeof parsed === "object" && parsed !== null ? parsed : {}),
+      ...DEFAULT_USER_GROUP_FILTER_PREFERENCES,
+      ...parsed,
     };
-  } catch {
-    return DEFAULT_GROUP_PREFERENCES;
+  } catch (error) {
+    console.error("Failed to load user group filter preferences from localStorage:", error);
+    return DEFAULT_USER_GROUP_FILTER_PREFERENCES;
   }
 }
 
-export function setStoredGroupPreferences(groupId: string, prefs: Partial<GroupPreferencesState>): GroupPreferencesState {
-  if (typeof window === "undefined") {
-    return DEFAULT_GROUP_PREFERENCES;
+export function setStoredUserGroupFilterPreferences(
+  prefs: Partial<UserGroupFilterPreferences>
+): UserGroupFilterPreferences {
+  const current = getStoredUserGroupFilterPreferences();
+  const updated = { ...current, ...prefs };
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch (error) {
+      console.error("Failed to save user group filter preferences to localStorage:", error);
+    }
   }
-  try {
-    const current = getStoredGroupPreferences(groupId);
-    const next = { ...current, ...prefs };
-    localStorage.setItem(`${GROUP_PREFERENCES_STORAGE_KEY_PREFIX}${groupId}`, JSON.stringify(next));
-    return next;
-  } catch {
-    return getStoredGroupPreferences(groupId);
-  }
+  return updated;
 }
