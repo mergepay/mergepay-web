@@ -49,6 +49,16 @@ const baseExpense: Expense = {
   ],
 };
 
+it("combines the asset with inclusive local calendar-day boundaries", () => {
+  const row = toHistoryRow({ type: "expense", ...baseExpense });
+  const filters = { assetCode: "USDC", fromDate: "2024-03-01", toDate: "2024-03-01" };
+
+  assert.equal(matchesHistoryFilters({ ...row, createdAt: "2024-03-01T00:00:00" }, filters), true);
+  assert.equal(matchesHistoryFilters({ ...row, createdAt: "2024-03-01T23:59:59.999" }, filters), true);
+  assert.equal(matchesHistoryFilters({ ...row, createdAt: "2024-03-02T00:00:00" }, filters), false);
+  assert.equal(matchesHistoryFilters({ ...row, assetCode: "XLM" }, filters), false);
+});
+
 const baseSettlement: Settlement = {
   id: "s1",
   groupId: "g1",
