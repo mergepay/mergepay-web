@@ -12,5 +12,6 @@ describe("GroupQRCode", () => {
     const input = screen.getByLabelText(/invite link/i) as HTMLInputElement;
     expect(input).toBeInTheDocument();
     expect(input.value).toBe(testUrl);
+    expect(screen.getByRole("button", { name: /download qr code/i })).toBeInTheDocument();
   });
 });
