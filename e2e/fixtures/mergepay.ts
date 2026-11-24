@@ -59,12 +59,42 @@ export interface GroupRecord {
   name: string;
   description: string | null;
   createdByUserId: string;
-  treasuryEnabled: false;
-  treasuryAccountPublicKey: null;
-  treasuryRequiredSigners: null;
+  treasuryEnabled: boolean;
+  treasuryAccountPublicKey: string | null;
+  treasuryRequiredSigners: number | null;
   archived: false;
   createdAt: string;
 }
+
+/** One asset balance held by a group's shared treasury account. */
+export interface TreasuryBalanceRecord {
+  assetCode: string;
+  assetIssuer: string | null;
+  balance: string;
+}
+
+/** A SEP-24 anchor the catalogue (`GET /api/anchors`) advertises. */
+export interface AnchorRecord {
+  name: string;
+  homeDomain: string;
+  assets: { code: string; issuer: string | null }[];
+}
+
+/** A SEP-24 session the fake has started for the signed-in user. */
+export interface AnchorSessionRecord {
+  id: string;
+  userId: string;
+  anchorName: string;
+  kind: "deposit" | "withdrawal";
+  assetCode: string;
+  interactiveUrl: string | null;
+  externalTransactionId: string | null;
+  status: "incomplete" | "pending_user_transfer_start";
+  createdAt: string;
+}
+
+/** Testnet USDC issuer, exported so specs can build anchors and balances. */
+export { USDC_ISSUER };
 
 /** One request the fake answered, as the app sent it. */
 export interface RecordedRequest {
@@ -105,6 +135,10 @@ function sessionToken(userId: string): string {
  */
 export class FakeMergePayApi {
   private readonly groups = new Map<string, GroupRecord>();
+  private readonly treasuries = new Map<string, TreasuryBalanceRecord[]>();
+  private readonly anchorSessions = new Map<string, AnchorSessionRecord>();
+  /** What `GET /api/anchors` returns. Empty unless a spec adds anchors. */
+  anchors: AnchorRecord[] = [];
   private readonly failures: Failure[] = [];
   private sequence = 0;
 
@@ -131,6 +165,26 @@ export class FakeMergePayApi {
       createdAt: NOW,
     };
     this.groups.set(group.id, group);
+    return group;
+  }
+
+  /**
+   * Put a Treasury Mode group in the list: its shared account holds
+   * `balances`, and withdrawals need `requiredSigners` approvals.
+   */
+  seedTreasuryGroup(
+    name: string,
+    options: {
+      publicKey: string;
+      requiredSigners?: number;
+      balances?: TreasuryBalanceRecord[];
+    }
+  ): GroupRecord {
+    const group = this.seedGroup(name);
+    group.treasuryEnabled = true;
+    group.treasuryAccountPublicKey = options.publicKey;
+    group.treasuryRequiredSigners = options.requiredSigners ?? 1;
+    this.treasuries.set(group.id, options.balances ?? []);
     return group;
   }
 
@@ -206,9 +260,51 @@ export class FakeMergePayApi {
 
     // The dashboard keeps the SEP-24 modal mounted, which reads the catalogue;
     // the Anchors page also lists past sessions.
-    if (path === "/api/anchors") return json(route, 200, { anchors: [] });
+    if (path === "/api/anchors") return json(route, 200, { anchors: this.anchors });
     if (path === "/api/anchors/sessions") {
-      return json(route, 200, { sessions: [] });
+      return json(route, 200, { sessions: [...this.anchorSessions.values()] });
+    }
+
+    // SEP-24: starting a transfer creates a session plus a SEP-10 challenge
+    // for the wallet to sign; completing it returns the anchor's interactive
+    // page, which the modal embeds.
+    const anchorStart = path.match(/^\/api\/anchors\/(deposit|withdraw)$/);
+    if (anchorStart && method === "POST") {
+      const anchorName = String(payload.anchorName ?? "");
+      if (!this.anchors.some((anchor) => anchor.name === anchorName)) {
+        return json(route, 404, { error: "anchor_not_found" });
+      }
+      const session: AnchorSessionRecord = {
+        id: `anchor-session-${this.anchorSessions.size + 1}`,
+        userId: this.actor.id,
+        anchorName,
+        kind: anchorStart[1] === "deposit" ? "deposit" : "withdrawal",
+        assetCode: String(payload.assetCode ?? ""),
+        interactiveUrl: null,
+        externalTransactionId: null,
+        status: "incomplete",
+        createdAt: NOW,
+      };
+      this.anchorSessions.set(session.id, session);
+      return json(route, 201, {
+        session,
+        challenge: {
+          transaction: "e2e-anchor-sep10-challenge-xdr",
+          networkPassphrase: NETWORK_PASSPHRASE,
+        },
+      });
+    }
+    const anchorSession = path.match(/^\/api\/anchors\/sessions\/([^/]+)(\/complete)?$/);
+    if (anchorSession) {
+      const session = this.anchorSessions.get(anchorSession[1]);
+      if (!session) return json(route, 404, { error: "session_not_found" });
+      if (anchorSession[2] && method === "POST") {
+        const anchor = this.anchors.find((entry) => entry.name === session.anchorName);
+        session.status = "pending_user_transfer_start";
+        session.externalTransactionId = `${session.id}-tx`;
+        session.interactiveUrl = `https://${anchor?.homeDomain ?? "anchor.invalid"}/sep24/interactive?id=${session.id}`;
+      }
+      return json(route, 200, { session });
     }
 
     // The History page: nothing recorded yet, and no further page.
@@ -231,6 +327,27 @@ export class FakeMergePayApi {
           yourNet: "0.0000000",
           netAssetCode: "XLM",
         })),
+      });
+    }
+
+    // Treasury Mode: the shared account's balances and its deposit history.
+    const treasuryRoute = path.match(/^\/api\/groups\/([^/]+)\/treasury(\/history)?$/);
+    if (treasuryRoute && method === "GET") {
+      const group = this.groups.get(treasuryRoute[1]);
+      const balances = this.treasuries.get(treasuryRoute[1]);
+      if (!group || !group.treasuryEnabled || !balances) {
+        return json(route, 404, { error: "treasury_not_enabled" });
+      }
+      if (treasuryRoute[2]) return json(route, 200, { transactions: [] });
+      return json(route, 200, {
+        publicKey: group.treasuryAccountPublicKey,
+        balances,
+        signers: [{ key: group.treasuryAccountPublicKey, weight: 1 }],
+        thresholds: {
+          low: 1,
+          med: group.treasuryRequiredSigners ?? 1,
+          high: group.treasuryRequiredSigners ?? 1,
+        },
       });
     }
 
