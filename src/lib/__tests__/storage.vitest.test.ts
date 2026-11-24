@@ -1,41 +1,74 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
-import { getStoredGroupPreferences, setStoredGroupPreferences, DEFAULT_GROUP_PREFERENCES } from "../group-preferences";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  getStoredNotificationPreferences,
+  setStoredNotificationPreferences,
+  DEFAULT_FILTER_PREFERENCES,
+  getStoredFilterPreferences,
+  setStoredFilterPreferences,
+} from "../storage";
 
-class MemoryStorage {
-  private map = new Map<string, string>();
-  getItem(key: string) { return this.map.get(key) ?? null; }
-  setItem(key: string, value: string) { this.map.set(key, value); }
-  removeItem(key: string) { this.map.delete(key); }
-  clear() { this.map.clear(); }
-  get length() { return this.map.size; }
-  key(index: number) { return [...this.map.keys()][index] ?? null; }
-}
+describe("Storage persistence utilities", () => {
+  let store: Record<string, string> = {};
 
-const storage = new MemoryStorage();
-(globalThis as Record<string, unknown>).localStorage = storage;
-(globalThis as Record<string, unknown>).window = globalThis;
-
-beforeEach(() => {
-  storage.clear();
-});
-
-describe("storage and group preferences persistence (#849)", () => {
-  it("returns defaults when storage is empty", () => {
-    const prefs = getStoredGroupPreferences("g1");
-    assert.deepEqual(prefs, DEFAULT_GROUP_PREFERENCES);
+  beforeEach(() => {
+    store = {};
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store[key] || null,
+        setItem: (key: string, value: string) => {
+          if (key === "quota-exceeded") {
+            throw new Error("QuotaExceededError");
+          }
+          store[key] = value;
+        },
+        removeItem: (key: string) => {
+          delete store[key];
+        },
+      },
+    });
   });
 
-  it("persists and retrieves updated preferences", () => {
-    setStoredGroupPreferences("g1", { activeTab: "balances", sortOrder: "oldest" });
-    const prefs = getStoredGroupPreferences("g1");
-    assert.equal(prefs.activeTab, "balances");
-    assert.equal(prefs.sortOrder, "oldest");
+  it("returns default notification preferences when storage is empty", () => {
+    const prefs = getStoredNotificationPreferences();
+    expect(prefs).toEqual(DEFAULT_NOTIFICATION_PREFERENCES);
   });
 
-  it("handles corrupted json gracefully and falls back to defaults", () => {
-    storage.setItem("mergepay:group_preferences:g1", "invalid-json");
-    const prefs = getStoredGroupPreferences("g1");
-    assert.deepEqual(prefs, DEFAULT_GROUP_PREFERENCES);
+  it("saves and retrieves notification preferences correctly", () => {
+    setStoredNotificationPreferences({
+      ...DEFAULT_NOTIFICATION_PREFERENCES,
+      pushEnabled: true,
+    });
+    const prefs = getStoredNotificationPreferences();
+    expect(prefs.pushEnabled).toBe(true);
+  });
+
+  it("handles corrupted JSON gracefully by returning defaults for notifications", () => {
+    store["mergepay:notification_preferences"] = "{bad-json}";
+    const prefs = getStoredNotificationPreferences();
+    expect(prefs).toEqual(DEFAULT_NOTIFICATION_PREFERENCES);
+  });
+
+  it("returns default filter preferences when storage is empty", () => {
+    const prefs = getStoredFilterPreferences();
+    expect(prefs).toEqual(DEFAULT_FILTER_PREFERENCES);
+  });
+
+  it("saves and retrieves active group tabs, sort orders, and transaction history filters correctly", () => {
+    setStoredFilterPreferences({
+      activeGroupTab: "settled",
+      sortOrder: "oldest",
+      transactionFilter: "expenses",
+    });
+    const prefs = getStoredFilterPreferences();
+    expect(prefs.activeGroupTab).toBe("settled");
+    expect(prefs.sortOrder).toBe("oldest");
+    expect(prefs.transactionFilter).toBe("expenses");
+  });
+
+  it("handles corrupted JSON gracefully by returning defaults for filters", () => {
+    store["mergepay:filter_preferences"] = "{bad-json}";
+    const prefs = getStoredFilterPreferences();
+    expect(prefs).toEqual(DEFAULT_FILTER_PREFERENCES);
   });
 });
