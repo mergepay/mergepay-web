@@ -5,9 +5,12 @@ import { toast } from "sonner";
 import { GroupQRCode } from "./GroupQRCode";
 
 vi.mock("@/components/ui/lazy-qr-code", () => ({
-  QRCodeSVG: forwardRef(({ value, ...props }: { value: string; [key: string]: unknown }, ref: any) => (
-    <svg ref={ref} data-testid="qr-svg" data-value={value} {...props} />
-  )),
+  QRCodeSVG: Object.assign(
+    forwardRef(({ value, ...props }: { value: string; [key: string]: unknown }, ref: any) => (
+      <svg ref={ref} data-testid="qr-svg" data-value={value} {...props} />
+    )),
+    { displayName: "QRCodeSVG" }
+  ),
 }));
 
 vi.mock("sonner", () => ({
