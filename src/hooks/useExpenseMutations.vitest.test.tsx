@@ -540,7 +540,7 @@ describe("useCreateExpenseMutation — balances & activity cache transitions (#3
     // (`me` +10 net: paid 20, owes 10) and the feed carries the optimistic
     // event.
     await waitFor(() => {
-      expect(nets()).toEqual(["20", "-20"]);
+      expect(nets()).toEqual(["10", "-10"]);
     });
     await waitFor(() => {
       expect(activity()?.activities).toHaveLength(1);
@@ -576,7 +576,7 @@ describe("useCreateExpenseMutation — balances & activity cache transitions (#3
     });
 
     await waitFor(() => {
-      expect(nets()).toEqual(["20", "-20"]);
+      expect(nets()).toEqual(["10", "-10"]);
       expect(activity()?.activities).toHaveLength(1);
     });
 
