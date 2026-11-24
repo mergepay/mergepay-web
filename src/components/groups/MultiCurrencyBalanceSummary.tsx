@@ -4,7 +4,6 @@ import { Card, CardContent } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Money } from "../amount";
 import { aggregateBalancesByAsset, getSortedAggregatedBalances } from "@/lib/balanceAggregation";
-import { assetIdentityKey } from "@/lib/utils/balance";
 import {
   aggregateBalancesInAsset,
   assetExchangeRates,
@@ -14,46 +13,34 @@ import { formatAssetAmountText } from "@/lib/currency";
 import { useCurrencyRates } from "@/hooks/useCurrencyRates";
 import { useFiatPreference } from "@/lib/fiat-preference";
 import type { MemberBalance } from "@/lib/types";
+import { AlertTriangle } from "lucide-react";
 
 export interface MultiCurrencyBalanceSummaryProps {
   balances: MemberBalance[];
   userId?: string;
   className?: string;
+  userTrustlines?: string[];
 }
 
 /**
  * Multi-currency balance summary widget displaying net positions per asset.
  * Shows aggregated balances across different Stellar assets (XLM, USDC, etc.)
- * with proper formatting and neobrutalist styling.
- *
- * When a group holds more than one asset, each position is also shown as its
- * equivalent in the summary's base asset, and the legs are totalled into it —
- * a member who is +12 USDC and -80 XLM cannot read their overall position from
- * two unrelated numbers. The base asset is the first row, so the choice is
- * stable across renders rather than following whichever rate arrived last.
+ * with proper formatting, cross-asset equivalents, and trustline warnings.
  */
 export function MultiCurrencyBalanceSummary({
   balances,
   userId,
   className = "",
+  userTrustlines = [],
 }: MultiCurrencyBalanceSummaryProps) {
   const preferredCurrency = useFiatPreference((s) => s.preferredCurrency);
   const { rates } = useCurrencyRates(preferredCurrency);
   const aggregation = aggregateBalancesByAsset(balances, userId);
   const sortedBalances = getSortedAggregatedBalances(aggregation);
   const baseAsset = sortedBalances[0]?.assetCode;
-  const duplicateCodes = new Set(
-    sortedBalances
-      .filter((balance, index, all) => all.findIndex((item) => item.assetCode === balance.assetCode) !== index)
-      .map((balance) => balance.assetCode)
-  );
   const exchange = assetExchangeRates(rates);
-  // A single-asset group has nothing to convert against. The cross rate comes
-  // from the fiat feed, so when that has not resolved to a usable pair the
-  // helpers below return null and we show no estimate rather than a guessed one.
-  const comparable =
-    baseAsset !== undefined && sortedBalances.length > 1 && duplicateCodes.size === 0;
-  const totalInBase = comparable
+  const comparable = baseAsset !== undefined && sortedBalances.length > 1;
+  const convertedTotal = comparable && baseAsset
     ? aggregateBalancesInAsset(
         sortedBalances.map((b) => ({ amount: b.net, assetCode: b.assetCode })),
         baseAsset,
@@ -61,68 +48,62 @@ export function MultiCurrencyBalanceSummary({
       )
     : null;
 
-  if (sortedBalances.length === 0) {
-    return null;
-  }
-
   return (
     <Card className={className}>
-      <CardContent className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
+      <CardContent className="space-y-4 p-4">
+        <div className="flex items-center justify-between gap-2">
           <h3 className="font-display text-xs uppercase tracking-widest text-ink/60">
-            Net Balances by Asset
+            Consolidated Balances
           </h3>
-          <Badge tone="ink" className="text-xs">
-            {sortedBalances.length} {sortedBalances.length === 1 ? "asset" : "assets"}
-          </Badge>
-        </div>
-        <div className="space-y-2">
-          {sortedBalances.map((balance) => {
-            const equivalent =
-              comparable && balance.assetCode !== baseAsset
-                ? formatAssetEquivalent(balance.net, balance.assetCode, baseAsset, exchange)
-                : null;
-            return (
-              <div
-                key={assetIdentityKey(balance.assetCode, balance.assetIssuer)}
-                className="flex items-center justify-between gap-3 py-2 px-3 rounded-lg border-2 border-ink/20 bg-cream/50"
-              >
-                <span className="font-mono text-sm font-bold text-ink/80">
-                  {balance.assetCode}
-                  {duplicateCodes.has(balance.assetCode) && (
-                    <span className="ml-1 text-[10px] font-normal text-ink/50">
-                      {balance.assetIssuer
-                        ? `${balance.assetIssuer.slice(0, 5)}…${balance.assetIssuer.slice(-4)}`
-                        : "issuer unavailable"}
-                    </span>
-                  )}
-                </span>
-                <span className="flex flex-col items-end">
-                  <Money value={balance.net} assetCode={balance.assetCode} />
-                  {equivalent !== null && (
-                    <span className="font-mono text-[10px] tabular-nums text-ink/40">
-                      {equivalent}
-                    </span>
-                  )}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        {totalInBase !== null && (
-          <div className="flex items-center justify-between gap-3 border-t-2 border-ink/10 pt-3">
-            <span className="font-display text-xs uppercase tracking-widest text-ink/60">
-              Total in {baseAsset}
+          {baseAsset && convertedTotal !== null && (
+            <span className="text-xs font-bold text-ink">
+              Total: {formatAssetAmountText(convertedTotal, baseAsset)}
             </span>
-            <span className="font-mono text-sm font-bold tabular-nums text-ink">
-              {formatAssetAmountText(totalInBase, baseAsset, {
-                minDecimals: 2,
-                maxDecimals: 4,
-              })}
-            </span>
+          )}
+        </div>
+
+        {sortedBalances.length === 0 ? (
+          <p className="text-sm text-ink/50">No balance data available.</p>
+        ) : (
+          <div className="space-y-3">
+            {sortedBalances.map((item) => {
+              const isNative = item.assetCode === "XLM";
+              const hasTrustline = isNative || userTrustlines.includes(item.assetCode);
+              const equivalent =
+                baseAsset && baseAsset !== item.assetCode && exchange
+                  ? formatAssetEquivalent(item.net, item.assetCode, baseAsset, exchange)
+                  : null;
+
+              return (
+                <div
+                  key={item.assetCode}
+                  className="flex flex-col gap-1 rounded-xl border-2 border-ink/20 bg-cream/55 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm">{item.assetCode}</span>
+                    {!hasTrustline && (
+                      <Badge tone="flamingo" className="gap-1">
+                        <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                        Missing Trustline
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {equivalent && (
+                      <span className="text-xs text-ink/60" title="Equivalent in base asset">
+                        ({equivalent})
+                      </span>
+                    )}
+                    <Money value={item.net} assetCode={item.assetCode} assetIssuer={item.assetIssuer} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
+
+export default MultiCurrencyBalanceSummary;
