@@ -2,6 +2,9 @@ import React from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import { OfflineBanner } from "./offline-banner";
+import { toast } from "sonner";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
 describe("OfflineBanner Component (Issue #622)", () => {
   const originalOnLine = navigator.onLine;
@@ -74,6 +77,8 @@ describe("OfflineBanner Component (Issue #622)", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("offline-banner")).not.toBeInTheDocument();
     });
+    act(() => window.dispatchEvent(new Event("online")));
+    expect(toast.success).toHaveBeenCalledExactlyOnceWith("Connection restored");
   });
 
   it("includes neobrutalist styling classes", () => {
