@@ -362,11 +362,7 @@ export function AddExpenseDialog({
   async function handleValidSubmit(values: ExpenseFormValues) {
     setShowErrors(true);
     setSubmitError(null);
-    if (submitBlocked || create.isPending || submitting || submissionLock.current) return;
-
-    const now = Date.now();
-    if (now - (window as any).__lastExpenseSubmit < 400) return;
-    (window as any).__lastExpenseSubmit = now;
+    if (submitBlocked || create.isPending || submissionLock.current) return;
 
     submissionLock.current = true;
     setSubmitting(true);
@@ -680,8 +676,8 @@ export function AddExpenseDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={submitBlocked || !isFormValid} onClick={() => setShowErrors(true)} data-testid="add-expense-confirm">
-            {isOffline ? "Save offline" : "Add Expense"}
+          <Button type="submit" loading={pending} disabled={submitBlocked || !isFormValid || pending} data-testid="add-expense-confirm">
+            {pending ? (isOffline ? "Saving..." : "Submitting...") : isOffline ? "Save offline" : "Add Expense"}
           </Button>
         </div>
       </form>
