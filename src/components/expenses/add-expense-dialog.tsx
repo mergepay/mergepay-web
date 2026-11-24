@@ -1,5 +1,7 @@
 "use client";
 
+import { CurrencyTicker } from "@/components/CurrencyTicker";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -697,6 +699,8 @@ export function AddExpenseDialog({
         />
 
         <FieldError id="expense-shares-error" badge="Split">{getError("shares")}</FieldError>
+
+        <CurrencyTicker assetCode={asset.code} amount={amount || undefined} />
 
         <ExpenseSplitPreview
           amount={amount}
