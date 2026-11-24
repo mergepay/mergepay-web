@@ -21,6 +21,7 @@ import type {
   CreateExpenseRequest,
   Expense,
   ExpenseShare,
+  ShareStatus,
   SplitType,
   User,
 } from "./types";
@@ -263,6 +264,72 @@ export function patchOptimisticExpense<T>(
       }
       if (patch.pending === undefined) merged.pending = true;
       return merged;
+    });
+    return changed ? next : list;
+  };
+
+  if (Array.isArray(cache)) {
+    const list = cache as unknown as Expense[];
+    const next = apply(list);
+    return (next === list ? cache : next) as unknown as T;
+  }
+
+  const pages = (cache as ExpensePagesLike).pages;
+  if (Array.isArray(pages)) {
+    let changed = false;
+    const nextPages = pages.map((page) => {
+      const list = (page as ExpenseListLike)?.expenses;
+      if (!isExpenseArray(list)) return page;
+      const next = apply(list);
+      if (next === list) return page;
+      changed = true;
+      return { ...(page as object), expenses: next };
+    });
+    return changed ? ({ ...(cache as object), pages: nextPages } as T) : cache;
+  }
+
+  const list = (cache as ExpenseListLike).expenses;
+  if (isExpenseArray(list)) {
+    const next = apply(list);
+    return next === list ? cache : ({ ...(cache as object), expenses: next } as T);
+  }
+
+  return cache;
+}
+
+/**
+ * Set one participant's share status on a single expense, for optimistic
+ * settlement feedback (#906).
+ *
+ * Mirrors {@link patchOptimisticExpense}: both cached expense shapes are
+ * supported and an unchanged/absent expense returns the original reference so
+ * React Query can skip notifications. Other shares and the expense's own
+ * `pending` flag are untouched.
+ */
+export function patchOptimisticShareStatus<T>(
+  cache: T,
+  expenseId: string,
+  userId: string,
+  status: ShareStatus
+): T {
+  if (cache === undefined || cache === null) return cache;
+
+  const apply = (list: Expense[]): Expense[] => {
+    let changed = false;
+    const next = list.map((expense) => {
+      if (expense.id !== expenseId) return expense;
+      const shareIndex = expense.shares.findIndex(
+        (share) => share.userId === userId
+      );
+      if (shareIndex === -1) return expense;
+      if (expense.shares[shareIndex].status === status) return expense;
+      changed = true;
+      return {
+        ...expense,
+        shares: expense.shares.map((share, index) =>
+          index === shareIndex ? { ...share, status } : share
+        ),
+      };
     });
     return changed ? next : list;
   };

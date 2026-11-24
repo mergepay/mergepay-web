@@ -52,6 +52,7 @@ import {
   applyOptimisticSettlement,
   buildOptimisticExpense,
   insertOptimisticExpense,
+  patchOptimisticShareStatus,
   removeOptimisticExpense,
 } from "./optimistic";
 
@@ -1009,6 +1010,9 @@ export function useDeleteExpense(groupId: string) {
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
       }
+      // The row has already reappeared via the rollback above; the toast is
+      // the only signal left that the delete did not happen (#906).
+      toast.error("Could not delete the expense. It has been restored.");
     },
 
     onSettled: () => {
@@ -1020,7 +1024,10 @@ export function useDeleteExpense(groupId: string) {
   });
 }
 
-export function useSettleExpense() {
+export function useSettleExpense(groupId?: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidator();
+
   return useMutation({
     mutationFn: ({
       expenseId,
@@ -1029,6 +1036,56 @@ export function useSettleExpense() {
       expenseId: string;
       data?: SettleExpenseRequest;
     }) => api.settleExpense(expenseId, data),
+
+    // Mark the current user's share as `settling` as soon as the intent is
+    // requested, so the card reflects the in-flight payment without waiting
+    // for a refetch. Only this share is touched — co-participants keep their
+    // own status (#906).
+    onMutate: async ({ expenseId }) => {
+      const userId = useAuth.getState().user?.id;
+      if (!groupId || !userId) {
+        return { previousExpenses: [], previousHistory: [] };
+      }
+
+      const expensesKey = qk.expenses(groupId);
+      await Promise.all([
+        qc.cancelQueries({ queryKey: expensesKey }),
+        qc.cancelQueries({ queryKey: qk.history }),
+      ]);
+
+      const previousExpenses = qc.getQueriesData({ queryKey: expensesKey });
+      const previousHistory = qc.getQueriesData({ queryKey: qk.history });
+
+      qc.setQueriesData({ queryKey: expensesKey }, (old: unknown) =>
+        patchOptimisticShareStatus(old, expenseId, userId, "settling")
+      );
+      qc.setQueriesData({ queryKey: qk.history }, (old: unknown) =>
+        patchOptimisticShareStatus(old, expenseId, userId, "settling")
+      );
+
+      return { previousExpenses, previousHistory };
+    },
+
+    onError: (_err, _vars, context) => {
+      // Restore the exact pre-mutation snapshots on both the group list and
+      // the cross-group history feed.
+      for (const snapshot of [
+        context?.previousExpenses,
+        context?.previousHistory,
+      ]) {
+        for (const [queryKey, queryData] of snapshot ?? []) {
+          qc.setQueryData(queryKey, queryData);
+        }
+      }
+    },
+
+    onSettled: () => {
+      if (!groupId) return;
+      // A success changes the ledger/balance view; a failure re-syncs the
+      // rolled-back list with the server.
+      invalidate([...expenseCacheKeys(groupId), qk.history]);
+      qc.invalidateQueries({ queryKey: qk.activity(groupId) });
+    },
   });
 }
 

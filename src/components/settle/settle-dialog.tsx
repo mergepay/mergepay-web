@@ -19,7 +19,12 @@ import { formatMoney } from "@/lib/format";
 import { connectWallet, signXdr, WalletError, WalletErrorCode, NotInstalledMessage } from "@/lib/stellar";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
 import { WalletPrerequisiteNotice } from "@/components/wallet/wallet-status";
-import { useConfirmSettlement, useSettlementCacheRefresh, useSettlementStatus } from "@/lib/queries";
+import {
+  useConfirmSettlement,
+  useSettleExpense,
+  useSettlementCacheRefresh,
+  useSettlementStatus,
+} from "@/lib/queries";
 import { classifySettlementError, isAmbiguousSubmissionError, transactionHashFromXdr } from "@/lib/stellar/transactions";
 import { useHorizonConfirmationFallback } from "@/hooks/useHorizonConfirmationFallback";
 import { notifySettlementFailure, notifySettlementStatusUnknown } from "@/lib/settlementToasts";
@@ -209,6 +214,7 @@ export function SettleDialog({
   onSettled?: () => void;
 }) {
   const confirm = useConfirmSettlement(groupId);
+  const settleExpense = useSettleExpense(groupId);
   const [settlementId, setSettlementId] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("review");
   const [txHash, setTxHash] = useState<string | null>(null);
@@ -351,9 +357,12 @@ export function SettleDialog({
     let localHash: string | null = null;
     try {
       const intent = target.expenseId
-        ? await api.settleExpense(target.expenseId, {
-            assetCode: target.assetCode,
-            assetIssuer: target.assetIssuer,
+        ? await settleExpense.mutateAsync({
+            expenseId: target.expenseId,
+            data: {
+              assetCode: target.assetCode,
+              assetIssuer: target.assetIssuer,
+            },
           })
         : await api.createSettlement(groupId, {
             toUserId: target.to.id,
