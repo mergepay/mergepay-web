@@ -99,6 +99,7 @@ export function AccessibleDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? titleId : undefined}
+      aria-label={title}
       onKeyDown={(e) => {
         if (e.key === "Escape" && dismissible && dialogStack.isTopmost(stackId)) {
           e.stopPropagation();
