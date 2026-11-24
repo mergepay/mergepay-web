@@ -99,7 +99,7 @@ function fallbackRates(currency: SupportedFiatCurrency): CryptoToFiatRates {
   return { ...rates, live: false };
 }
 
-export type { CryptoToFiatRates };
+export type { CryptoToFiatRates, CryptoToFiatRates as RateData };
 
 /**
  * React Query hook for live crypto-to-fiat conversion rates.
@@ -117,7 +117,7 @@ export type { CryptoToFiatRates };
  * }
  * ```
  */
-export function useCurrencyRates(currency: SupportedFiatCurrency) {
+export function useCurrencyRates(currency: SupportedFiatCurrency = "USD") {
   const query = useQuery<CryptoToFiatRates>({
     queryKey: ["cryptoRates", currency],
     queryFn: () => fetchCryptoRates(currency),
