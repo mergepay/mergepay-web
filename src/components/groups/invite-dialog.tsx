@@ -57,9 +57,10 @@ export function InviteDialog({
     await navigator.share({ title: "Join my MergePay group", url: shareUrl });
   }
 
+  if (!open) return null;
+
   return (
     <Dialog
-      open={open}
       onClose={onClose}
       title="Invite members"
       description="Generate a shareable code and link that lets people join this group."
