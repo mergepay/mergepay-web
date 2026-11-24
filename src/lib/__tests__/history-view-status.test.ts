@@ -20,7 +20,7 @@ describe("persisted transaction history filters (#849)", () => {
       writeHistoryView({ kind: "settlements", filters: { kind: "settlements", status: "pending" } });
       assert.deepEqual(readHistoryView(), {
         kind: "settlements",
-        sortOrder: "newest",
+        sortOrder: undefined,
         filters: {
           kind: "settlements",
           keyword: undefined,

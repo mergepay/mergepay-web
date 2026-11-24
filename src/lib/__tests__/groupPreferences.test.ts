@@ -46,7 +46,8 @@ describe("Group Preferences Persistence", () => {
   });
 
   it("handles write errors gracefully without throwing", () => {
-    const res = setStoredGroupPreferences("quota-exceeded", { activeTab: "expenses" });
-    assert.ok(res !== undefined);
+    assert.doesNotThrow(() => {
+      setStoredGroupPreferences("quota-exceeded", { activeTab: "expenses" });
+    });
   });
 });

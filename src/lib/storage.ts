@@ -101,7 +101,14 @@ export function getStoredGroupPreferences(groupId = "default"): GroupFilterPrefe
   return getGroupPreferences(groupId);
 }
 
-export function setStoredGroupPreferences(groupId = "default", prefs: Partial<GroupFilterPreferences>): void {
+export function setStoredGroupPreferences(prefs: Partial<GroupFilterPreferences>): void;
+export function setStoredGroupPreferences(groupId: string, prefs: Partial<GroupFilterPreferences>): void;
+export function setStoredGroupPreferences(
+  groupIdOrPrefs: string | Partial<GroupFilterPreferences>,
+  maybePrefs?: Partial<GroupFilterPreferences>
+): void {
+  const groupId = typeof groupIdOrPrefs === "string" ? groupIdOrPrefs : "default";
+  const prefs = typeof groupIdOrPrefs === "string" ? maybePrefs ?? {} : groupIdOrPrefs;
   const current = getGroupPreferences(groupId);
   safeSetItem(`${STORAGE_KEY_PREFIX}group_prefs:${groupId}`, { ...current, ...prefs });
 }

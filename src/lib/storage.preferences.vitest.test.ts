@@ -6,7 +6,7 @@ import {
   getStoredFilterPreferences,
   setStoredFilterPreferences,
   DEFAULT_FILTER_PREFERENCES,
-} from "../storage";
+} from "./storage";
 
 describe("Storage Preferences Persistence", () => {
   beforeEach(() => {

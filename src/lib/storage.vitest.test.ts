@@ -7,7 +7,7 @@ import {
   setStoredGroupPreferences,
   getStoredFilterPreferences,
   setStoredFilterPreferences,
-} from "../storage";
+} from "./storage";
 
 describe("storage utilities", () => {
   beforeEach(() => {
