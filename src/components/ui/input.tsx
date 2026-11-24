@@ -1,5 +1,6 @@
 import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 const fieldBase =
   "w-full bg-white border-3 border-ink rounded-xl px-4 py-2.5 font-body text-ink placeholder:text-ink/40 " +
@@ -54,12 +55,30 @@ export function Label({
  */
 export function FieldError({
   id,
+  badge,
   children,
 }: {
   id?: string;
+  /**
+   * Optional short label rendered as a flamingo neobrutalist `Badge` in
+   * front of the message (e.g. "Split"), to make the error scannable.
+   */
+  badge?: string;
   children?: React.ReactNode;
 }) {
   if (!children) return null;
+  if (badge) {
+    return (
+      <p
+        id={id}
+        role="alert"
+        className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-bold text-flamingo-dark font-body"
+      >
+        <Badge tone="flamingo" aria-hidden="true">{badge}</Badge>
+        <span>{children}</span>
+      </p>
+    );
+  }
   return (
     <p id={id} role="alert" className="mt-1 text-xs font-bold text-flamingo-dark font-body">
       {children}

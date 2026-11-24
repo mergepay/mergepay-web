@@ -4,6 +4,7 @@ import { SETTLEMENT_ASSETS } from "../constants";
 import { isValidEd25519PublicKey } from "../strkey";
 import { MAX_STROOPS } from "../validation";
 import { mergepayMemoSchema } from "./memo";
+import { countDecimalPlaces, getAssetDecimalPlaces } from "../amountSanitize";
 import {
   checkSplitPercent,
   hasControlCharacters,
@@ -271,6 +272,11 @@ export type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
 export interface ExpenseFormAsset {
   code: string;
   issuer: string | null;
+  /**
+   * Decimal places this asset accepts (0–7). Omitted means the default for
+   * the code from `ASSET_DECIMAL_PLACES`, which is Stellar's 7-decimal max.
+   */
+  decimals?: number;
 }
 
 export interface ExpenseFormSchemaOptions {
@@ -310,6 +316,33 @@ export function createExpenseFormSchema({
           code: z.ZodIssueCode.custom,
           path: ["assetIssuer"],
           message: "The selected asset is missing a valid Stellar issuer",
+        });
+      }
+
+      // Asset precision (#897): the base schema enforces Stellar's 7-decimal
+      // ceiling; an asset configured with fewer decimals narrows it here, for
+      // the total and for every custom share.
+      const places = getAssetDecimalPlaces(selectedAsset.code, selectedAsset.decimals);
+      const precisionMessage =
+        places === 0
+          ? `${selectedAsset.code} amounts must be whole numbers`
+          : `${selectedAsset.code} amounts support at most ${places} decimal place${places === 1 ? "" : "s"}`;
+      const tooPrecise = (value: string | undefined) => {
+        const trimmed = value?.trim() ?? "";
+        return plainAmount.test(trimmed) && countDecimalPlaces(trimmed) > places;
+      };
+      if (tooPrecise(data.amount)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["amount"], message: precisionMessage });
+      }
+      if (data.splitType === "custom") {
+        data.shares.forEach((share, index) => {
+          if (tooPrecise(share.amount)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["shares", index, "amount"],
+              message: precisionMessage,
+            });
+          }
         });
       }
     }
