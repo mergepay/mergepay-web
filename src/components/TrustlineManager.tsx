@@ -18,6 +18,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Label } from "@/components/ui/input";
+import { StellarAddressInput } from "@/components/ui/StellarAddressInput";
+import { isValidStellarPublicKey } from "@/lib/validators/stellarAddress";
 import { AssetBadge } from "@/components/asset-badge";
 import { Money } from "@/components/amount";
 import { PubkeyChip } from "@/components/tx-link";
@@ -254,11 +256,11 @@ export function TrustlineManager({ className, onActivated }: TrustlineManagerPro
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="custom-issuer" className="text-xs">Issuer Public Key (G...)</Label>
-                  <Input
+                  <StellarAddressInput
                     id="custom-issuer"
                     placeholder="GBNZ..."
                     value={customIssuer}
-                    onChange={(e) => setCustomIssuer(e.target.value.trim())}
+                    onChange={setCustomIssuer}
                   />
                 </div>
               </div>
@@ -268,7 +270,11 @@ export function TrustlineManager({ className, onActivated }: TrustlineManagerPro
                 </Button>
                 <Button
                   size="sm"
-                  disabled={!customCode || !customIssuer || activatingCode === customCode}
+                  disabled={
+                    !customCode ||
+                    !isValidStellarPublicKey(customIssuer) ||
+                    activatingCode === customCode
+                  }
                   onClick={() => handleEnableTrustline(customCode, customIssuer)}
                 >
                   {activatingCode === customCode ? (
