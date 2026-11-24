@@ -623,7 +623,7 @@ export function AddExpenseDialog({
             aria-describedby={getError("amount") ? "expense-amount-error" : undefined}
             className={getError("amount") ? "border-flamingo" : undefined}
           />
-          <FieldError id="expense-amount-error" badge="Amount">{getError("amount")}</FieldError>
+          <FieldError id="expense-amount-error">{getError("amount")}</FieldError>
           {amountNotice && !getError("amount") && (
             <p id="expense-amount-notice" className="mt-1 text-xs text-ink/70 font-body" aria-live="polite">
               {amountNotice}
