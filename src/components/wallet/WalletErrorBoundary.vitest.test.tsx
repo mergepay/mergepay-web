@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi, beforeAll, afterAll } from "vitest";
-import { WalletErrorBoundary } from "./WalletErrorBoundary";
+import { WalletErrorBoundary, WALLET_SUPPORT_URL } from "./WalletErrorBoundary";
 import { WalletNotInstalledError, WalletLockedError, UserRejectedError } from "@/lib/stellar";
 
 function Bomb({ error }: { error: Error }): never {
@@ -56,5 +56,35 @@ describe("WalletErrorBoundary", () => {
       </WalletErrorBoundary>
     );
     expect(screen.getByText("Request Cancelled")).toBeInTheDocument();
+  });
+  it("links to support from the fallback", () => {
+    render(
+      <WalletErrorBoundary>
+        <Bomb error={new WalletLockedError()} />
+      </WalletErrorBoundary>
+    );
+    expect(screen.getByRole("link", { name: /get support/i })).toHaveAttribute(
+      "href",
+      WALLET_SUPPORT_URL
+    );
+  });
+
+  it("recovers and renders children again after Try Again once the fault is cleared", () => {
+    let shouldThrow = true;
+    function Flaky() {
+      if (shouldThrow) throw new WalletLockedError();
+      return <div>Wallet ready</div>;
+    }
+    const onReset = vi.fn();
+    render(
+      <WalletErrorBoundary onReset={onReset}>
+        <Flaky />
+      </WalletErrorBoundary>
+    );
+    expect(screen.getByText("Wallet Locked")).toBeInTheDocument();
+    shouldThrow = false;
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Wallet ready")).toBeInTheDocument();
   });
 });
