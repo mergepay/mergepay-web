@@ -53,11 +53,8 @@ export function getAssetDecimalPlaces(
   return clampDecimalPlaces(ASSET_DECIMAL_PLACES[code]);
 }
 
-/** Number of digits after the decimal point in a plain decimal string. */
-export function countDecimalPlaces(value: string): number {
-  const dot = value.indexOf(".");
-  return dot === -1 ? 0 : value.length - dot - 1;
-}
+/** Shared with the payload sanitiser so both count decimals identically. */
+export { countDecimalPlaces } from "./validations/sanitize";
 
 export type AmountSanitizeFailure =
   | "empty"

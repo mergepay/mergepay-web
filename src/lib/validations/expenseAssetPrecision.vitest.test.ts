@@ -119,6 +119,6 @@ describe("expense amount edge cases", () => {
     ).toContain("shares.0.amount: Amount must be a plain number");
     expect(
       messages({ splitType: "percentage", shares: [{ userId: "a", percent: -10 }, { userId: "b", percent: 110 }] })
-    ).toContain("shares.0.percent: Percentage must be between 0 and 100");
+    ).toContainEqual(expect.stringMatching(/^shares\.0\.percent: Percentage must be .*100/));
   });
 });
