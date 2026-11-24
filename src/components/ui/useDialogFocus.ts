@@ -10,6 +10,7 @@ import {
   pickInitialFocusIndex,
   shouldCloseOnEscape,
 } from "@/lib/dialog";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scrollLock";
 
 export interface DialogFocusOptions {
   open: boolean;
@@ -108,8 +109,11 @@ export function useDialogFocus({
     const panelFocusable = () => listFocusable(panelRef.current);
     const contentFocusable = () => listFocusable(contentRef?.current ?? null);
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    // Reference-counted, not a direct `body.style.overflow` write: with a
+    // confirmation stacked over a drawer, closing them out of order would
+    // otherwise restore the page's scroll while one overlay is still open, or
+    // leave `overflow: hidden` stuck on the body after both have closed.
+    const scrollLock = lockBodyScroll();
 
     function onKeyDown(e: KeyboardEvent) {
       if (
@@ -117,6 +121,7 @@ export function useDialogFocus({
           key: e.key,
           dismissible: dismissibleRef.current,
           isTopmost: dialogStack.isTopmost(slotId),
+          isComposing: e.isComposing,
         })
       ) {
         e.preventDefault();
@@ -183,7 +188,7 @@ export function useDialogFocus({
       window.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("focusin", containment);
       dialogStack.remove(slotId);
-      document.body.style.overflow = previousOverflow;
+      unlockBodyScroll(scrollLock);
       // Only hand focus back if the trigger is still on the page — a route
       // change can unmount it while this dialog was open.
       const previous = previousFocusRef.current;
