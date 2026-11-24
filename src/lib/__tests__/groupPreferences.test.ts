@@ -1,4 +1,5 @@
-import { describe, it, beforeEach } from "vitest";
+import { describe, it, beforeEach } from "node:test";
+import assert from "node:assert/strict";
 import {
   getStoredGroupPreferences,
   setStoredGroupPreferences,
@@ -28,24 +29,24 @@ describe("Group Preferences Persistence", () => {
 
   it("returns default preferences when local storage is empty", () => {
     const prefs = getStoredGroupPreferences("g-1");
-    expect(prefs).toEqual(DEFAULT_GROUP_PREFERENCES);
+    assert.deepEqual(prefs, DEFAULT_GROUP_PREFERENCES);
   });
 
   it("saves and retrieves group preferences correctly", () => {
     setStoredGroupPreferences("g-1", { activeTab: "members", sortOrder: "amount" });
     const prefs = getStoredGroupPreferences("g-1");
-    expect(prefs.activeTab).toBe("members");
-    expect(prefs.sortOrder).toBe("amount");
+    assert.equal(prefs.activeTab, "members");
+    assert.equal(prefs.sortOrder, "amount");
   });
 
   it("handles corrupted JSON gracefully by returning defaults", () => {
     store["mergepay:group_preferences:g-1"] = "{bad-json}";
     const prefs = getStoredGroupPreferences("g-1");
-    expect(prefs).toEqual(DEFAULT_GROUP_PREFERENCES);
+    assert.deepEqual(prefs, DEFAULT_GROUP_PREFERENCES);
   });
 
   it("handles write errors gracefully without throwing", () => {
     const res = setStoredGroupPreferences("quota-exceeded", { activeTab: "expenses" });
-    expect(res).toBeDefined();
+    assert.ok(res !== undefined);
   });
 });
