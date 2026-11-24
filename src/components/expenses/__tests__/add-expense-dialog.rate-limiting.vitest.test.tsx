@@ -28,8 +28,8 @@ vi.mock('@/lib/store/offlineStore', () => ({
 
 describe('AddExpenseDialog Rate Limiting', () => {
   const members = [
-    { id: 'm-1', groupId: 'group-1', userId: 'user-1', role: 'member' as const, joinedAt: new Date().toISOString(), user: { displayName: 'Alice', avatarUrl: null } },
-    { id: 'm-2', groupId: 'group-1', userId: 'user-2', role: 'member' as const, joinedAt: new Date().toISOString(), user: { displayName: 'Bob', avatarUrl: null } },
+    { id: 'm-1', groupId: 'group-1', userId: 'user-1', role: 'member' as const, joinedAt: new Date().toISOString(), user: { id: 'user-1', displayName: 'Alice', stellarPublicKey: 'GBALICE...', createdAt: new Date().toISOString(), avatarUrl: null } },
+    { id: 'm-2', groupId: 'group-1', userId: 'user-2', role: 'member' as const, joinedAt: new Date().toISOString(), user: { id: 'user-2', displayName: 'Bob', stellarPublicKey: 'GBBOB...', createdAt: new Date().toISOString(), avatarUrl: null } },
   ];
 
   beforeEach(() => {
