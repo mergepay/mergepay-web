@@ -1,35 +1,50 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
-  DEFAULT_USER_GROUP_FILTER_PREFERENCES,
-  getStoredUserGroupFilterPreferences,
-  setStoredUserGroupFilterPreferences,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  setStoredNotificationPreferences,
+  getStoredNotificationPreferences,
+  DEFAULT_GROUP_PREFERENCES,
+  getStoredGroupPreferences,
+  setStoredGroupPreferences,
 } from "../storage";
 
-describe("user group filter storage utilities", () => {
+describe("Storage Utility (Vitest)", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it("returns default preferences when storage is empty", () => {
-    const prefs = getStoredUserGroupFilterPreferences();
-    expect(prefs).toEqual(DEFAULT_USER_GROUP_FILTER_PREFERENCES);
+  it("returns default notification preferences when storage is empty", () => {
+    const prefs = getStoredNotificationPreferences();
+    expect(prefs).toEqual(DEFAULT_NOTIFICATION_PREFERENCES);
   });
 
-  it("saves and loads group tabs, sort orders, and transaction filters correctly", () => {
-    setStoredUserGroupFilterPreferences({
-      activeGroupTab: "settlements",
-      sortOrder: "amount-desc",
-      transactionHistoryFilter: "pending",
+  it("persists and retrieves notification preferences correctly", () => {
+    setStoredNotificationPreferences({
+      pushEnabled: true,
+      expenseAdded: false,
+      expenseSettled: true,
+      expenseRequested: false,
     });
-    const prefs = getStoredUserGroupFilterPreferences();
-    expect(prefs.activeGroupTab).toBe("settlements");
-    expect(prefs.sortOrder).toBe("amount-desc");
-    expect(prefs.transactionHistoryFilter).toBe("pending");
+    const prefs = getStoredNotificationPreferences();
+    expect(prefs.pushEnabled).toBe(true);
+    expect(prefs.expenseAdded).toBe(false);
   });
 
-  it("handles corrupted JSON gracefully", () => {
-    localStorage.setItem("mergepay:user_group_filter_preferences", "{bad-json}");
-    const prefs = getStoredUserGroupFilterPreferences();
-    expect(prefs).toEqual(DEFAULT_USER_GROUP_FILTER_PREFERENCES);
+  it("returns default group preferences when storage is empty", () => {
+    const prefs = getStoredGroupPreferences();
+    expect(prefs).toEqual(DEFAULT_GROUP_PREFERENCES);
+  });
+
+  it("persists and retrieves group preferences correctly", () => {
+    setStoredGroupPreferences({ activeTab: "active", sortOrder: "amount" });
+    const prefs = getStoredGroupPreferences();
+    expect(prefs.activeTab).toBe("active");
+    expect(prefs.sortOrder).toBe("amount");
+  });
+
+  it("handles corrupted JSON gracefully by returning defaults", () => {
+    localStorage.setItem("mergepay:group_preferences", "{bad-json}");
+    const prefs = getStoredGroupPreferences();
+    expect(prefs).toEqual(DEFAULT_GROUP_PREFERENCES);
   });
 });
