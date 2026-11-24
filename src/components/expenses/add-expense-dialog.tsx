@@ -17,6 +17,7 @@ import { handleApiError } from "@/lib/errorHandler";
 import { SETTLEMENT_ASSETS, SETTLEMENT_MEMO_PREFIX } from "@/lib/constants";
 import { AssetSelector } from "@/components/expenses/AssetSelector";
 import { ExpenseSplitPreview } from "@/components/expenses/ExpenseSplitPreview";
+import { ParticipantPicker } from "@/components/expenses/ParticipantPicker";
 import { SplitCalculator, type SplitCalculatorChange } from "@/components/expenses/SplitCalculator";
 import type { CreateExpenseRequest, GroupMember, SplitType, ExpenseShareInput } from "@/lib/types";
 import {
@@ -643,6 +644,8 @@ export function AddExpenseDialog({
             </p>
           )}
         </div>
+
+        <ParticipantPicker members={members} selected={participants} onChange={setParticipants} />
 
         <SplitCalculator
           key={calculatorKey}
