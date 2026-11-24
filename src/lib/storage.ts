@@ -68,8 +68,12 @@ export function safeSetItem<T>(key: string, value: T): void {
 
 export interface GroupFilterPreferences {
   activeTab: string;
+  activeGroupTab?: string;
   sortOrder: string;
-  transactionFilter: string;
+  transactionFilter?: string;
+  transactionSearch?: string;
+  transactionStatus?: string;
+  historyFilters?: Record<string, unknown>;
 }
 
 export const DEFAULT_GROUP_PREFERENCES: GroupFilterPreferences = {
@@ -77,6 +81,8 @@ export const DEFAULT_GROUP_PREFERENCES: GroupFilterPreferences = {
   sortOrder: "date-desc",
   transactionFilter: "all",
 };
+
+export const DEFAULT_FILTER_PREFERENCES = DEFAULT_GROUP_PREFERENCES;
 
 export const STORAGE_KEY_PREFIX = "mergepay:";
 
@@ -90,3 +96,15 @@ export function getGroupPreferences(groupId: string): GroupFilterPreferences {
 export function setGroupPreferences(groupId: string, prefs: GroupFilterPreferences): void {
   safeSetItem(`${STORAGE_KEY_PREFIX}group_prefs:${groupId}`, prefs);
 }
+
+export function getStoredGroupPreferences(groupId = "default"): GroupFilterPreferences {
+  return getGroupPreferences(groupId);
+}
+
+export function setStoredGroupPreferences(groupId = "default", prefs: Partial<GroupFilterPreferences>): void {
+  const current = getGroupPreferences(groupId);
+  safeSetItem(`${STORAGE_KEY_PREFIX}group_prefs:${groupId}`, { ...current, ...prefs });
+}
+
+export const getStoredFilterPreferences = () => getGroupPreferences("default");
+export const setStoredFilterPreferences = (prefs: Partial<GroupFilterPreferences>) => setStoredGroupPreferences("default", prefs);
