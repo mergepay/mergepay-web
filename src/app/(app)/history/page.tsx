@@ -129,13 +129,15 @@ export default function HistoryPage() {
       kindItems.filter(({ type, item }) => {
         const row = toHistoryRow({ type, ...item });
         if (!matchesHistoryFilters(row, filters)) return false;
-        if (selectedAsset !== "ALL" && row.assetCode !== selectedAsset) return false;
+        if (!matchesHistoryFilters(row, {
+          assetCode: selectedAsset === "ALL" ? undefined : selectedAsset,
+          fromDate: startDate,
+          toDate: endDate,
+        })) return false;
         if (selectedStatus !== "ALL") {
           if (type === "settlement" && item.status.toUpperCase() !== selectedStatus) return false;
           if (type === "expense" && selectedStatus === "PENDING") return false;
         }
-        if (startDate && new Date(row.createdAt) < new Date(startDate)) return false;
-        if (endDate && new Date(row.createdAt) > new Date(endDate + "T23:59:59")) return false;
         return true;
       }),
     [kindItems, filters, selectedAsset, selectedStatus, startDate, endDate]
@@ -165,6 +167,7 @@ export default function HistoryPage() {
   }
 
   function handleResetFilters() {
+    setCurrentPage(1);
     setFilters({ kind: filter });
     setSelectedAsset("ALL");
     setSelectedStatus("ALL");
@@ -225,16 +228,31 @@ export default function HistoryPage() {
 
       {hasData && (
         <div className="space-y-4 mb-6">
-          <HistoryFilterBar value={filters} onChange={setFilters} />
+          <HistoryFilterBar value={filters} onChange={(next) => {
+            setFilters(next);
+            setCurrentPage(1);
+          }} />
           <TransactionFilter
             selectedAsset={selectedAsset}
-            onAssetChange={setSelectedAsset}
+            onAssetChange={(asset) => {
+              setSelectedAsset(asset);
+              setCurrentPage(1);
+            }}
             selectedStatus={selectedStatus}
-            onStatusChange={setSelectedStatus}
+            onStatusChange={(status) => {
+              setSelectedStatus(status);
+              setCurrentPage(1);
+            }}
             startDate={startDate}
-            onStartDateChange={setStartDate}
+            onStartDateChange={(date) => {
+              setStartDate(date);
+              setCurrentPage(1);
+            }}
             endDate={endDate}
-            onEndDateChange={setEndDate}
+            onEndDateChange={(date) => {
+              setEndDate(date);
+              setCurrentPage(1);
+            }}
             onReset={handleResetFilters}
           />
         </div>
