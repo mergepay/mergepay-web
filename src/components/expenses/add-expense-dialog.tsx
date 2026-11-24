@@ -362,7 +362,11 @@ export function AddExpenseDialog({
   async function handleValidSubmit(values: ExpenseFormValues) {
     setShowErrors(true);
     setSubmitError(null);
-    if (submitBlocked || create.isPending || submissionLock.current) return;
+    if (submitBlocked || create.isPending || submitting || submissionLock.current) return;
+
+    const now = Date.now();
+    if (now - (window as any).__lastExpenseSubmit < 400) return;
+    (window as any).__lastExpenseSubmit = now;
 
     submissionLock.current = true;
     setSubmitting(true);
