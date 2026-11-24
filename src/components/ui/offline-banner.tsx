@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { WifiOff } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export interface OfflineBannerProps {
@@ -26,14 +27,22 @@ export function OfflineBanner({ className }: OfflineBannerProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    let wasOffline = navigator.onLine === false;
+    const handleOnline = () => {
+      if (wasOffline) toast.success("Connection restored");
+      wasOffline = false;
+      setIsOnline(true);
+    };
+    const handleOffline = () => {
+      wasOffline = true;
+      setIsOnline(false);
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
     // Initial check
-    setIsOnline(navigator.onLine);
+    setIsOnline(!wasOffline);
 
     return () => {
       window.removeEventListener("online", handleOnline);
