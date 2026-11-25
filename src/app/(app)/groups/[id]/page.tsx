@@ -122,7 +122,7 @@ export default function GroupDetailPage() {
             <Button
               variant="outline"
               onClick={() => setShareQrOpen(true)}
-              aria-label="Share group invite QR code"
+              aria-label="Share group QR code"
               data-testid="group-share-qr"
             >
               <QrCode className="h-4 w-4 mr-1" aria-hidden /> Share QR

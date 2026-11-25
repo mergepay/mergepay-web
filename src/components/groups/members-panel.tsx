@@ -88,7 +88,7 @@ export function MembersPanel({
             size="sm"
             variant="outline"
             onClick={() => setQrOpen(true)}
-            aria-label="Share group invite QR code"
+            aria-label="Share group QR code"
             data-testid="members-share-qr"
           >
             <QrCode className="h-4 w-4" aria-hidden /> Share QR
