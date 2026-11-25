@@ -17,6 +17,18 @@ export const MAX_DECIMAL_PLACES = 7;
 /** Minimum representable amount on Stellar (1 stroop). */
 export const MIN_AMOUNT = "0.0000001";
 
+/** Stellar payment amounts are signed int64 values measured in stroops. */
+export const STELLAR_INT64_MAX_STROOPS = BigInt("9223372036854775807");
+export const STELLAR_INT64_MIN_STROOPS = -STELLAR_INT64_MAX_STROOPS - BigInt(1);
+
+/** Assert that a stroop value can be represented by a Stellar int64 amount. */
+export function assertInt64(stroops: bigint): bigint {
+  if (stroops < STELLAR_INT64_MIN_STROOPS || stroops > STELLAR_INT64_MAX_STROOPS) {
+    throw new Error("Amount exceeds Stellar's signed int64 range.");
+  }
+  return stroops;
+}
+
 // ---------------------------------------------------------------------------
 // Exact decimal parsing
 //
@@ -185,7 +197,18 @@ export function toStroops(amount: string): bigint {
   if (!parsed.ok || parsed.value.scaled <= BigInt(0)) {
     throw new Error(`Cannot convert "${amount}" to stroops.`);
   }
-  return parsed.value.scaled;
+  return assertInt64(parsed.value.scaled);
+}
+
+/**
+ * Parse any representable signed decimal amount, including zero. This is for
+ * balance and split arithmetic; payment validation should continue using
+ * {@link toStroops}, which rejects non-positive amounts.
+ */
+export function toSignedStroops(amount: string): bigint {
+  const parsed = parseExactDecimal(amount, MAX_DECIMAL_PLACES);
+  if (!parsed.ok) throw new Error(`Cannot convert "${amount}" to stroops.`);
+  return assertInt64(parsed.value.scaled);
 }
 
 /**
