@@ -165,6 +165,45 @@ export function MembersPanel({
         })}
       </div>
 
+      {(detail.pendingInvites?.length ?? 0) > 0 && (
+        <div className="space-y-2" data-testid="pending-invites">
+          <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
+            Pending invites
+          </h3>
+          {detail.pendingInvites?.map((invite) => (
+            <Card
+              key={invite.id}
+              className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between"
+              data-testid="pending-invite"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-ink bg-butter">
+                  <UserPlus className="h-4 w-4" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate font-bold">
+                    {invite.pending ? "Sending invitation…" : "Invite sent"}
+                  </p>
+                  <p className="text-xs text-ink/50">
+                    {invite.code ? (
+                      <span className="font-mono">{invite.code}</span>
+                    ) : (
+                      "Awaiting invite code"
+                    )}
+                    {invite.expiresAt
+                      ? ` · expires ${new Date(invite.expiresAt).toLocaleDateString()}`
+                      : " · never expires"}
+                  </p>
+                </div>
+              </div>
+              <div className="self-end sm:self-auto">
+                <Badge tone="butter">Pending</Badge>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 border-t-3 border-ink pt-5">
         {isAdmin && !detail.group.archived && (
           <Button variant="outline" onClick={handleArchive} loading={archive.isPending}>
