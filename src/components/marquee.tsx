@@ -9,7 +9,7 @@ export function Marquee({
 }) {
   const doubled = [...items, ...items];
   return (
-    <div className={cn("overflow-hidden border-y-3 border-ink bg-ink py-3", className)}>
+    <div className={cn("overflow-hidden border-y-3 border-ink bg-surface py-3", className)}>
       <div className="flex w-max animate-marquee gap-8">
         {doubled.map((item, i) => (
           <span

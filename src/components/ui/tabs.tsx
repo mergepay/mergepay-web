@@ -61,7 +61,7 @@ export function Tabs({
           className={cn(
             "flex items-center gap-1.5 rounded-xl border-2 px-3.5 py-1.5 font-display text-xs uppercase tracking-wide transition-all duration-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40",
             active === tab.id
-              ? "border-ink bg-ink text-lime shadow-brutal-sm"
+              ? "border-ink bg-surface text-lime shadow-brutal-sm"
               : "border-transparent text-ink/70 hover:border-ink hover:bg-cream"
           )}
         >

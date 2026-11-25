@@ -17,7 +17,7 @@ export function ThemeToggle() {
       type="button"
       onClick={cycle}
       aria-label={`Switch to ${theme === "light" ? "dark" : theme === "dark" ? "system" : "light"} mode`}
-      className="flex h-9 w-9 items-center justify-center rounded-xl border-2 border-ink bg-cream transition-all hover:bg-butter-pale"
+      className="flex h-9 w-9 items-center justify-center rounded-xl border-2 border-ink bg-cream shadow-brutal-sm transition-all hover:bg-butter-pale focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
     >
       {theme === "light" && <Sun className="h-4 w-4" />}
       {theme === "dark" && <Moon className="h-4 w-4" />}

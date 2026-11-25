@@ -28,6 +28,7 @@ import { shortKey } from "@/lib/format";
 import { useDialogFocus } from "./ui/useDialogFocus";
 
 import { HorizonHealthIndicator } from "./HorizonHealthIndicator";
+import { ThemeToggle } from "./ui/theme-toggle";
 import { OfflineSyncBanner } from "./OfflineSyncBanner";
 import { OfflineBanner } from "./OfflineBanner";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
@@ -130,7 +131,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         })}
       </nav>
       <div className="space-y-2 px-3 pb-3">
-        <HorizonHealthIndicator className="w-full justify-between" />
+        <div className="flex items-center justify-between gap-2">
+          <HorizonHealthIndicator className="w-full justify-between" />
+          <ThemeToggle />
+        </div>
         <WalletStatusPanel status={walletStatus} onRefresh={refreshWallet} />
       </div>
       {user && (
@@ -176,6 +180,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Logo markSize={30} />
         </Link>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <HorizonHealthIndicator />
           <Badge tone={walletStatus.tone}>{walletStatus.label}</Badge>
           <button
@@ -203,7 +208,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               exit={{ opacity: 0 }}
               onClick={() => setMobileOpen(false)}
               aria-hidden="true"
-              className="absolute inset-0 bg-ink/60"
+              className="absolute inset-0 bg-surface/60"
             />
             <motion.div
               ref={drawerRef}

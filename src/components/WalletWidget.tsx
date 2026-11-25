@@ -180,7 +180,7 @@ function TrustlineWarning({
           variant="secondary"
           loading={settingUp}
           onClick={onSetup}
-          className="bg-ink text-lime"
+          className="bg-surface text-lime"
         >
           <Plug className="h-4 w-4" />
           {settingUp ? "Requesting signature…" : "Setup Trustline"}
