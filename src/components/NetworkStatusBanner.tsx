@@ -1,114 +1,79 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
-import { Wifi, WifiOff, AlertTriangle, CheckCircle, RefreshCw } from "lucide-react";
-import { api } from "@/lib/api";
+import { Wifi, WifiOff } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 
-export interface NetworkHealthState {
-  isOnline: boolean;
-  isApiDegraded: boolean;
-  latencyMs: number | null;
-  lastChecked: number;
-}
+type ConnectionState = "online" | "offline" | "reconnected";
+const RECONNECTED_DURATION_MS = 4000;
 
-export function useNetworkStatus() {
-  const [status, setStatus] = useState<NetworkHealthState>({
-    isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
-    isApiDegraded: false,
-    latencyMs: null,
-    lastChecked: Date.now(),
-  });
+/**
+ * Browser connectivity is a hint, not a guarantee that Stellar or the API is
+ * reachable. Never imply that transactions are queued or automatically retried.
+ */
+export function NetworkStatusBanner() {
+  const [connection, setConnection] = useState<ConnectionState>("online");
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const handleOnline = () => setStatus((s) => ({ ...s, isOnline: true }));
-    const handleOffline = () => setStatus((s) => ({ ...s, isOnline: false }));
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    let isMounted = true;
-
-    const checkHealth = async () => {
-      if (!navigator.onLine) {
-        if (isMounted) setStatus((s) => ({ ...s, isOnline: false }));
-        return;
-      }
-      const start = Date.now();
-      try {
-        const res = await fetch("/api/health", { method: "GET", cache: "no-store" });
-        const latency = Date.now() - start;
-        if (isMounted) {
-          setStatus({
-            isOnline: true,
-            isApiDegraded: !res.ok || latency > 4000,
-            latencyMs: latency,
-            lastChecked: Date.now(),
-          });
-        }
-      } catch {
-        if (isMounted) {
-          setStatus((s) => ({
-            ...s,
-            isApiDegraded: true,
-            latencyMs: null,
-            lastChecked: Date.now(),
-          }));
-        }
+    const clearReconnectTimer = () => {
+      if (reconnectTimer !== undefined) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
       }
     };
 
-    const interval = setInterval(checkHealth, 30000);
-    // Initial check
-    checkHealth();
+    const handleOffline = () => {
+      clearReconnectTimer();
+      setConnection("offline");
+    };
+
+    const handleOnline = () => {
+      clearReconnectTimer();
+      setConnection((previous) => previous === "offline" ? "reconnected" : "online");
+      reconnectTimer = setTimeout(() => setConnection("online"), RECONNECTED_DURATION_MS);
+    };
+
+    // Read navigator only after mount to avoid server/client hydration mismatch.
+    if (!navigator.onLine) handleOffline();
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
 
     return () => {
-      isMounted = false;
-      window.removeEventListener("online", handleOnline);
+      clearReconnectTimer();
       window.removeEventListener("offline", handleOffline);
-      clearInterval(interval);
+      window.removeEventListener("online", handleOnline);
     };
   }, []);
 
-  return status;
-}
+  if (connection === "online") return null;
 
-export function NetworkStatusBanner() {
-  const { isOnline, isApiDegraded, latencyMs } = useNetworkStatus();
-  const [dismissed, setDismissed] = useState(false);
-
-  if (isOnline && !isApiDegraded) return null;
-  if (dismissed && !isOnline) return null;
+  const offline = connection === "offline";
 
   return (
-    <div
-      role="alert"
-      className="w-full border-b-2 border-ink bg-mustard-pale px-4 py-2 text-ink transition-all"
-    >
-      <div className="mx-auto flex max-w-6xl items-center justify-between text-xs font-semibold sm:text-sm">
-        <div className="flex items-center gap-2">
-          {!isOnline ? (
-            <>
-              <WifiOff className="h-4 w-4 text-cherry" />
-              <span>You are offline. Transactions will be queued once reconnected.</span>
-            </>
-          ) : isApiDegraded ? (
-            <>
-              <AlertTriangle className="h-4 w-4 text-mustard-dark" />
-              <span>
-                Network latency detected ({latencyMs ? `${latencyMs}ms` : "RPC degraded"}). Stellar operations may be delayed.
-              </span>
-            </>
-          ) : null}
+    <div className="fixed inset-x-0 top-0 z-50 px-3 pt-3 pointer-events-none sm:px-6">
+      <Card
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={`pointer-events-auto mx-auto flex max-w-3xl items-center gap-3 px-4 py-3 ${offline ? "bg-flamingo-pale" : "bg-lime-pale"}`}
+        data-testid="network-status-banner"
+      >
+        {offline ? <WifiOff aria-hidden="true" className="h-5 w-5 shrink-0" /> : <Wifi aria-hidden="true" className="h-5 w-5 shrink-0" />}
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-sm uppercase">
+            {offline ? "You're offline" : "Connection restored"}
+          </p>
+          <p className="text-xs sm:text-sm">
+            {offline
+              ? "Check your internet connection before submitting or retrying transactions."
+              : "You're back online. Check any pending transactions before trying again."}
+          </p>
         </div>
-        <button
-          onClick={() => setDismissed(true)}
-          className="rounded-md border border-ink bg-white px-2 py-0.5 text-xs font-bold hover:bg-ink/5"
-        >
-          Dismiss
-        </button>
-      </div>
+        <Badge tone={offline ? "flamingo" : "lime"}>{offline ? "Offline" : "Online"}</Badge>
+      </Card>
     </div>
   );
 }
