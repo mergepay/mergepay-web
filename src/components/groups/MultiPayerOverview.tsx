@@ -70,7 +70,7 @@ export function MultiPayerOverview({ expenses }: { expenses: Expense[] }) {
                     .map(([assetCode, total]) => (
                       <li key={assetCode} className="flex items-center justify-between gap-2 text-xs">
                         <span className="text-ink/60">{assetCode} paid</span>
-                        <Money value={total.toFixed(7)} assetCode={assetCode} />
+                        <Money value={total} assetCode={assetCode} />
                       </li>
                     ))}
                 </ul>
