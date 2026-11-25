@@ -562,6 +562,24 @@ export interface ConfiguredAsset {
  */
 export type SettlementAssetCode = "XLM" | "USDC";
 
+/** Quote side of a ticker pair: a settlement asset or the USD reference. */
+export type TickerQuoteCode = SettlementAssetCode | "USD";
+
+/**
+ * A trading pair shown by the exchange-rate ticker (#904), e.g. XLM/USD
+ * ("how many USD is 1 XLM") or USDC/XLM ("how many XLM is 1 USDC").
+ */
+export interface AssetTickerPair {
+  base: SettlementAssetCode;
+  quote: TickerQuoteCode;
+}
+
+/** USD reference prices for the settlement assets, as the ticker caches them. */
+export interface AssetUsdPrices {
+  XLM: number;
+  USDC: number;
+}
+
 export interface HorizonBalanceItem {
   asset_type: string;
   balance: string;
