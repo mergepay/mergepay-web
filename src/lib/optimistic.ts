@@ -28,6 +28,7 @@ import type {
   SplitType,
   User,
 } from "./types";
+import { fromStroops, toSignedStroops } from "./money";
 
 /** Prefix that marks a cache entry as client-generated (never a server id). */
 export const OPTIMISTIC_EXPENSE_PREFIX = "optimistic-expense-";
@@ -330,8 +331,13 @@ export function applyOptimisticSettlement(
 ): BalancesResponse {
   if (!balances || !Array.isArray(balances.balances)) return balances;
 
-  const amount = parseFloat(transfer.amount);
-  if (!Number.isFinite(amount) || amount === 0) return balances;
+  let amount: bigint;
+  try {
+    amount = toSignedStroops(transfer.amount);
+  } catch {
+    return balances;
+  }
+  if (amount === BigInt(0)) return balances;
 
   let changed = false;
   const next = balances.balances.map((row) => {
@@ -341,16 +347,20 @@ export function applyOptimisticSettlement(
       row.assetCode !== transfer.assetCode;
     if (wrongAsset) return row;
 
-    let delta = 0;
+    let delta = BigInt(0);
     if (row.userId === transfer.fromUserId) delta = amount;
     else if (row.userId === transfer.toUserId) delta = -amount;
     else return row;
 
-    const current = parseFloat(row.net);
-    if (!Number.isFinite(current)) return row;
+    let current: bigint;
+    try {
+      current = toSignedStroops(row.net);
+    } catch {
+      return row;
+    }
 
     changed = true;
-    return { ...row, net: toDecimalString(current + delta) };
+    return { ...row, net: fromStroops(current + delta) };
   });
 
   if (!changed) return balances;
