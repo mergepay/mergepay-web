@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, FileText, Loader2, Receipt, Trash2 } from "lucide-react";
+import { Check, FileText, Loader2, Pencil, Receipt, Trash2 } from "lucide-react";
 import { ReceiptPreview } from "@/components/ui/receipt-preview";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -16,6 +16,9 @@ import {
   type SettleTarget,
 } from "@/components/settle/settle-dialog";
 import { useDeleteExpense } from "@/lib/queries";
+import { useUpdateExpenseMutation } from "@/hooks/useExpenseMutations";
+import { Input, Label, Textarea, FieldError } from "@/components/ui/input";
+import { validateMergepayMemo } from "@/lib/validations/memo";
 import { handleApiError } from "@/lib/errorHandler";
 import { Timestamp } from "@/components/timestamp";
 import { ExpenseReceiptModal } from "@/components/ExpenseReceiptModal";
@@ -44,6 +47,10 @@ export function ExpenseCard({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const del = useDeleteExpense(groupId);
+  const update = useUpdateExpenseMutation(groupId);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ title: "", description: "", memo: "" });
+  const [editError, setEditError] = useState<string | null>(null);
 
   const isPending = Boolean(expense.isOptimistic || expense.pending);
   const isPayer = expense.payerUserId === currentUserId;
@@ -55,14 +62,52 @@ export function ExpenseCard({
   const canSelectForBulk =
     !isPending && selectable && !isPayer && !!myShare && myShare.status === "pending";
 
+  const canEdit = !isPending && isPayer;
+
   async function handleDelete() {
     if (!confirm("Delete this expense? This cannot be undone.")) return;
     try {
+      // The card is removed from the cache immediately (optimistic); on
+      // failure the mutation restores it and we explain what happened.
       await del.mutateAsync(expense.id);
       toast.success("Expense deleted");
     } catch (e) {
-      handleApiError(e, "Could not delete");
+      handleApiError(e, "Could not delete the expense. It has been restored.");
     }
+  }
+
+  function startEditing() {
+    setDraft({
+      title: expense.title,
+      description: expense.description ?? "",
+      memo: expense.memo ?? "",
+    });
+    setEditError(null);
+    setEditing(true);
+  }
+
+  function saveEdit(event: React.FormEvent) {
+    event.preventDefault();
+    const title = draft.title.trim();
+    const description = draft.description.trim();
+    const memo = draft.memo.trim();
+    if (!title) return setEditError("Title is required");
+    if (title.length > 80) return setEditError("Title must be 80 characters or fewer");
+    if (description.length > 500) return setEditError("Description must be 500 characters or fewer");
+    if (memo && !validateMergepayMemo(memo).valid) {
+      return setEditError("Memo must look like MP:<code> and fit in 28 bytes");
+    }
+
+    const data: { title?: string; description?: string; memo?: string } = {};
+    if (title !== expense.title) data.title = title;
+    if (description !== (expense.description ?? "")) data.description = description;
+    if (memo !== (expense.memo ?? "")) data.memo = memo;
+
+    setEditing(false);
+    if (Object.keys(data).length === 0) return;
+    // Fire and forget: the edit renders immediately from the optimistic
+    // cache, and the mutation rolls back + toasts on failure.
+    update.mutate({ expenseId: expense.id, data });
   }
 
   function settleMyShare() {
@@ -126,7 +171,9 @@ export function ExpenseCard({
               {isPending && (
                 <span className="inline-flex items-center gap-1">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-ink/60" />
-                  <Badge tone="paper" className="text-[10px] uppercase">Posting…</Badge>
+                  <Badge tone="paper" className="text-[10px] uppercase">
+                    {expense.isOptimistic ? "Posting…" : "Saving…"}
+                  </Badge>
                 </span>
               )}
               {expense.receiptUrl && <FileText className="h-3.5 w-3.5 text-ink/40" />}
@@ -150,6 +197,52 @@ export function ExpenseCard({
 
       {expanded && (
         <div className="border-t-3 border-ink bg-paper px-4 py-3">
+          {editing && (
+            <form
+              onSubmit={saveEdit}
+              className="mb-3 space-y-2 rounded-xl border-2 border-ink bg-white p-3"
+              aria-label={`Edit expense "${expense.title}"`}
+            >
+              <div>
+                <Label htmlFor={`edit-title-${expense.id}`}>Title</Label>
+                <Input
+                  id={`edit-title-${expense.id}`}
+                  value={draft.title}
+                  maxLength={80}
+                  onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor={`edit-description-${expense.id}`}>Description</Label>
+                <Textarea
+                  id={`edit-description-${expense.id}`}
+                  value={draft.description}
+                  maxLength={500}
+                  onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor={`edit-memo-${expense.id}`}>Memo</Label>
+                <Input
+                  id={`edit-memo-${expense.id}`}
+                  value={draft.memo}
+                  placeholder="MP:code"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => setDraft((d) => ({ ...d, memo: e.target.value }))}
+                />
+              </div>
+              <FieldError id={`edit-error-${expense.id}`} badge="Edit">{editError}</FieldError>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" size="sm">
+                  Save
+                </Button>
+              </div>
+            </form>
+          )}
           {expense.description && (
             <p className="mb-3 text-sm text-ink/70">{expense.description}</p>
           )}
@@ -207,6 +300,16 @@ export function ExpenseCard({
                     <FileText className="h-3.5 w-3.5" /> Image
                   </Button>
                 </>
+              )}
+              {canEdit && !editing && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={startEditing}
+                  aria-label={`Edit expense "${expense.title}"`}
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </Button>
               )}
               {canDelete && (
                 <Button

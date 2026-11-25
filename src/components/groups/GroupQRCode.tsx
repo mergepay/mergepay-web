@@ -6,7 +6,9 @@ import CopyButton from "../ui/CopyButton";
 import { Card, CardContent } from "../ui/card";
 import { Input, Label } from "../ui/input";
 import { Button } from "../ui/button";
-import { QrCode, Download } from "lucide-react";
+import { QrCode, Download, Camera } from "lucide-react";
+import { GroupQRScannerModal } from "./GroupQRScannerModal";
+import { useState } from "react";
 import { toast } from "sonner";
 
 export interface GroupQRCodeProps {
@@ -20,6 +22,7 @@ export interface GroupQRCodeProps {
  */
 export function GroupQRCode({ inviteUrl, className }: GroupQRCodeProps) {
   const qrRef = useRef<SVGSVGElement>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const handleDownload = async () => {
     if (!qrRef.current) return;
@@ -98,16 +101,37 @@ export function GroupQRCode({ inviteUrl, className }: GroupQRCodeProps) {
             <CopyButton text={inviteUrl} label="Copy" />
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleDownload}
-          className="w-full"
-        >
-          <Download className="h-4 w-4 mr-2" aria-hidden="true" />
-          Download QR Code
-        </Button>
+        <div className="flex gap-2 w-full">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownload}
+            className="flex-1"
+          >
+            <Download className="h-4 w-4 mr-2" aria-hidden="true" />
+            Download
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setScannerOpen(true)}
+            className="flex-1"
+          >
+            <Camera className="h-4 w-4 mr-2" aria-hidden="true" />
+            Scan QR
+          </Button>
+        </div>
       </CardContent>
+      <GroupQRScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanResult={(res) => {
+          toast.success("Scanned successfully");
+          if (res.startsWith("http")) {
+            window.location.href = res;
+          }
+        }}
+      />
     </Card>
   );
 }

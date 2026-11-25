@@ -1,6 +1,11 @@
 import type { z } from "zod";
 import { API_URL } from "./constants";
-import { getToken, useAuth } from "./auth-store";
+import { getToken } from "./auth-store";
+import {
+  clearClientSession,
+  emitSessionExpired,
+  isUnauthorizedStatus,
+} from "./sessionMonitor";
 import {
   ApiRequestError,
   ApiValidationError,
@@ -100,12 +105,6 @@ export class ApiTimeoutError extends Error {
 }
 
 let expiryHandled = false;
-let onSessionExpired: (() => void) | null = null;
-
-/** Register the browser-session recovery hook without coupling this module to React. */
-export function setSessionExpiredHandler(handler: (() => void) | null): void {
-  onSessionExpired = handler;
-}
 
 export function isSessionExpired(): boolean {
   return expiryHandled;
@@ -113,6 +112,24 @@ export function isSessionExpired(): boolean {
 
 export function resetSessionExpired(): void {
   expiryHandled = false;
+}
+
+/**
+ * Tear the session down exactly once, no matter how many in-flight requests
+ * come back with a 401.
+ *
+ * The cleanup is delegated to `clearClientSession` so the auth, group and
+ * asset stores are reset together (#898); previously this only cleared the
+ * auth store, leaving the previous account's selected group and asset behind.
+ * `emitSessionExpired` is the single notification path: the provider tree
+ * listens for it to purge the React Query cache and explain the sign-out, so
+ * this module never needs a React import.
+ */
+function expireSession(): void {
+  if (expiryHandled) return;
+  expiryHandled = true;
+  clearClientSession();
+  emitSessionExpired("unauthorized");
 }
 
 /**
@@ -182,10 +199,8 @@ async function request<T>(
     throw networkFailure(err, { silent: options.silent });
   }
 
-  if (res.status === 401 && token && !expiryHandled) {
-    expiryHandled = true;
-    useAuth.getState().clear();
-    onSessionExpired?.();
+  if (isUnauthorizedStatus(res.status) && token) {
+    expireSession();
   }
 
   if (!res.ok) {
@@ -347,9 +362,8 @@ export const api = {
       );
       clearTimeout(timeoutId);
 
-      if (res.status === 401 && token && !expiryHandled) {
-        expiryHandled = true;
-        useAuth.getState().clear();
+      if (isUnauthorizedStatus(res.status) && token) {
+        expireSession();
       }
 
       if (!res.ok) {
@@ -412,8 +426,8 @@ export const api = {
       throw networkFailure(err);
     }
 
-    if (res.status === 401 && token) {
-      useAuth.getState().clear();
+    if (isUnauthorizedStatus(res.status) && token) {
+      expireSession();
     }
 
     if (!res.ok) {

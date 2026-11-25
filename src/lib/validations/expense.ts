@@ -4,6 +4,13 @@ import { SETTLEMENT_ASSETS } from "../constants";
 import { isValidEd25519PublicKey } from "../strkey";
 import { MAX_STROOPS } from "../validation";
 import { mergepayMemoSchema } from "./memo";
+import { countDecimalPlaces, getAssetDecimalPlaces } from "../amountSanitize";
+import {
+  checkSplitPercent,
+  hasControlCharacters,
+  sanitizeText,
+  splitPercentMessage,
+} from "./sanitize";
 import {
   FULL_PERCENT_BP,
   calculateSplit,
@@ -59,20 +66,37 @@ const MAX_PRECISION = "Amount must have at most 7 decimal places";
 
 export const expenseFormSchema = z
   .object({
+    // Free text is checked for control characters on the trimmed input, then
+    // sanitized (NFC, invisible/bidi-override characters stripped, whitespace
+    // collapsed) *before* the length rules run, so a title made only of
+    // zero-width characters is "required", not a blank row in every list.
     title: z
       .string()
       .trim()
-      .min(1, "Title is required")
-      .max(80, "Title must be 80 characters or fewer"),
+      .refine((value) => !hasControlCharacters(value), "Title must not contain control characters")
+      .transform(sanitizeText)
+      .pipe(
+        z
+          .string()
+          .min(1, "Title is required")
+          .max(80, "Title must be 80 characters or fewer")
+      ),
     description: z
       .string()
       .trim()
-      .min(1, "Description cannot be empty")
-      .max(500, "Description must be 500 characters or fewer")
       .regex(/^[^\u0000-\u001f\u007f]*$/, "Description must not contain control characters")
+      .transform(sanitizeText)
+      .pipe(
+        z
+          .string()
+          .min(1, "Description cannot be empty")
+          .max(500, "Description must be 500 characters or fewer")
+      )
       .optional(),
     amount: z
       .string()
+      // Pasted amounts often carry stray whitespace; it is not part of the value.
+      .trim()
       .min(1, "Amount is required")
       .regex(/^\d+(?:\.\d{1,7})?$/, `${PLAIN_NUMBER} with at most 7 decimal places`) // strict positive decimal with up to 7 decimal places
       .refine((val) => { const num = parseFloat(val); return !isNaN(num) && num > 0; }, "Amount must be greater than zero")
@@ -212,31 +236,18 @@ export const expenseFormSchema = z
         let percentSumBp = 0;
         for (let i = 0; i < data.shares.length; i++) {
           const share = data.shares[i];
-          if (share.percent === undefined || share.percent === null || isNaN(share.percent)) {
+          // A 0% row names a participant who owes nothing; NaN/Infinity can
+          // arrive from a cleared or overflowing number input.
+          const percentIssue = checkSplitPercent(share.percent);
+          if (percentIssue) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ["shares", i, "percent"],
-              message: "Enter a percentage for every participant",
+              message: splitPercentMessage(percentIssue),
             });
             continue;
           }
-          if (share.percent < 0 || share.percent > 100) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ["shares", i, "percent"],
-              message: "Percentage must be between 0 and 100",
-            });
-            continue;
-          }
-          if (Math.abs(share.percent * 100 - Math.round(share.percent * 100)) > 1e-9) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ["shares", i, "percent"],
-              message: "Percentages must have at most 2 decimal places",
-            });
-            continue;
-          }
-          percentSumBp += Math.round(share.percent * 100);
+          percentSumBp += Math.round((share.percent as number) * 100);
         }
 
         if (percentSumBp !== FULL_PERCENT_BP) {
@@ -261,6 +272,11 @@ export type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
 export interface ExpenseFormAsset {
   code: string;
   issuer: string | null;
+  /**
+   * Decimal places this asset accepts (0–7). Omitted means the default for
+   * the code from `ASSET_DECIMAL_PLACES`, which is Stellar's 7-decimal max.
+   */
+  decimals?: number;
 }
 
 export interface ExpenseFormSchemaOptions {
@@ -300,6 +316,33 @@ export function createExpenseFormSchema({
           code: z.ZodIssueCode.custom,
           path: ["assetIssuer"],
           message: "The selected asset is missing a valid Stellar issuer",
+        });
+      }
+
+      // Asset precision (#897): the base schema enforces Stellar's 7-decimal
+      // ceiling; an asset configured with fewer decimals narrows it here, for
+      // the total and for every custom share.
+      const places = getAssetDecimalPlaces(selectedAsset.code, selectedAsset.decimals);
+      const precisionMessage =
+        places === 0
+          ? `${selectedAsset.code} amounts must be whole numbers`
+          : `${selectedAsset.code} amounts support at most ${places} decimal place${places === 1 ? "" : "s"}`;
+      const tooPrecise = (value: string | undefined) => {
+        const trimmed = value?.trim() ?? "";
+        return plainAmount.test(trimmed) && countDecimalPlaces(trimmed) > places;
+      };
+      if (tooPrecise(data.amount)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["amount"], message: precisionMessage });
+      }
+      if (data.splitType === "custom") {
+        data.shares.forEach((share, index) => {
+          if (tooPrecise(share.amount)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["shares", index, "amount"],
+              message: precisionMessage,
+            });
+          }
         });
       }
     }
