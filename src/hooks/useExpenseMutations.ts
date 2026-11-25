@@ -39,9 +39,11 @@ import {
 import {
   applyOptimisticSettlement,
   buildOptimisticExpense,
+  findExpenseInCaches,
   insertOptimisticExpense,
   patchOptimisticExpense,
   removeOptimisticExpense,
+  reverseOptimisticExpenseBalances,
 } from "@/lib/optimistic";
 import type {
   BalancesResponse,
@@ -350,6 +352,16 @@ export function useDeleteExpenseMutation(groupId: string) {
       const previousExpenses = qc.getQueriesData({ queryKey: qk.expenses(groupId) });
       const previousHistory = qc.getQueriesData({ queryKey: qk.history });
       const previousActivity = qc.getQueryData<GroupActivityResponse>(qk.activity(groupId));
+      const previousBalances = qc.getQueryData<BalancesResponse>(qk.balances(groupId));
+
+      // Balance summaries derive from the expense list, so reverse this
+      // expense's contribution before the card disappears (#818).
+      const removed = findExpenseInCaches(previousExpenses, expenseId);
+      if (previousBalances && removed) {
+        qc.setQueryData<BalancesResponse>(qk.balances(groupId), (old) =>
+          old ? reverseOptimisticExpenseBalances(old, removed) : old
+        );
+      }
 
       // Remove the expense from both flat and infinite cache shapes
       // immediately so the card disappears before the network responds —
@@ -361,7 +373,7 @@ export function useDeleteExpenseMutation(groupId: string) {
         removeOptimisticExpense(old, expenseId)
       );
 
-      return { previousExpenses, previousHistory, previousActivity };
+      return { previousExpenses, previousHistory, previousActivity, previousBalances };
     },
 
     onError: (_err, _expenseId, context) => {
@@ -370,6 +382,9 @@ export function useDeleteExpenseMutation(groupId: string) {
       restoreSnapshots(qc, context?.previousHistory);
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
+      }
+      if (context?.previousBalances) {
+        qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
       toast.error("Could not delete expense. It has been restored.");
     },
