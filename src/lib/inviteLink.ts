@@ -103,6 +103,57 @@ export function isValidInviteCode(raw: unknown): boolean {
 }
 
 /**
+ * Resolve scanned QR content (or a pasted invite) into an in-app path.
+ *
+ * Accepts a bare invite code, or an absolute http(s) URL on `origin`
+ * whose path is `/join/{code}` or `/invite/{token}` — the shapes our own
+ * QR codes and share links encode. Anything else (external sites, other
+ * paths, unsafe schemes, cross-origin URLs) returns `null` so the caller
+ * can show an error instead of navigating somewhere unintended.
+ */
+export function scannedInvitePath(raw: unknown, origin: string): string | null {
+  if (typeof raw !== "string") return null;
+  const input = raw.trim();
+  if (input.length === 0 || input.length > 2048) return null;
+
+  const bare = parseInviteCode(input);
+  if (bare.ok) return inviteJoinPath(bare.code);
+
+  if (!isSafeInviteUrl(input)) return null;
+
+  let url: URL;
+  let base: URL;
+  try {
+    url = new URL(input);
+    base = new URL(origin);
+  } catch {
+    return null;
+  }
+  if (url.origin !== base.origin) return null;
+
+  const segments = url.pathname.split("/").filter(Boolean);
+  const head = segments[0];
+  if ((head !== "join" && head !== "invite") || segments.length !== 2) {
+    return null;
+  }
+  const token = parseInviteCode(segments[1]);
+  if (!token.ok) return null;
+
+  const path =
+    head === "join"
+      ? inviteJoinPath(token.code)
+      : `/invite/${encodeURIComponent(token.code)}`;
+  if (!path) return null;
+
+  // Preserve a valid `group` hint; drop everything else from the query.
+  const group = new URLSearchParams(url.search).get("group");
+  if (group && GROUP_ID_PATTERN.test(group)) {
+    return `${path}?group=${encodeURIComponent(group)}`;
+  }
+  return path;
+}
+
+/**
  * Build the in-app path for a validated code. Returns `null` for input
  * that does not parse, so a tampered value can never be interpolated
  * into a router push (`/join/../../somewhere`).

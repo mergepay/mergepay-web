@@ -11,6 +11,7 @@ import {
   isSafeInviteUrl,
   isValidInviteCode,
   parseInviteCode,
+  scannedInvitePath,
 } from "../inviteLink";
 
 describe("parseInviteCode — valid identifiers", () => {
@@ -369,5 +370,55 @@ describe("buildInviteLink", () => {
     const url = new URL(link);
     assert.equal(url.pathname, `/join/${token}`);
     assert.equal(url.searchParams.get("group"), "g1");
+  });
+});
+
+describe("scannedInvitePath", () => {
+  const origin = "https://mergepay.app";
+
+  it("accepts a bare invite code", () => {
+    assert.equal(scannedInvitePath("  7QF3KD2P ", origin), "/join/7QF3KD2P");
+  });
+
+  it("accepts a same-origin /join/ URL and keeps a valid group hint", () => {
+    assert.equal(
+      scannedInvitePath(
+        "https://mergepay.app/join/7QF3KD2P?group=g_123",
+        origin
+      ),
+      "/join/7QF3KD2P?group=g_123"
+    );
+  });
+
+  it("accepts a same-origin /invite/ URL", () => {
+    assert.equal(
+      scannedInvitePath("https://mergepay.app/invite/7QF3KD2P", origin),
+      "/invite/7QF3KD2P"
+    );
+  });
+
+  it("drops unsafe query parameters from scanned URLs", () => {
+    assert.equal(
+      scannedInvitePath(
+        "https://mergepay.app/join/7QF3KD2P?group=g_123&next=https://evil.example",
+        origin
+      ),
+      "/join/7QF3KD2P?group=g_123"
+    );
+  });
+
+  it("rejects cross-origin URLs even on invite-looking paths", () => {
+    assert.equal(
+      scannedInvitePath("https://evil.example/join/7QF3KD2P", origin),
+      null
+    );
+  });
+
+  it("rejects unsafe schemes, other paths and malformed tokens", () => {
+    assert.equal(scannedInvitePath("javascript:alert(1)", origin), null);
+    assert.equal(scannedInvitePath("https://mergepay.app/groups/g1", origin), null);
+    assert.equal(scannedInvitePath("https://mergepay.app/join/../etc", origin), null);
+    assert.equal(scannedInvitePath("", origin), null);
+    assert.equal(scannedInvitePath(null, origin), null);
   });
 });

@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useGroup, useExpenses, useBalances, useSettlements } from "@/lib/queries";
 import { useGroupStore } from "@/lib/group-store";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { GroupErrorBoundary } from "@/components/groups/GroupErrorBoundary";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Plus, Users, Receipt, ArrowLeft, SearchX, Download, QrCode } from "lucide-react";
+import { Plus, Users, Receipt, ArrowLeft, SearchX, Download, QrCode, ScanLine } from "lucide-react";
+import { toast } from "sonner";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { CurrencyTicker } from "@/components/CurrencyTicker";
@@ -22,6 +23,7 @@ import { hasExportableHistory } from "@/lib/utils/export";
 import {
   LazyAddExpenseDialog,
   LazyExportGroupModal,
+  LazyGroupQRScannerModal,
   LazyInviteMemberModal,
   LazyTreasuryView,
 } from "@/components/lazy-modals";
@@ -33,9 +35,11 @@ import { filterExpenses } from "@/lib/expenseFilters";
 import { ListSkeleton, GroupHeaderSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
 import type { Expense, GroupMember } from "@/lib/types";
 import { useAuth } from "@/lib/auth-store";
+import { scannedInvitePath } from "@/lib/inviteLink";
 
 export default function GroupDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const groupId = params.id as string;
 
   const groupQuery = useGroup(groupId);
@@ -47,12 +51,14 @@ export default function GroupDetailPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [shareQrOpen, setShareQrOpen] = useState(false);
+  const [scanQrOpen, setScanQrOpen] = useState(false);
   // Heavy dialogs are code-split (#887) and mounted on first open, so their
   // chunks download when used rather than with the page.
   const mountAddExpense = useMountOnFirstOpen(addExpenseOpen);
   const mountInvite = useMountOnFirstOpen(inviteOpen);
   const mountExport = useMountOnFirstOpen(exportOpen);
   const mountShareQr = useMountOnFirstOpen(shareQrOpen);
+  const mountScanQr = useMountOnFirstOpen(scanQrOpen);
   const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
 
   // The route is the source of truth for which group is active — mirror it into
@@ -88,6 +94,22 @@ export default function GroupDetailPage() {
 
   const pageCount = Math.max(1, Math.ceil(filteredExpenses.length / filters.pageSize));
   const visibleExpenses = filteredExpenses.slice((page - 1) * filters.pageSize, page * filters.pageSize);
+
+  // Scanned QR content is untrusted input: only same-origin invite links or
+  // bare invite codes resolve to an in-app path (#867).
+  const handleScanResult = useCallback(
+    (result: string) => {
+      const path = scannedInvitePath(result, window.location.origin);
+      if (path) {
+        router.push(path);
+      } else {
+        toast.error(
+          "That doesn't look like a MergePay invite. Ask for a fresh invite link or QR code."
+        );
+      }
+    },
+    [router]
+  );
 
   return (
     <GroupErrorBoundary onReset={() => {
@@ -126,6 +148,14 @@ export default function GroupDetailPage() {
               data-testid="group-share-qr"
             >
               <QrCode className="h-4 w-4 mr-1" aria-hidden /> Share QR
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setScanQrOpen(true)}
+              aria-label="Scan a group invite QR code"
+              data-testid="group-scan-qr"
+            >
+              <ScanLine className="h-4 w-4 mr-1" aria-hidden /> Scan QR
             </Button>
             <Button variant="outline" onClick={() => setInviteOpen(true)}>
               <Users className="h-4 w-4 mr-1" /> Invite
@@ -311,6 +341,14 @@ export default function GroupDetailPage() {
             onClose={() => setShareQrOpen(false)}
             groupId={groupId}
             groupName={group?.name}
+          />
+        )}
+
+        {mountScanQr && (
+          <LazyGroupQRScannerModal
+            open={scanQrOpen}
+            onClose={() => setScanQrOpen(false)}
+            onScanResult={handleScanResult}
           />
         )}
 

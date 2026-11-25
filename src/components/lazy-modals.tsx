@@ -65,6 +65,12 @@ export const LazyAnchorInteractiveModal = dynamic(
   { ssr: false, loading: modalLoading }
 );
 
+export const LazyGroupQRScannerModal = dynamic(
+  () =>
+    import("@/components/groups/GroupQRScannerModal").then((m) => m.GroupQRScannerModal),
+  { ssr: false, loading: modalLoading }
+);
+
 /** Only rendered for treasury-enabled groups; reserves its height while loading. */
 export const LazyTreasuryView = dynamic(
   () => import("@/components/treasury/TreasuryView").then((m) => m.TreasuryView),
