@@ -75,7 +75,7 @@ describe("MultiCurrencyBalanceSummary", () => {
     // USDC sorts first, so it is the base: only the XLM leg needs an
     // equivalent, and 100 XLM at half a USDC each is 50 USDC.
     expect(screen.getAllByText(/≈ 50\.00 USDC/).length).toBe(1);
-    expect(screen.getByText("Total in USDC")).toBeDefined();
+    expect(screen.getByText((content, node) => node?.textContent === "Total in USDC: 75.00 USDC")).toBeDefined();
     expect(screen.getAllByText("75.00 USDC").length).toBeGreaterThan(0);
   });
 
@@ -90,7 +90,7 @@ describe("MultiCurrencyBalanceSummary", () => {
     );
 
     expect(screen.getAllByText(/≈ -50\.00 USDC/).length).toBe(1);
-    expect(screen.getAllByText("-25.00 USDC").length).toBeGreaterThan(0);
+    expect(screen.getAllByText((content, node) => node?.textContent?.includes("-25.00 USDC") ?? false).length).toBeGreaterThan(0);
   });
 
   it("shows no equivalents for a single-asset group", () => {
