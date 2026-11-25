@@ -35,6 +35,7 @@ import { useAuth } from "@/lib/auth-store";
 import {
   calculateOptimisticActivityList,
   createOptimisticExpenseEvent,
+  createOptimisticSettlementEvent,
 } from "@/lib/activity";
 import {
   applyOptimisticSettlement,
@@ -279,6 +280,22 @@ export function useSettleBalanceMutation(groupId: string) {
       const previousActivity = qc.getQueryData<GroupActivityResponse>(qk.activity(groupId));
       const previousExpenses = qc.getQueriesData({ queryKey: qk.expenses(groupId) });
       const payer = currentUser(me.data);
+
+      const detail = qc.getQueryData<GroupDetail>(qk.group(groupId));
+      const recipient = detail?.members.find((member) => member.userId === newSettlement.toUserId)?.user;
+      const optimisticActivity = createOptimisticSettlementEvent(
+        groupId,
+        newSettlement,
+        payer
+          ? { id: payer.id, displayName: payer.displayName, avatarUrl: payer.avatarUrl }
+          : undefined,
+        recipient
+          ? { id: recipient.id, displayName: recipient.displayName, avatarUrl: recipient.avatarUrl }
+          : undefined
+      );
+      qc.setQueryData<GroupActivityResponse>(qk.activity(groupId), (old) =>
+        calculateOptimisticActivityList(old, optimisticActivity)
+      );
 
       if (previousBalances && payer) {
         qc.setQueryData<BalancesResponse>(balancesKey, (old) =>

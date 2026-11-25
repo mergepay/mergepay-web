@@ -24,6 +24,8 @@
  */
 
 // ---------------------------------------------------------------------------
+import { assertInt64, toSignedStroops } from "./money";
+
 // Decimal-7 ↔ stroops (BigInt) helpers
 // 1 XLM = 10,000,000 stroops. We always carry 7 decimal places on the wire.
 // We avoid BigInt literal syntax (...n) so the source compiles against
@@ -45,19 +47,12 @@ const WEIGHT_SCALE = 1_000_000;
  *   toStroops("0.0000001") // → 1n
  */
 export function toStroops(amount: string | number): bigint {
-  const s = typeof amount === "number" ? amount.toFixed(7) : amount;
-  const trimmed = s.trim();
-  if (!trimmed) {
-    throw new Error(`toStroops: empty amount`);
+  if (typeof amount === "number" && !Number.isFinite(amount)) {
+    throw new Error(`toStroops: invalid number`);
   }
-  // Tolerate a trailing dot ("50.") by padding one zero before splitting.
-  const normalized = trimmed.endsWith(".") ? `${trimmed}0` : trimmed;
-  // Default int to "0" so a leading dot (".5") parses as 0.5 stroops; let
-  // BigInt("-") and other garbage throw so upstream callers surface bad
-  // input instead of silently getting wrong totals.
-  const [int = "0", frac = ""] = normalized.split(".");
-  const padded = (frac + "0000000").slice(0, 7);
-  return BigInt(int) * STROOPS_PER_UNIT + BigInt(padded);
+  // String(number) preserves the user's decimal value without the binary
+  // artefacts introduced by multiplying a float and calling toFixed().
+  return assertInt64(toSignedStroops(String(amount)));
 }
 
 /**
