@@ -1,6 +1,11 @@
 import type { z } from "zod";
 import { API_URL } from "./constants";
-import { getToken, useAuth } from "./auth-store";
+import { getToken } from "./auth-store";
+import {
+  clearClientSession,
+  emitSessionExpired,
+  isUnauthorizedStatus,
+} from "./sessionMonitor";
 import {
   ApiRequestError,
   ApiValidationError,
@@ -74,6 +79,7 @@ import type {
   UpdateExpenseRequest,
   UpdateMeRequest,
   UploadResponse,
+  User,
   VerifyResponse,
   Role,
 } from "./types";
@@ -106,6 +112,24 @@ export function isSessionExpired(): boolean {
 
 export function resetSessionExpired(): void {
   expiryHandled = false;
+}
+
+/**
+ * Tear the session down exactly once, no matter how many in-flight requests
+ * come back with a 401.
+ *
+ * The cleanup is delegated to `clearClientSession` so the auth, group and
+ * asset stores are reset together (#898); previously this only cleared the
+ * auth store, leaving the previous account's selected group and asset behind.
+ * `emitSessionExpired` is the single notification path: the provider tree
+ * listens for it to purge the React Query cache and explain the sign-out, so
+ * this module never needs a React import.
+ */
+function expireSession(): void {
+  if (expiryHandled) return;
+  expiryHandled = true;
+  clearClientSession();
+  emitSessionExpired("unauthorized");
 }
 
 /**
@@ -165,7 +189,9 @@ async function request<T>(
 
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { ...options, headers, body });
+    // Browser calls go through the same-origin Next.js API proxy
+    // (src/app/api/*), which forwards to the backend via API_URL.
+    res = await fetch(`/api${path}`, { ...options, headers, body });
   } catch (err) {
     // fetch only rejects on network-level failures (offline, DNS, CORS)
     // or intentional aborts. Normalize and report centrally — every call
@@ -173,9 +199,8 @@ async function request<T>(
     throw networkFailure(err, { silent: options.silent });
   }
 
-  if (res.status === 401 && token && !expiryHandled) {
-    expiryHandled = true;
-    useAuth.getState().clear();
+  if (isUnauthorizedStatus(res.status) && token) {
+    expireSession();
   }
 
   if (!res.ok) {
@@ -216,6 +241,10 @@ export const api = {
       method: "POST",
       json: { transaction },
       schema: VerifyResponseSchema as unknown as z.ZodType<VerifyResponse>,
+    }),
+  authRefresh: () =>
+    request<{ token: string; user: User }>("/auth/refresh", {
+      method: "POST",
     }),
   authLogout: () =>
     request<{ ok: boolean }>("/auth/logout", {
@@ -323,7 +352,7 @@ export const api = {
 
     try {
       const res = await fetch(
-        `${API_URL}/groups/${groupId}/expenses`,
+        `/api/groups/${groupId}/expenses`,
         {
           method: "POST",
           headers,
@@ -333,9 +362,8 @@ export const api = {
       );
       clearTimeout(timeoutId);
 
-      if (res.status === 401 && token && !expiryHandled) {
-        expiryHandled = true;
-        useAuth.getState().clear();
+      if (isUnauthorizedStatus(res.status) && token) {
+        expireSession();
       }
 
       if (!res.ok) {
@@ -398,8 +426,8 @@ export const api = {
       throw networkFailure(err);
     }
 
-    if (res.status === 401 && token) {
-      useAuth.getState().clear();
+    if (isUnauthorizedStatus(res.status) && token) {
+      expireSession();
     }
 
     if (!res.ok) {
@@ -540,9 +568,17 @@ export const api = {
       json: data,
       schema: AnchorSessionResponseSchema as unknown as z.ZodType<AnchorSessionResponse>,
     }),
+  anchorSession: (sessionId: string) =>
+    request<AnchorSessionResponse>(`/anchors/sessions/${sessionId}`, {
+      schema: AnchorSessionResponseSchema as unknown as z.ZodType<AnchorSessionResponse>,
+    }),
   anchorSessions: () =>
     request<AnchorSessionsResponse>("/anchors/sessions", {
       schema: AnchorSessionsResponseSchema as unknown as z.ZodType<AnchorSessionsResponse>,
+    }),
+  getAnchorSession: (sessionId: string) =>
+    request<AnchorSessionResponse>(`/anchors/sessions/${sessionId}`, {
+      schema: AnchorSessionResponseSchema as unknown as z.ZodType<AnchorSessionResponse>,
     }),
 
   // -- history & uploads ------------------------------------------------------------
@@ -574,3 +610,14 @@ export const api = {
     });
   },
 };
+
+/**
+ * Fetch invite details by code without redeeming the invite.
+ * Kept outside the `api` object to avoid TypeScript inference-depth
+ * issues with the very large object literal.
+ */
+export function getInviteByCode(code: string) {
+  return request<InviteResponse>(`/invites/${encodeURIComponent(code)}`, {
+    schema: InviteResponseSchema as unknown as z.ZodType<InviteResponse>,
+  });
+}

@@ -1,486 +1,328 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { useGroup, useExpenses, useBalances, useSettlements } from "@/lib/queries";
 import { useGroupStore } from "@/lib/group-store";
-import {
-  Activity,
-  ChevronDown,
-  Landmark,
-  ListChecks,
-  Plus,
-  QrCode,
-  Receipt,
-  Scale,
-  ScrollText,
-  Users,
-} from "lucide-react";
-import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
-import { PageHeader } from "@/components/app-shell";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { GroupErrorBoundary } from "@/components/groups/GroupErrorBoundary";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs } from "@/components/ui/tabs";
-import { EmptyState } from "@/components/ui/empty-state";
-import { ListSkeleton } from "@/components/ui/skeleton";
-import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
-import { ExpenseCard } from "@/components/expenses/expense-card";
-import { ExportHistoryButton } from "@/components/expenses/ExportHistoryButton";
-import { RecurringExpenseScheduler } from "@/components/RecurringExpenseScheduler";
-import { ShareQrModal } from "@/components/ShareQrModal";
-
-import { GroupAnalytics } from "@/components/expenses/GroupAnalytics";
-import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
-import { SettleDialog, type BulkSettleTarget } from "@/components/settle/settle-dialog";
-import { BulkSettleBar } from "@/components/settle/bulk-settle-bar";
-import { buildBulkTarget, type UnsettledShare } from "@/lib/bulkSettle";
+import { Plus, Users, Receipt, ArrowLeft, SearchX, Download, QrCode } from "lucide-react";
+import Link from "next/link";
+import { motion } from "framer-motion";
+import { CurrencyTicker } from "@/components/CurrencyTicker";
+import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import { BalancesPanel } from "@/components/balances/balances-panel";
-import { LedgerPanel } from "@/components/ledger/ledger-panel";
-import { TreasuryPanel } from "@/components/treasury/treasury-panel";
-import { MembersPanel } from "@/components/groups/members-panel";
+import { ExpenseCard } from "@/components/expenses/expense-card";
+import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
+import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
+import { ExportGroupStatementButton } from "@/components/ExportGroupStatementButton";
+import { hasExportableHistory } from "@/lib/utils/export";
 import {
-  SectionBoundary,
-  SectionError,
-  SectionLoading,
-} from "@/components/ui/section";
-import { useGroup, useInfiniteExpenses, useMe } from "@/lib/queries";
-import type { GroupMember } from "@/lib/types";
-import { mergeExpensePages, sortExpensesByDateDesc } from "@/lib/expenses";
-import { apiErrorMessage } from "@/lib/errorHandler";
-import { resolveSectionStatus } from "@/lib/sectionState";
-import { useWalletDisconnected } from "@/lib/wallet-store";
-
-type Tab = "expenses" | "activity" | "recurring" | "balances" | "ledger" | "treasury" | "members";
-
-/**
- * Records per request. Large enough that most groups never need a second
- * page, small enough that a group with hundreds of expenses does not pay
- * first-paint cost for the whole history. The API clamps `limit` at 100.
- */
-const EXPENSES_PAGE_SIZE = 20;
+  LazyAddExpenseDialog,
+  LazyExportGroupModal,
+  LazyInviteMemberModal,
+  LazyTreasuryView,
+} from "@/components/lazy-modals";
+import { useMountOnFirstOpen } from "@/components/ui/lazy-overlay";
+import { MultiPayerOverview } from "@/components/groups/MultiPayerOverview";
+import { GroupInviteModal } from "@/components/groups/GroupInviteModal";
+import { ExpenseListFilters, type ExpenseFilterState } from "@/components/expenses/expense-list-filters";
+import { filterExpenses } from "@/lib/expenseFilters";
+import { ListSkeleton, GroupHeaderSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
+import type { Expense, GroupMember } from "@/lib/types";
+import { useAuth } from "@/lib/auth-store";
 
 export default function GroupDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  // The profile request only supplies "(you)" markers; a failure must not
-  // take the whole group page down with it.
-  const { data: me } = useMe();
-  const { data: detail, isLoading, isError, error, refetch } = useGroup(id);
-  const [tab, setTab] = useState<Tab>("expenses");
-  const [addOpen, setAddOpen] = useState(false);
-  const [qrOpen, setQrOpen] = useState(false);
-  // Keep the active group id in a tiny client store so sibling routes
-  // (e.g. balances, treasury) can reuse it without re-fetching.
+  const params = useParams();
+  const groupId = params.id as string;
+
+  const groupQuery = useGroup(groupId);
+  const expensesQuery = useExpenses(groupId);
+  const balancesQuery = useBalances(groupId);
+  const settlementsQuery = useSettlements(groupId);
+
+  const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [shareQrOpen, setShareQrOpen] = useState(false);
+  // Heavy dialogs are code-split (#887) and mounted on first open, so their
+  // chunks download when used rather than with the page.
+  const mountAddExpense = useMountOnFirstOpen(addExpenseOpen);
+  const mountInvite = useMountOnFirstOpen(inviteOpen);
+  const mountExport = useMountOnFirstOpen(exportOpen);
+  const mountShareQr = useMountOnFirstOpen(shareQrOpen);
   const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
-  // Expense creation feeds on-chain settlement — lock it while the
-  // wallet is disconnected.
-  const walletDisconnected = useWalletDisconnected();
 
+  // The route is the source of truth for which group is active — mirror it into
+  // the persisted store so the selection (and the recent-groups list) survives a
+  // reload and is readable by views that don't carry the param, e.g. history (#494).
   useEffect(() => {
-    setSelectedGroup(id);
-  }, [id, setSelectedGroup]);
+    if (groupId) setSelectedGroup(groupId);
+  }, [groupId, setSelectedGroup]);
 
-  const currentUserId = me?.user.id ?? "";
+  const [filters, setFilters] = useState<ExpenseFilterState>({ keyword: "", payer: "", status: "all", assetCode: "", fromDate: "", toDate: "", pageSize: 10 });
+  const [page, setPage] = useState(1);
 
-  if (isError && !detail) {
-    return (
-      <SectionError
-        subject="this group"
-        error={error}
-        onRetry={() => refetch()}
-      />
-    );
-  }
+  const group = groupQuery.data?.group;
+  const expenses: Expense[] = useMemo(() => expensesQuery.data?.expenses ?? [], [expensesQuery.data]);
+  const balances = balancesQuery.data?.balances ?? [];
+  const settlements = settlementsQuery.data?.settlements ?? [];
+  const members: GroupMember[] = groupQuery.data?.members ?? [];
+  const currentUserId = useAuth((state) => state.user?.id) ?? "";
+  const isAdmin = true;
 
-  if (isLoading || !detail) {
-    return (
-      <SectionLoading label="Loading this group" minHeight="min-h-[24rem]">
-        <div className="mb-8 h-10 w-48 animate-pulse rounded-xl bg-ink/10" />
-        <ListSkeleton rows={4} />
-      </SectionLoading>
-    );
-  }
+  const onFilterChange = useCallback((next: ExpenseFilterState) => {
+    setFilters(next);
+    setPage(1);
+  }, []);
 
-  const { group } = detail;
-
-  const headerAction = (
-    <div className="flex items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setQrOpen(true)}
-        title="Share Group QR Code"
-      >
-        <QrCode className="h-4 w-4" /> Share QR
-      </Button>
-      {tab === "expenses" ? (
-        <Button
-          onClick={() => setAddOpen(true)}
-          disabled={walletDisconnected}
-          title={
-            walletDisconnected
-              ? "Reconnect your wallet to add an expense"
-              : undefined
-          }
-        >
-          <Plus className="h-4 w-4" /> Add expense
-        </Button>
-      ) : null}
-    </div>
+  const filteredExpenses = useMemo(
+    () =>
+      filterExpenses(expenses, filters).filter(
+        (expense) => !filters.payer || expense.payerUserId === filters.payer
+      ),
+    [expenses, filters]
   );
+
+  const pageCount = Math.max(1, Math.ceil(filteredExpenses.length / filters.pageSize));
+  const visibleExpenses = filteredExpenses.slice((page - 1) * filters.pageSize, page * filters.pageSize);
 
   return (
-    <>
-      <PageHeader
-        back={{ href: "/groups", label: "All groups" }}
-        title={group.name}
-        description={group.description ?? undefined}
-        action={headerAction}
-      />
-
-      {group.archived && (
-        <div className="mb-6">
-          <Badge tone="paper">This group is archived</Badge>
-        </div>
-      )}
-
-      <Tabs
-        className="mb-6"
-        active={tab}
-        onChange={(t) => setTab(t as Tab)}
-        tabs={[
-          {
-            id: "expenses",
-            label: "Expenses",
-            icon: <Receipt className="h-4 w-4" />,
-          },
-          {
-            id: "activity",
-            label: "Activity",
-            icon: <Activity className="h-4 w-4" />,
-          },
-          {
-            id: "recurring",
-            label: "Recurring",
-            icon: <Landmark className="h-4 w-4" />,
-          },
-          {
-            id: "balances",
-            label: "Balances",
-            icon: <Scale className="h-4 w-4" />,
-          },
-          {
-            id: "ledger",
-            label: "Ledger",
-            icon: <ScrollText className="h-4 w-4" />,
-          },
-          {
-            id: "treasury",
-            label: "Treasury",
-            icon: <Landmark className="h-4 w-4" />,
-          },
-          {
-            id: "members",
-            label: "Members",
-            icon: <Users className="h-4 w-4" />,
-          },
-        ]}
-      />
-
-      {/* Each panel owns its own request and its own failure state, and
-          each is wrapped so an unexpected render error is contained to
-          the panel instead of blanking the group page. */}
-      {tab === "expenses" && (
-        <SectionBoundary subject="the expense list">
-          <ExpensesTab
-            groupId={id}
-            currentUserId={currentUserId}
-            members={detail.members}
-            yourRole={detail.yourRole}
-            onAdd={() => setAddOpen(true)}
-          />
-        </SectionBoundary>
-      )}
-      {tab === "activity" && (
-        <SectionBoundary subject="the activity feed">
-          <GroupActivityFeed groupId={id} />
-        </SectionBoundary>
-      )}
-      {tab === "recurring" && (
-        <SectionBoundary subject="the recurring scheduler">
-          <RecurringExpenseScheduler
-            groupId={id}
-            members={detail.members}
-            currentUserId={currentUserId}
-          />
-        </SectionBoundary>
-      )}
-      {tab === "balances" && (
-        <SectionBoundary subject="the balances panel">
-          <BalancesPanel groupId={id} currentUserId={currentUserId} />
-        </SectionBoundary>
-      )}
-      {tab === "ledger" && (
-        <SectionBoundary subject="the ledger">
-          <LedgerPanel groupId={id} />
-        </SectionBoundary>
-      )}
-      {tab === "treasury" && (
-        <SectionBoundary subject="the treasury panel">
-          <TreasuryPanel group={group} detail={detail} />
-        </SectionBoundary>
-      )}
-      {tab === "members" && (
-        <SectionBoundary subject="the member list">
-          <MembersPanel detail={detail} currentUserId={currentUserId} />
-        </SectionBoundary>
-      )}
-
-      <AddExpenseDialog
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        groupId={id}
-        members={detail.members}
-        currentUserId={currentUserId}
-      />
-
-      <ShareQrModal
-        open={qrOpen}
-        onClose={() => setQrOpen(false)}
-        title={`Share ${group.name}`}
-        description="Scan this QR code on any device to open this group directly."
-        shareUrl={typeof window !== "undefined" ? `${window.location.origin}/groups/${id}` : `https://mergepay.app/groups/${id}`}
-      />
-    </>
-
-  );
-}
-
-function ExpensesTab({
-  groupId,
-  currentUserId,
-  members,
-  yourRole,
-  onAdd,
-}: {
-  groupId: string;
-  currentUserId: string;
-  members: GroupMember[];
-  yourRole: "admin" | "member" | "viewer";
-  onAdd: () => void;
-}) {
-  // Bulk-settle selection state. Kept local to this tab so leaving the
-  // expenses tab (e.g. to balances) automatically drops the selection.
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkTarget, setBulkTarget] = useState<BulkSettleTarget | null>(null);
-  const walletDisconnected = useWalletDisconnected();
-
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-    refetch,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteExpenses(groupId, { limit: EXPENSES_PAGE_SIZE });
-
-  // Merged across every loaded page and deduped on the expense id, so a
-  // refetch that re-issues page 1 (or a page boundary that shifts when a
-  // new expense lands) cannot render the same record twice.
-  const expenses = useMemo(() => mergeExpensePages(data?.pages), [data]);
-
-  function toggleSelect(id: string) {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  }
-  function exitSelectMode() {
-    setSelectMode(false);
-    setSelectedIds([]);
-  }
-  function openBulkDialog(shares: UnsettledShare[]) {
-    // Mirror the bar's own validation, but build the dialog-bound target
-    // so the receipt can list per-expense rows by their on-page title.
-    const { target, error: bulkError } = buildBulkTarget(shares);
-    if (bulkError || !target) return;
-    const titleById = new Map(expenses.map((e) => [e.id, e.title]));
-    setBulkTarget({
-      ...target,
-      rows: target.expenseIds.map((id) => ({
-        expenseId: id,
-        title: titleById.get(id) ?? id,
-        amount:
-          shares.find((s) => s.expenseId === id)?.amount ?? "0.0000000",
-      })),
-    });
-    setBulkOpen(true);
-  }
-
-  const status = resolveSectionStatus({
-    isLoading,
-    isError: isError && expenses.length === 0,
-    hasData: data !== undefined,
-    isEmpty: expenses.length === 0,
-  });
-
-  // Only the very first page gets the skeleton. Later pages keep the
-  // records already on screen and put the spinner on the load-more
-  // control instead.
-  if (status === "loading") {
-    return (
-      <SectionLoading label="Loading expenses" minHeight="min-h-[18rem]">
-        <ListSkeleton rows={4} />
-      </SectionLoading>
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <SectionError
-        subject="the expenses for this group"
-        error={error}
-        onRetry={() => refetch()}
-      />
-    );
-  }
-
-  if (expenses.length === 0) {
-    return (
-      <EmptyState
-        icon={<Receipt className="h-7 w-7" />}
-        title="No expenses yet"
-        description="Log your first shared bill and let Mergepay split it."
-        action={
-          <Button
-            onClick={onAdd}
-            disabled={walletDisconnected}
-            title={
-              walletDisconnected
-                ? "Reconnect your wallet to add an expense"
-                : undefined
-            }
-          >
-            <Plus className="h-4 w-4" /> Add expense
-          </Button>
-        }
-      />
-    );
-  }
-
-  // Action area changes when bulk-select is on, mirroring the issue's
-  // "Settle" button requirement on the group detail page. The "Add
-  // expense" button stays in the page header - this row is only for
-  // bulk-select controls.
-  const actionArea = selectMode ? (
-    <div className="flex items-center justify-end gap-2">
-      <Badge tone="paper">{selectedIds.length} selected</Badge>
-      <Button variant="outline" size="sm" onClick={exitSelectMode}>
-        Cancel
-      </Button>
-    </div>
-  ) : (
-    <div className="flex items-center justify-end gap-2">
-      <ExportHistoryButton groupId={groupId} currentUserId={currentUserId} />
-      <Button variant="outline" size="sm" onClick={() => setSelectMode(true)}>
-        <ListChecks className="h-4 w-4" /> Settle in bulk
-      </Button>
-    </div>
-  );
-
-  return (
-    <>
-      <GroupBudgetTracker
-        className="mb-4"
-        groupId={groupId}
-        expenses={expenses}
-        assetCode={expenses[0]?.assetCode ?? null}
-        isAdmin={yourRole === "admin"}
-      />
-      <GroupAnalytics expenses={expenses} />
-      <div className="mb-4 flex items-center justify-between">{actionArea}</div>
-      <div className="space-y-3">
-        <ul className="space-y-3" aria-label="Group expenses">
-          {expenses.map((e) => (
-            <li key={e.id}>
-              <ExpenseCard
-                expense={e}
-                groupId={groupId}
-                currentUserId={currentUserId}
-                members={members}
-                selectable={selectMode}
-                selected={selectedIds.includes(e.id)}
-                onToggleSelect={() => toggleSelect(e.id)}
-              />
-            </li>
-          ))}
-        </ul>
-
-        <p className="sr-only" role="status" aria-live="polite">
-          {isFetchingNextPage
-            ? "Loading more expenses"
-            : `Showing ${expenses.length} expense${
-                expenses.length === 1 ? "" : "s"
-              }${hasNextPage ? ", more available" : ", end of history"}`}
-        </p>
-
-        {isError && (
-          <div
-            className="rounded-xl border-2 border-ink bg-flamingo-pale px-4 py-3 text-sm"
-            role="alert"
-          >
-            {apiErrorMessage(error, "We couldn't load more expenses.")}
-          </div>
-        )}
-
-        <div className="flex flex-col items-center gap-2 pt-1">
-          {hasNextPage ? (
+    <GroupErrorBoundary onReset={() => {
+      groupQuery.refetch();
+      expensesQuery.refetch();
+      balancesQuery.refetch();
+      settlementsQuery.refetch();
+    }}>
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Link href="/dashboard">
+            <Button variant="ghost" size="sm">
+              <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
+            </Button>
+          </Link>
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => fetchNextPage()}
-              loading={isFetchingNextPage}
-              aria-busy={isFetchingNextPage}
-              aria-label={
-                isError ? "Try loading more expenses again" : "Load older expenses"
+              size="sm"
+              onClick={() => setExportOpen(true)}
+              disabled={!hasExportableHistory(expenses, settlements)}
+              aria-label="Export group expense history"
+              title={
+                hasExportableHistory(expenses, settlements)
+                  ? undefined
+                  : "No expenses or settlements to export yet"
               }
             >
-              {!isFetchingNextPage && <ChevronDown className="h-4 w-4" />}
-              {isFetchingNextPage
-                ? "Loading."
-                : isError
-                  ? "Try again"
-                  : "Load older expenses"}
+              <Download className="h-4 w-4 mr-1" aria-hidden="true" /> Export
             </Button>
-          ) : (
-            <p className="text-xs text-ink/50">
-              That&apos;s every expense in this group.
-            </p>
-          )}
+            <ExportGroupStatementButton groupId={groupId} expenses={expenses} settlements={settlements} />
+            <Button
+              variant="outline"
+              onClick={() => setShareQrOpen(true)}
+              aria-label="Share group QR code"
+              data-testid="group-share-qr"
+            >
+              <QrCode className="h-4 w-4 mr-1" aria-hidden /> Share QR
+            </Button>
+            <Button variant="outline" onClick={() => setInviteOpen(true)}>
+              <Users className="h-4 w-4 mr-1" /> Invite
+            </Button>
+            <Button onClick={() => setAddExpenseOpen(true)} data-testid="group-add-expense">
+              <Plus className="h-4 w-4 mr-1" /> Add Expense
+            </Button>
+          </div>
         </div>
+
+        <ErrorBoundary>
+          {groupQuery.isPending ? (
+            <div className="rounded-2xl border-3 border-ink bg-paper p-6 shadow-brutal space-y-3">
+              <div className="h-8 w-1/3 bg-ink/15 rounded-lg animate-pulse" />
+              <div className="h-4 w-2/3 bg-ink/15 rounded-lg animate-pulse" />
+            </div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="rounded-2xl border-3 border-ink bg-paper p-6 shadow-brutal"
+            >
+              <h1 className="font-display text-2xl uppercase tracking-tight" data-testid="group-title">
+                {group?.name ?? "Group"}
+              </h1>
+              {group?.description && (
+                <p className="mt-1 text-sm text-ink/70">{group.description}</p>
+              )}
+            </motion.div>
+          )}
+        </ErrorBoundary>
+
+        {/* Settling a non-native asset fails on-chain without a trustline,
+            so warn here — before the user starts a settle — and let them
+            add it without leaving the group */}
+        {!group?.archived && <TrustlineBanner />}
+
+        <ErrorBoundary>
+          <CurrencyTicker />
+        </ErrorBoundary>
+
+        <ErrorBoundary>
+          <SkeletonBoundary
+            isPending={groupQuery.isPending}
+            skeleton={<ListSkeleton rows={2} variant="balance" />}
+          >
+            <GroupBudgetTracker
+              groupId={groupId}
+              expenses={expenses}
+              isAdmin={isAdmin}
+            />
+          </SkeletonBoundary>
+        </ErrorBoundary>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-6">
+            <ErrorBoundary>
+              <div className="space-y-4">
+                <h2 className="font-display text-sm uppercase tracking-widest text-ink/60">
+                  Expenses ({filteredExpenses.length}{filteredExpenses.length !== expenses.length ? ` of ${expenses.length}` : ""})
+                </h2>
+
+                <ExpenseListFilters expenses={expenses} members={members} onChange={onFilterChange} />
+
+                {expensesQuery.isPending && (
+                  <ListSkeleton rows={5} variant="expense" />
+                )}
+                {expensesQuery.isError && (
+                  <div className="rounded-xl border-3 border-ink bg-flamingo-pale p-6 shadow-brutal-sm">
+                    <div className="flex items-start gap-3">
+                      <SearchX className="h-6 w-6 text-flamingo mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <h3 className="font-bold text-ink mb-1">Failed to load expenses</h3>
+                        <p className="text-sm text-ink/70 mb-4">
+                          There was a problem fetching the expense list. Please check your connection and try again.
+                        </p>
+                        <Button size="sm" onClick={() => expensesQuery.refetch()}>
+                          Retry
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {!expensesQuery.isPending && !expensesQuery.isError && visibleExpenses.length === 0 && (
+                  expenses.length === 0 ? (
+                    <EmptyState
+                      icon={<Receipt className="h-7 w-7" />}
+                      title="No expenses yet"
+                      description="Add the first expense to start splitting costs with this group."
+                    />
+                  ) : (
+                    <EmptyState
+                      icon={<SearchX className="h-7 w-7" />}
+                      title="No matching expenses"
+                      description={
+                        filteredExpenses.length > 0
+                          ? "No expenses on this page — go back a page."
+                          : "Nothing matches these filters. Try a different keyword, currency, status, or date range, or clear the filters."
+                      }
+                    />
+                  )
+                )}
+                {visibleExpenses.map((expense: Expense) => (
+                  <motion.div
+                    key={expense.id}
+                    layout
+                    initial={{ opacity: 0, y: -12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  >
+                    <ErrorBoundary>
+                      <ExpenseCard
+                        expense={expense}
+                        groupId={groupId}
+                        currentUserId={currentUserId}
+                        members={members}
+                      />
+                    </ErrorBoundary>
+                  </motion.div>
+                ))}
+                {pageCount > 1 && (
+                  <div className="flex items-center justify-center gap-3">
+                    <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Previous</Button>
+                    <span className="text-xs font-bold">Page {page} of {pageCount}</span>
+                    <Button size="sm" variant="outline" disabled={page === pageCount} onClick={() => setPage((current) => current + 1)}>Next</Button>
+                  </div>
+                )}
+              </div>
+            </ErrorBoundary>
+          </div>
+
+          <div className="space-y-6">
+            <MultiPayerOverview expenses={expenses} />
+            <ErrorBoundary>
+              <BalancesPanel
+                groupId={groupId}
+                currentUserId={currentUserId}
+              />
+            </ErrorBoundary>
+
+            {group?.treasuryEnabled && (
+              <ErrorBoundary>
+                <LazyTreasuryView
+                  groupId={groupId}
+                  treasuryEnabled={group.treasuryEnabled}
+                  requiredSigners={group.treasuryRequiredSigners}
+                  treasuryAccountPublicKey={group.treasuryAccountPublicKey}
+                />
+              </ErrorBoundary>
+            )}
+
+            <ErrorBoundary>
+              <GroupActivityFeed groupId={groupId} polling={true} />
+            </ErrorBoundary>
+          </div>
+        </div>
+
+        {mountExport && (
+          <LazyExportGroupModal
+            open={exportOpen}
+            onClose={() => setExportOpen(false)}
+            groupId={groupId}
+            groupName={group?.name}
+            expenses={expenses}
+            settlements={settlements}
+          />
+        )}
+
+        {mountAddExpense && (
+          <LazyAddExpenseDialog
+            open={addExpenseOpen}
+            onClose={() => setAddExpenseOpen(false)}
+            groupId={groupId}
+            members={members}
+            currentUserId={currentUserId}
+          />
+        )}
+
+        {mountShareQr && (
+          <GroupInviteModal
+            open={shareQrOpen}
+            onClose={() => setShareQrOpen(false)}
+            groupId={groupId}
+            groupName={group?.name}
+          />
+        )}
+
+        {mountInvite && (
+          <LazyInviteMemberModal
+            open={inviteOpen}
+            onClose={() => setInviteOpen(false)}
+            groupId={groupId}
+            groupName={group?.name}
+          />
+        )}
       </div>
-
-      <BulkSettleBar
-        expenses={expenses}
-        currentUserId={currentUserId}
-        selectedIds={selectedIds}
-        onClear={() => setSelectedIds([])}
-        onProceed={openBulkDialog}
-      />
-
-      <SettleDialog
-        open={bulkOpen}
-        onClose={() => setBulkOpen(false)}
-        groupId={groupId}
-        target={null}
-        bulkTarget={bulkTarget}
-        onSettled={() => {
-          setBulkOpen(false);
-          setBulkTarget(null);
-          exitSelectMode();
-        }}
-      />
-    </>
+    </GroupErrorBoundary>
   );
 }

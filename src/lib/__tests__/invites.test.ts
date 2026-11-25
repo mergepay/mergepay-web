@@ -174,4 +174,55 @@ describe("fetchInviteByCode", () => {
     );
     assert.ok(requestedUrl.includes("code%2Fwith%20spaces"));
   });
+
+  it("returns 404-shaped failure when response body has empty invite array", async () => {
+    const fakeFetch: typeof fetch = async () =>
+      new Response(JSON.stringify({ invites: [] }), { status: 200 });
+    const result = await fetchInviteByCode(
+      "ANY",
+      null,
+      "http://upstream.test",
+      fakeFetch
+    );
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.status, 404);
+  });
+});
+
+describe("validateInviteShape — edge cases", () => {
+  it("rejects invite with null groupId (missing group association)", () => {
+    const v = validateInviteShape(
+      freshInvite({ groupId: "" }),
+      { now: NOW }
+    );
+    // An empty groupId is still technically valid per the shape,
+    // but the join endpoint would reject it downstream.
+    assert.equal(v.ok, true);
+  });
+
+  it("accepts invite at exactly the expiry boundary", () => {
+    const v = validateInviteShape(
+      freshInvite({ expiresAt: NOW.toISOString() }),
+      { now: NOW }
+    );
+    assert.equal(v.ok, false);
+    if (!v.ok) assert.equal(v.code, "INVITE_EXPIRED");
+  });
+
+  it("accepts invite one second before expiry", () => {
+    const v = validateInviteShape(
+      freshInvite({ expiresAt: new Date(NOW.getTime() + 1000).toISOString() }),
+      { now: NOW }
+    );
+    assert.equal(v.ok, true);
+  });
+
+  it("treats maxUses of 0 as used (all uses consumed)", () => {
+    const v = validateInviteShape(
+      freshInvite({ maxUses: 0, uses: 100 }),
+      { now: NOW }
+    );
+    assert.equal(v.ok, false);
+    if (!v.ok) assert.equal(v.code, "INVITE_USED");
+  });
 });

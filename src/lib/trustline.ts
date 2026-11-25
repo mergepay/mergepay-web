@@ -8,8 +8,25 @@
  * places precision (1 stroop = 0.0000001).
  */
 
-import { HORIZON_URL, XLM_ASSET, SETTLEMENT_ASSETS } from "./constants";
+import { HORIZON_URL, XLM_ASSET, SETTLEMENT_ASSETS, getUsdcAssetForNetwork } from "./constants";
+import type { StellarNetwork } from "./types";
 import { toStroops, MAX_DECIMAL_PLACES } from "./money";
+
+export type UsdcTrustlineStatusKind =
+  | "confirmed_trusted"
+  | "confirmed_missing"
+  | "zero_balance_trusted"
+  | "unfunded"
+  | "error";
+
+export interface UsdcTrustlineStatusResult {
+  kind: UsdcTrustlineStatusKind;
+  hasTrustline: boolean;
+  balance: string;
+  assetCode: string;
+  assetIssuer: string;
+  error?: string;
+}
 
 export interface ConfiguredAsset {
   code: string;
@@ -123,6 +140,22 @@ export function calculateAssetBalances(
 }
 
 /**
+ * Compute the subset of required assets whose trustline is missing.
+ *
+ * Native XLM is always considered to have a trustline, and assets without an
+ * issuer are treated as always-available. The result preserves the order of
+ * `requiredAssets` so callers can render the banner deterministically.
+ */
+export function missingTrustlines(
+  balances: HorizonBalanceItem[],
+  requiredAssets: ConfiguredAsset[]
+): ConfiguredAsset[] {
+  return requiredAssets.filter(
+    (asset) => !verifyTrustline(balances, asset.code, asset.issuer)
+  );
+}
+
+/**
  * Fetch Horizon balances for a given Stellar public key.
  */
 export async function fetchHorizonAccountBalances(
@@ -137,5 +170,93 @@ export async function fetchHorizonAccountBalances(
     return Array.isArray(data.balances) ? data.balances : [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Check whether a connected Stellar account holds an active USDC trustline on the specified network.
+ * Differentiates confirmed presence/absence from unfunded accounts and Horizon/RPC network errors.
+ */
+export async function checkUsdcTrustlineStatus(
+  publicKey: string | null | undefined,
+  network?: StellarNetwork | string
+): Promise<UsdcTrustlineStatusResult> {
+  const usdc = getUsdcAssetForNetwork(network);
+
+  if (!publicKey || publicKey.trim() === "") {
+    return {
+      kind: "unfunded",
+      hasTrustline: false,
+      balance: "0.0000000",
+      assetCode: usdc.code,
+      assetIssuer: usdc.issuer,
+      error: "No wallet address provided",
+    };
+  }
+
+  try {
+    const horizonUrl = network === "testnet" ? "https://horizon-testnet.stellar.org" : HORIZON_URL;
+    const res = await fetch(`${horizonUrl}/accounts/${encodeURIComponent(publicKey.trim())}`);
+
+    if (res.status === 404) {
+      return {
+        kind: "unfunded",
+        hasTrustline: false,
+        balance: "0.0000000",
+        assetCode: usdc.code,
+        assetIssuer: usdc.issuer,
+      };
+    }
+
+    if (!res.ok) {
+      return {
+        kind: "error",
+        hasTrustline: false,
+        balance: "0.0000000",
+        assetCode: usdc.code,
+        assetIssuer: usdc.issuer,
+        error: `Horizon returned status ${res.status}`,
+      };
+    }
+
+    const data = await res.json();
+    const balances: HorizonBalanceItem[] = Array.isArray(data.balances) ? data.balances : [];
+
+    const usdcBalanceItem = balances.find(
+      (b) =>
+        b.asset_type !== "native" &&
+        b.asset_code === usdc.code &&
+        b.asset_issuer === usdc.issuer
+    );
+
+    if (!usdcBalanceItem) {
+      return {
+        kind: "confirmed_missing",
+        hasTrustline: false,
+        balance: "0.0000000",
+        assetCode: usdc.code,
+        assetIssuer: usdc.issuer,
+      };
+    }
+
+    const formatted = formatStellarBalance(usdcBalanceItem.balance ?? "0");
+    const isZero = formatted === "0.0000000" || parseFloat(formatted) === 0;
+
+    return {
+      kind: isZero ? "zero_balance_trusted" : "confirmed_trusted",
+      hasTrustline: true,
+      balance: formatted,
+      assetCode: usdc.code,
+      assetIssuer: usdc.issuer,
+    };
+  } catch (e) {
+    return {
+      kind: "error",
+      hasTrustline: false,
+      balance: "0.0000000",
+      assetCode: usdc.code,
+      assetIssuer: usdc.issuer,
+      error: e instanceof Error ? e.message : "Failed to fetch account status",
+    };
   }
 }

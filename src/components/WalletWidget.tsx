@@ -22,11 +22,14 @@ import {
   CheckCircle2,
   Loader2,
   Plug,
+  QrCode,
   RefreshCcw,
   ShieldAlert,
   Wallet,
   WifiOff,
 } from "lucide-react";
+import { ReceiveQrModal } from "@/components/ReceiveQrModal";
+import CopyButton from "@/components/ui/CopyButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -43,6 +46,7 @@ import {
   type WalletErrorCode,
 } from "@/lib/stellar";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
+import { showWalletErrorToast } from "@/lib/walletToasts";
 import { networkDisplayName } from "@/lib/walletStatus";
 import type { TrustlineAsset } from "@/lib/trustline";
 
@@ -207,6 +211,8 @@ export function WalletWidget({
   // Optimistically-set trustlines, keyed by asset code. Kept separate from
   // the fetched state so a confirmed changeTrust flips the card immediately.
   const [optimistic, setOptimistic] = useState<Record<string, boolean>>({});
+  // Receive-money QR modal (#328) for the connected address.
+  const [receiveOpen, setReceiveOpen] = useState(false);
   const mounted = useRef(true);
 
   const address = status.address;
@@ -250,17 +256,30 @@ export function WalletWidget({
     };
   }, [address, loadAssets]);
 
+  // Guards `handleConnect` against a second click landing before React has
+  // re-rendered with `connecting` — each click would open a new Freighter
+  // popup, and the second popup's rejection is what users see as "it failed".
+  const connectingRef = useRef(false);
+
   async function handleConnect() {
+    if (connectingRef.current) return;
+    connectingRef.current = true;
     setConnecting(true);
     try {
       await connectWallet();
       toast.success("Wallet connected");
       // useWalletStatus's watcher picks up the new address.
     } catch (e) {
-      toast.error(
-        e instanceof WalletError ? e.message : "Could not reach your wallet."
+      // Locked and missing-extension failures get their own remediation line
+      // instead of reading like an unexplained dead end (#487).
+      showWalletErrorToast(
+        e instanceof WalletError ? e.code : "unknown",
+        e instanceof Error && e.message
+          ? e.message
+          : "Could not reach your wallet."
       );
     } finally {
+      connectingRef.current = false;
       setConnecting(false);
     }
   }
@@ -370,14 +389,31 @@ export function WalletWidget({
         {status.kind === "connected" && address && (
           <>
             <div className="flex items-center justify-between">
-              <span className="font-mono text-[11px] text-ink/60">
-                {shortKey(address, 6)}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[11px] text-ink/60">
+                  {shortKey(address, 6)}
+                </span>
+                <CopyButton text={address} what="Stellar public key" />
+              </div>
               <span className="sr-only">Connected Stellar address: {address}</span>
+              <button
+                type="button"
+                onClick={() => setReceiveOpen(true)}
+                className="flex items-center gap-1 rounded-lg border-2 border-ink bg-butter px-2 py-1 font-display text-[10px] font-bold uppercase tracking-widest text-ink shadow-brutal-sm transition-colors hover:bg-lime-pale"
+                aria-label="Open QR code to receive money"
+              >
+                <QrCode className="h-3.5 w-3.5" /> Receive
+              </button>
               <span className="text-[11px] text-ink/50">
                 {networkDisplayName(STELLAR_NETWORK)}
               </span>
             </div>
+
+            <ReceiveQrModal
+              open={receiveOpen}
+              onClose={() => setReceiveOpen(false)}
+              stellarPublicKey={address}
+            />
 
             <div className="space-y-2">
               {assetsLoading && assets.length === 0 ? (

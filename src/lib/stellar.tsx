@@ -19,6 +19,9 @@ import {
 import { api } from "./api";
 import { Asset, Operation, TransactionBuilder, Account } from "@stellar/stellar-sdk";
 import { useAuth } from "./auth-store";
+import { clearClientSession } from "./sessionMonitor";
+import { telemetryErrorCode, track, type WalletLoginStage } from "./telemetry";
+import { z } from "zod";
 import {
   describeNetwork,
   EXPECTED_NETWORK_LABEL,
@@ -29,16 +32,42 @@ import {
 import {
   calculateAssetBalances,
   fetchHorizonAccountBalances,
+  type ConfiguredAsset,
   type TrustlineAsset,
 } from "./trustline";
 import type { User } from "./types";
+import type { WalletBuildPhase } from "./walletSubmission";
 import type { WalletProbe } from "./walletReadiness";
 import type { WalletSnapshot } from "./walletSession";
 
 export const FREIGHTER_INSTALL_URL = "https://freighter.app";
+export const WALLET_CONNECTED_SESSION_KEY = "mergepay_wallet_connected";
+export const WALLET_ADDRESS_SESSION_KEY = "mergepay_last_connected_wallet";
+
+/**
+ * Timeout wrapper for Freighter API promises.
+ * Prevents requests from hanging indefinitely if the extension is locked/unresponsive.
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs = 5000,
+  errorMessage = "Freighter request timed out"
+): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new WalletNetworkError(errorMessage));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
 
 export async function hasTrustline(publicKey: string, assetCode: string, issuer: string): Promise<boolean> {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org"}/accounts/${encodeURIComponent(publicKey)}`);
+  const response = await fetch(`${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`);
   if (response.status === 404) return false;
   if (!response.ok) throw new Error("Could not check the asset trustline");
   const account = (await response.json()) as { balances?: Array<{ asset_code?: string; asset_issuer?: string }> };
@@ -46,22 +75,23 @@ export async function hasTrustline(publicKey: string, assetCode: string, issuer:
 }
 
 /**
- * Live balances + trustline status for the configured settlement assets.
+ * Live balances + trustline status for configured assets or a requested asset.
  *
  * Reads the account from Horizon (via the shared `trustline.ts` helpers)
- * and derives, for every configured asset (XLM + the stable asset), the
- * current balance and whether an active trustline exists. XLM is native
- * and always "has a trustline".
+ * and derives the current balance and trustline status for each configured
+ * asset, or for the requested assets when provided. XLM is native and always
+ * "has a trustline".
  *
  * Failures degrade to an empty balance list (never a throw) so the widget
  * can render "balance unavailable" without blocking the rest of the page.
  */
 export async function getWalletAssets(
-  publicKey: string
+  publicKey: string,
+  requiredAssets?: ConfiguredAsset[]
 ): Promise<TrustlineAsset[]> {
   if (!publicKey) return [];
   const balances = await fetchHorizonAccountBalances(publicKey);
-  return calculateAssetBalances(balances, SETTLEMENT_ASSETS);
+  return calculateAssetBalances(balances, requiredAssets ?? SETTLEMENT_ASSETS);
 }
 
 /**
@@ -96,14 +126,23 @@ export async function submitSignedXdr(signedXdr: string): Promise<string> {
  * Throws a `WalletError` (with a stable code) when the user rejects the
  * signature or the wallet is locked/unavailable — callers should surface
  * `e.code` and `e.message` rather than the raw provider string.
+ *
+ * `onPhase` is optional and called *before* each leg, so a caller can show
+ * which of the three the user is waiting on (#545). Callers that don't pass it
+ * get exactly the behaviour they had before. It reports the legs this function
+ * owns; the network confirmation that follows is the caller's own poll.
  */
 export async function addTrustline(
   publicKey: string,
   assetCode: string,
-  issuer: string
+  issuer: string,
+  onPhase?: (phase: WalletBuildPhase) => void
 ): Promise<{ txHash: string }> {
+  onPhase?.("preparing");
   const xdr = await prepareTrustlineXdr(publicKey, assetCode, issuer);
+  onPhase?.("signing");
   const signedXdr = await signXdr(xdr, NETWORK_PASSPHRASE);
+  onPhase?.("submitting");
   const txHash = await submitSignedXdr(signedXdr);
   return { txHash };
 }
@@ -117,7 +156,7 @@ export function buildTrustlineXdr(publicKey: string, sequence: string, assetCode
 }
 
 export async function prepareTrustlineXdr(publicKey: string, assetCode: string, issuer: string): Promise<string> {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org"}/accounts/${encodeURIComponent(publicKey)}`);
+  const response = await fetch(`${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`);
   if (!response.ok) throw new Error("Could not load the wallet sequence");
   const account = (await response.json()) as { sequence: string };
   return buildTrustlineXdr(publicKey, account.sequence, assetCode, issuer);
@@ -224,29 +263,44 @@ export function walletMessage(code: WalletErrorCode): string {
 }
 
 // Substring classifiers. Order matters: more specific patterns first.
+// JWTs are three base64url segments separated by dots, so dots are allowed
+// alongside the base64url character set.
+const SESSION_TOKEN_SCHEMA = z.string().regex(/^[A-Za-z0-9_\-.]+$/);
+
 const REJECTED_PATTERNS = [
   /user (denied|declined|cancelled|canceled|rejected)/i,
   /request was rejected/i,
   /user closed (the )?popup/i,
   /cancelled? by user/i,
+  /permission (denied|declined)/i,
+  /access (denied|declined)/i,
+  /user (cancelled|canceled) the request/i,
 ];
 const LOCKED_PATTERNS = [
   /locked/i,
   /please unlock/i,
   /unlock (your )?(freighter|wallet)/i,
   /wallet is locked/i,
+  /extension is locked/i,
+  /freighter is locked/i,
+  /unlock to continue/i,
 ];
 const DISCONNECTED_PATTERNS = [
   /(wallet )?not connected/i,
   /no account selected/i,
   /account changed/i,
   /disconnected/i,
+  /not authorized/i,
+  /no active account/i,
+  /account not found/i,
 ];
 const NETWORK_PATTERNS = [
   /network/i,
   /passphrase/i,
   /couldn't reach/i,
   /failed to fetch/i,
+  /connection (refused|failed|timeout)/i,
+  /unreachable/i,
 ];
 
 export function classifyWalletMessage(raw: string): WalletErrorCode {
@@ -303,7 +357,10 @@ export async function isFreighterAvailable(): Promise<boolean> {
   try {
     const res = await isConnected();
     if (typeof res === "boolean") return res;
-    if (isObject(res) && typeof res.isConnected === "boolean") return res.isConnected;
+    // freighter-api v4: when window.freighter is present (extension or test
+    // mock) isConnected resolves to { isConnected: <object> } — truthy means
+    // the wallet is reachable; the postMessage path reports a real boolean.
+    if (isObject(res) && res.isConnected) return true;
     return false;
   } catch {
     return false;
@@ -331,6 +388,9 @@ export async function getGrantedAddress(): Promise<string | null> {
     return null;
   }
 }
+
+/** Re-export getAddress for hooks that need to detect locked state. */
+export { getAddress } from "@stellar/freighter-api";
 
 /** Network the wallet is currently pointed at, or `null` if unreadable. */
 export async function getWalletNetwork(): Promise<{
@@ -398,34 +458,163 @@ export async function readWalletSnapshot(): Promise<WalletSnapshot> {
 export async function connectWallet(): Promise<string> {
   const available = await isFreighterAvailable();
   if (!available) {
-    throw new WalletNotInstalledError();
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+    }
+    const err = new WalletNotInstalledError();
+    useAuth.getState().setWalletError({
+      code: "not_installed",
+      message: err.message,
+    });
+    throw err;
   }
   try {
-    const res = await requestAccess();
+    let res: unknown;
+    try {
+      res = await withTimeout(requestAccess(), 8000, "Freighter connection request timed out.");
+    } catch (reqErr) {
+      const msg = reqErr instanceof Error ? reqErr.message : String(reqErr);
+      const code = classifyWalletMessage(msg);
+      const walletErr = errorForCode(code, msg);
+      useAuth.getState().setWalletError({
+        code: walletErr.code,
+        message: walletErr.message,
+      });
+      throw walletErr;
+    }
     throwOnError(res);
-    if (typeof res === "string") return res;
+    let pk: string | undefined;
+    if (typeof res === "string") pk = res;
     if (isObject(res)) {
       const r = res as Record<string, unknown>;
-      const pk =
+      pk =
         (typeof r.address === "string" ? r.address : undefined) ??
         (typeof r.publicKey === "string" ? r.publicKey : undefined);
-      if (pk) return pk;
     }
-    throw new WalletError("Wallet returned an empty response.");
+    if (!pk) {
+      const fallbackRes = await withTimeout(getAddress(), 5000, "Freighter address read timed out.");
+      throwOnError(fallbackRes);
+      if (isObject(fallbackRes)) {
+        const r = fallbackRes as Record<string, unknown>;
+        pk =
+          (typeof r.address === "string" ? r.address : undefined) ??
+          (typeof r.publicKey === "string" ? r.publicKey : undefined);
+      }
+    }
+    if (pk) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(WALLET_CONNECTED_SESSION_KEY, "true");
+        sessionStorage.setItem(WALLET_ADDRESS_SESSION_KEY, pk);
+      }
+      useAuth.getState().clearWalletError();
+      return pk;
+    }
+    const emptyErr = new WalletError("Wallet returned an empty response.");
+    useAuth.getState().setWalletError({
+      code: emptyErr.code,
+      message: emptyErr.message,
+    });
+    throw emptyErr;
   } catch (e) {
-    if (e instanceof WalletError) throw e;
-    // Older Freighter versions expose getAddress / getPublicKey instead.
-    const res = await getAddress();
-    throwOnError(res);
-    if (isObject(res)) {
-      const r = res as Record<string, unknown>;
-      const pk =
-        (typeof r.address === "string" ? r.address : undefined) ??
-        (typeof r.publicKey === "string" ? r.publicKey : undefined);
-      if (pk) return pk;
+    if (typeof window !== "undefined") {
+      // Only clear session storage for actual connection loss, not user rejection
+      if (e instanceof WalletError && e.code !== "user_rejected") {
+        sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+      }
     }
-    throw new WalletError("Wallet returned an empty response.");
+    const finalErr =
+      e instanceof WalletError
+        ? e
+        : errorForCode(
+            classifyWalletMessage(e instanceof Error ? e.message : String(e)),
+            e instanceof Error ? e.message : String(e)
+          );
+    useAuth.getState().setWalletError({
+      code: finalErr.code,
+      message: finalErr.message,
+    });
+    throw finalErr;
   }
+}
+
+/**
+ * Silent auto-reconnect fallback on reload if connection state
+ * was previously persisted in session storage.
+ *
+ * Retries transient failures (network, timeout) with exponential backoff
+ * so a momentary extension hiccup does not silently drop a valid session.
+ * Non-retryable failures (locked, not installed, no account) return
+ * immediately with the appropriate reason.
+ *
+ * Returns the public key if reconnection succeeds, or an object
+ * describing why it failed (locked, disconnected, etc.) so the UI
+ * can surface a helpful message instead of silently dropping the session.
+ */
+export async function autoReconnectWallet(): Promise<
+  | { success: true; publicKey: string }
+  | { success: false; reason: "not_previously_connected" | "wallet_unavailable" | "locked" | "no_account" | "error"; message: string }
+> {
+  if (typeof window === "undefined") {
+    return { success: false, reason: "wallet_unavailable", message: "Wallet not available in this environment" };
+  }
+  const isPreviouslyConnected = sessionStorage.getItem(WALLET_CONNECTED_SESSION_KEY) === "true";
+  if (!isPreviouslyConnected) {
+    return { success: false, reason: "not_previously_connected", message: "No previous wallet connection found" };
+  }
+
+  // Codes that can resolve on their own — the extension may be mid-load.
+  const transientCodes: WalletErrorCode[] = ["network", "unknown"];
+
+  const maxRetries = 2;
+  const retryDelayMs = 800;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // Exponential backoff: 0, 800ms, 1600ms
+      if (attempt > 0) {
+        await new Promise((res) =>
+          setTimeout(res, retryDelayMs * Math.pow(2, attempt - 1))
+        );
+      }
+
+      const available = await withTimeout(
+        isFreighterAvailable(),
+        5000,
+        "Freighter availability check timed out."
+      );
+      if (!available) {
+        // Not installed is never transient — stop retrying immediately.
+        sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+        return { success: false, reason: "wallet_unavailable", message: "Freighter extension not found. Please install it and refresh." };
+      }
+      const address = await withTimeout(
+        getGrantedAddress(),
+        5000,
+        "Freighter address read timed out."
+      );
+      if (address) {
+        sessionStorage.setItem(WALLET_ADDRESS_SESSION_KEY, address);
+        return { success: true, publicKey: address };
+      }
+      // Wallet is available but no account shared - could be locked or user hasn't connected
+      return { success: false, reason: "no_account", message: "Wallet is available but no account is shared. Connect your wallet to continue." };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const code = classifyWalletMessage(msg);
+      if (code === "locked") {
+        return { success: false, reason: "locked", message: "Your Freighter wallet is locked. Unlock it and try again." };
+      }
+      // Retry transient failures; bail on everything else after the last attempt.
+      if (!transientCodes.includes(code) || attempt >= maxRetries) {
+        sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+        return { success: false, reason: "error", message: walletMessage(code) };
+      }
+    }
+  }
+
+  // Should be unreachable, but keep the type checker happy.
+  sessionStorage.removeItem(WALLET_CONNECTED_SESSION_KEY);
+  return { success: false, reason: "error", message: walletMessage("unknown") };
 }
 
 /**
@@ -447,7 +636,9 @@ export async function probeWallet(): Promise<WalletProbe> {
   ]);
 
   const publicKey =
-    isObject(addressResult) && typeof addressResult.address === "string"
+    typeof addressResult === "string"
+      ? addressResult || null
+      : isObject(addressResult) && typeof addressResult.address === "string"
       ? addressResult.address || null
       : null;
 
@@ -495,23 +686,253 @@ export async function signXdr(
 }
 
 /**
- * Full SEP-10 login:
- *  1. confirm the wallet is on the network this deployment targets,
- *  2. fetch a challenge transaction for the wallet's account,
- *  3. sign it in Freighter,
- *  4. send it back for verification, receive a JWT session.
+ * Get detailed wallet state for UI feedback.
+ * Returns a comprehensive status object that the UI can use to show
+ * appropriate messages and recovery actions.
+ */
+export async function getWalletConnectionState(): Promise<{
+  installed: boolean;
+  locked: boolean;
+  connected: boolean;
+  publicKey: string | null;
+  network: string | null;
+  networkPassphrase: string | null;
+}> {
+  try {
+    const available = await isFreighterAvailable();
+    if (!available) {
+      return {
+        installed: false,
+        locked: false,
+        connected: false,
+        publicKey: null,
+        network: null,
+        networkPassphrase: null,
+      };
+    }
+
+    const [address, networkDetails] = await Promise.all([
+      getGrantedAddress().catch(() => null),
+      getWalletNetwork().catch(() => null),
+    ]);
+
+    // Try to detect if wallet is locked by attempting to get address
+    // If getAddress throws a locked error, the wallet is locked
+    let locked = false;
+    if (!address) {
+      try {
+        await getAddress();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (classifyWalletMessage(msg) === "locked") {
+          locked = true;
+        }
+      }
+    }
+
+    return {
+      installed: true,
+      locked,
+      connected: !!address,
+      publicKey: address,
+      network: networkDetails?.network ?? null,
+      networkPassphrase: networkDetails?.networkPassphrase ?? null,
+    };
+  } catch {
+    return {
+      installed: true,
+      locked: false,
+      connected: false,
+      publicKey: null,
+      network: null,
+      networkPassphrase: null,
+    };
+  }
+}
+
+/**
+ * A signed SEP-10 challenge response may arrive as `Authorization: Bearer <jwt>`
+ * or as the x-response-body payload. Accept only well-formed JWTs here so a
+ * wrapper that supplies a bearer token on the wrong leg can never hand the
+ * verifier a signed challenge, and so callers share one validation point.
+ *
+ * `api.authVerify()` already enforces `alg: ES256` on the header it decodes and
+ * stamps `mismatchedAudience`/`mismatchedIssuer`; this only rejects garbage
+ * before it reaches the API.
+ */
+export function isSessionToken(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    return SESSION_TOKEN_SCHEMA.safeParse(value).success;
+  } catch {
+    return false;
+  }
+}
+
+/** What we read from the reply of `POST /auth/verify` so the caller can assert
+ * an authenticated session without guessing whether a header, body, or empty
+ * response was used. */
+export type AuthVerifyEnvelope =
+  | { header: { authorization: string }; body: null }
+  | { header: null; body: { token: unknown } };
+
+export function classifyAuthVerify(envelope: AuthVerifyEnvelope): "valid" | "empty" | "invalid" {
+  if (envelope.body !== null) {
+    if (isSessionToken(envelope.body.token)) return "valid";
+    return "invalid";
+  }
+  if (envelope.header !== null) return "valid";
+  return "empty";
+}
+
+/**
+ * Generic retry wrapper with exponential backoff for wallet operations.
+ *
+ * Retries only on the codes listed in `retryOn`; non-retryable errors
+ * (locked, user rejected, not installed, network mismatch) propagate
+ * immediately. Each retry waits `retryDelayMs * Math.pow(2, attempt - 1)`
+ * milliseconds, capped at 10 s, so a transient failure does not turn
+ * into a long hang.
+ */
+export async function retryWallet<T>(
+  fn: () => Promise<T>,
+  options: { maxRetries?: number; retryDelayMs?: number } = {},
+  retryConfig: { retryOn?: WalletErrorCode[] } = {}
+): Promise<T> {
+  const { maxRetries = 2, retryDelayMs = 500 } = options;
+  const { retryOn = ["network", "unknown", "disconnected"] } = retryConfig;
+  const cap = 10_000;
+
+  let attempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= maxRetries) throw err;
+
+      const code: WalletErrorCode =
+        err instanceof WalletError ? err.code : classifyWalletMessage(err instanceof Error ? err.message : String(err));
+
+      if (!retryOn.includes(code)) throw err;
+
+      attempt++;
+      const delay = Math.min(retryDelayMs * Math.pow(2, attempt - 1), cap);
+      await new Promise((res) => setTimeout(res, delay));
+    }
+  }
+}
+
+/**
+ * Full SEP-10 login, wrapped so a flaky wallet cannot strand the session.
+ *
+ *  1. Confirm the wallet is on the network this deployment targets.
+ *  2. Request access and read the active public key, retrying on transient
+ *     failures with exponential backoff and a bounded attempt count.
+ *  3. Build and sign the challenge in Freighter.
+ *  4. Verify the signed challenge with the API, then assert the response shape
+ *     before handing the token to the auth store. A reply that is not an
+ *     authenticated session is a transport bug, never a successful login.
+ *
+ * `login()` returns the authenticated user only when every leg has been
+ * observed. Non-retryable failures (extension missing, locked, user rejected,
+ * wrong network) fail on the first attempt instead of burning time on
+ * retries, and every failure lands in the caller with a stable `WalletError`
+ * code so the UI can show the step that actually fixes it. The signer loop
+ * keeps a single `try/catch` around Freighter + API legs, so an unhandled
+ * rejection from the extension or the Horizon proxy can never escape this
+ * function and take the tab with it.
  */
 export async function loginWithWallet(): Promise<User> {
-  const publicKey = await connectWallet();
-  // Checked after access is granted (Freighter only reports its network to an
-  // allowed origin) and before the challenge is built: a challenge for one
-  // network signed against another fails with an opaque error.
-  await assertWalletNetwork();
-  const challenge = await api.authChallenge(publicKey);
-  const signed = await signXdr(challenge.transaction, challenge.networkPassphrase);
-  const { token, user } = await api.authVerify(signed);
-  useAuth.getState().setSession(token, user);
-  return user;
+  // SEP-10 funnel telemetry: only the stage reached, a coarse error category
+  // and timing are recorded — never the public key, challenge, signed XDR,
+  // token or error message (see src/lib/telemetry.ts).
+  const startedAt = Date.now();
+  let stage: WalletLoginStage = "connect";
+  track("wallet_connect_started");
+
+  const available = await isFreighterAvailable();
+  if (!available) {
+    const err = new WalletNotInstalledError();
+    track("wallet_connect_failed", {
+      stage,
+      errorCode: "not_installed",
+      durationMs: Date.now() - startedAt,
+    });
+    useAuth.getState().setWalletError({
+      code: "not_installed",
+      message: err.message,
+    });
+    throw err;
+  }
+
+  try {
+    const publicKey = await retryWallet(
+      () => connectWallet(),
+      { maxRetries: 2, retryDelayMs: 500 },
+      { retryOn: ["network", "unknown", "disconnected"] }
+    );
+
+    // Checked after access is granted (Freighter only reports its network to an
+    // allowed origin) and before the challenge is built: a challenge for one
+    // network signed against another fails with an opaque error.
+    stage = "network_check";
+    await assertWalletNetwork();
+
+    stage = "challenge";
+    const challenge = await api.authChallenge(publicKey);
+    track("wallet_sep10_challenge_received");
+
+    stage = "sign";
+    const signed = await signXdr(challenge.transaction, challenge.networkPassphrase);
+    track("wallet_sep10_challenge_signed");
+
+    stage = "verify";
+    const { token, user } = await api.authVerify(signed);
+
+    // The verifier is authoritative: the API never returns an unauthorized
+    // token for a valid signature, so a shape it does not recognize makes the
+    // transport or the backend misconfigured. Fail fast instead of seeding the
+    // JWT cache with a token we cannot trust.
+    if (!isSessionToken(token)) {
+      throw new WalletError(
+        "Wallet server returned an unexpected response. Please check Freighter and try again.",
+        "network"
+      );
+    }
+
+    if (!user || typeof user?.stellarPublicKey !== "string" || !user.stellarPublicKey) {
+      throw new WalletError("Wallet server returned an unexpected user record.", "network");
+    }
+
+    useAuth.getState().clearWalletError();
+    useAuth.getState().setSession(token, user);
+    track("wallet_connect_succeeded", { durationMs: Date.now() - startedAt });
+    return user;
+  } catch (err) {
+    track("wallet_connect_failed", {
+      stage,
+      errorCode: telemetryErrorCode(err),
+      durationMs: Date.now() - startedAt,
+    });
+    if (err instanceof WalletError) {
+      useAuth.getState().setWalletError({
+        code: err.code,
+        message: err.message,
+      });
+    } else if (err instanceof NetworkMismatchError) {
+      useAuth.getState().setWalletError({
+        code: "network_mismatch",
+        message: err.message,
+      });
+    } else if (err instanceof Error) {
+      useAuth.getState().setWalletError({
+        code: "unknown",
+        message: err.message,
+      });
+    }
+    throw err;
+  }
 }
 
 export async function logout() {
@@ -520,7 +941,9 @@ export async function logout() {
   } catch {
     // best effort — clear local session regardless
   }
-  useAuth.getState().clear();
+  // Clear the selected group and active asset alongside the auth token so a
+  // different wallet cannot inherit the previous account's state (#898).
+  clearClientSession();
 }
 
 /**
@@ -532,6 +955,14 @@ export async function signAndConfirmSettlement(
   xdr: string,
   networkPassphrase: string
 ) {
+  // Validate the network passphrase matches our configuration before
+  // attempting to sign. A mismatch means the API built the envelope
+  // for a different network — signing would fail on submission.
+  if (networkPassphrase !== NETWORK_PASSPHRASE) {
+    throw new NetworkMismatchError(
+      "The transaction was built for a different Stellar network."
+    );
+  }
   const signedXdr = await signXdr(xdr, networkPassphrase);
   return api.confirmSettlement(settlementId, { signedXdr });
 }
@@ -559,6 +990,40 @@ export function NotInstalledMessage(): ReactNode {
         install it
       </a>{" "}
       and refresh the page.
+    </>
+  );
+}
+
+/** User-friendly message shown when Freighter is locked. */
+export function LockedMessage(): ReactNode {
+  return (
+    <>
+      Your Freighter wallet is locked. Please unlock it in the extension and{" "}
+      <button
+        type="button"
+        className="underline hover:text-grape"
+        onClick={() => window.location.reload()}
+      >
+        try again
+      </button>
+      .
+    </>
+  );
+}
+
+/** User-friendly message shown when user rejects the connection request. */
+export function UserRejectedMessage(): ReactNode {
+  return (
+    <>
+      You cancelled the connection request.{" "}
+      <button
+        type="button"
+        className="underline hover:text-grape"
+        onClick={() => window.location.reload()}
+      >
+        Try connecting again
+      </button>
+      .
     </>
   );
 }

@@ -14,8 +14,19 @@ export const API_URL =
  */
 export const STELLAR_NETWORK: StellarNetwork = CONFIGURED_NETWORK;
 
+/** SDF's public Horizon instance for each network. */
+export const DEFAULT_HORIZON_URLS: Record<StellarNetwork, string> = {
+  public: "https://horizon.stellar.org",
+  testnet: "https://horizon-testnet.stellar.org",
+};
+
+/**
+ * Horizon instance for the network this build targets. An explicit
+ * `NEXT_PUBLIC_HORIZON_URL` wins; otherwise it follows `STELLAR_NETWORK`, so a
+ * testnet build never reads (or polls for) testnet transactions on mainnet.
+ */
 export const HORIZON_URL =
-  process.env.NEXT_PUBLIC_HORIZON_URL ?? "https://horizon.stellar.org";
+  process.env.NEXT_PUBLIC_HORIZON_URL ?? DEFAULT_HORIZON_URLS[STELLAR_NETWORK];
 
 /**
  * Prefix stamped on the memo of every settlement payment, so a Mergepay
@@ -71,12 +82,31 @@ export function describeNetwork(
 
 export const EXPLORER_BASE = explorerBaseUrl(STELLAR_NETWORK);
 
-export const STABLE_ASSET = {
-  code: process.env.NEXT_PUBLIC_STABLE_ASSET_CODE ?? "USDC",
-  issuer:
-    process.env.NEXT_PUBLIC_STABLE_ASSET_ISSUER ??
-    "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+/** Canonical USDC issuers by Stellar network. */
+export const USDC_ISSUERS: Record<StellarNetwork, string> = {
+  public: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+  testnet: "GBBD47IF6LWK2P7MDEVSCWR7DPUWV3NY3DTQEVFL4TW452EPR7C75C2Z",
 };
+
+/**
+ * Returns the correct USDC asset code and issuer for the specified network.
+ */
+export function getUsdcAssetForNetwork(
+  network: StellarNetwork | string = STELLAR_NETWORK
+): { code: string; issuer: string } {
+  const normalizedNetwork: StellarNetwork =
+    network === "public" || network === "mainnet" || network === "pubnet"
+      ? "public"
+      : "testnet";
+
+  const code = process.env.NEXT_PUBLIC_STABLE_ASSET_CODE ?? "USDC";
+  const issuer =
+    process.env.NEXT_PUBLIC_STABLE_ASSET_ISSUER ?? USDC_ISSUERS[normalizedNetwork];
+
+  return { code, issuer };
+}
+
+export const STABLE_ASSET = getUsdcAssetForNetwork(STELLAR_NETWORK);
 
 export const XLM_ASSET = { code: "XLM", issuer: null as string | null };
 

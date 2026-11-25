@@ -137,6 +137,120 @@ export function isSafeInviteUrl(value: unknown): value is string {
   return true;
 }
 
+/**
+ * Number of random bytes behind a generated invite token.
+ *
+ * 16 bytes (128 bits) encoded base64url gives a 22-character token —
+ * far beyond guessing range, while staying comfortably inside
+ * `INVITE_CODE_MAX_LENGTH`.
+ */
+export const INVITE_TOKEN_BYTES = 16;
+
+/** Group ids are opaque URL-safe tokens, exactly like invite codes. */
+const GROUP_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+const BASE64URL_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/** Base64url-encode bytes without `btoa`/`Buffer`, so browser and Node agree. */
+function toBase64Url(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i];
+    const b1 = bytes[i + 1];
+    const b2 = bytes[i + 2];
+    out += BASE64URL_ALPHABET[b0 >> 2];
+    out += BASE64URL_ALPHABET[((b0 & 0b11) << 4) | (b1 === undefined ? 0 : b1 >> 4)];
+    if (b1 === undefined) break;
+    out += BASE64URL_ALPHABET[((b1 & 0b1111) << 2) | (b2 === undefined ? 0 : b2 >> 6)];
+    if (b2 === undefined) break;
+    out += BASE64URL_ALPHABET[b2 & 0b111111];
+  }
+  return out;
+}
+
+/**
+ * Fill `bytes` with cryptographically random values.
+ *
+ * Prefers the platform CSPRNG. The `Math.random` path only exists so a
+ * browser without `crypto.getRandomValues` (and the test suite) can still
+ * produce *unique* tokens — it is never a substitute for real entropy when
+ * the CSPRNG is present.
+ */
+function defaultRandomFill(bytes: Uint8Array): Uint8Array {
+  const webCrypto =
+    typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
+  if (webCrypto && typeof webCrypto.getRandomValues === "function") {
+    webCrypto.getRandomValues(bytes);
+    return bytes;
+  }
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return bytes;
+}
+
+/**
+ * Generate a fresh, URL-safe invite token.
+ *
+ * The optional `random` injection keeps the function deterministic under
+ * test while production callers get the platform CSPRNG.
+ */
+export function generateInviteToken(options: {
+  bytes?: number;
+  random?: (bytes: Uint8Array) => Uint8Array;
+} = {}): string {
+  const size = Math.max(1, options.bytes ?? INVITE_TOKEN_BYTES);
+  const bytes = new Uint8Array(size);
+  const fill = options.random ?? defaultRandomFill;
+  const filled = fill(bytes) ?? bytes;
+  return toBase64Url(filled);
+}
+
+export interface InviteLinkParts {
+  /** Absolute origin the link should point at, e.g. `https://mergepay.app`. */
+  baseUrl: string;
+  /** Group the link admits the visitor to. */
+  groupId: string;
+  /** Invite code / access token issued for the group. */
+  token: string;
+}
+
+/**
+ * Build a shareable deep link that carries both the group id and the
+ * access token: `{baseUrl}/join/{token}?group={groupId}`.
+ *
+ * Every part is validated with the same rules used when consuming an
+ * invite, so a tampered group id or token can never be interpolated into
+ * a URL we show, copy or encode. Returns `null` when any part is missing
+ * or malformed — callers must fall back rather than render a bad link.
+ */
+export function buildInviteLink({
+  baseUrl,
+  groupId,
+  token,
+}: InviteLinkParts): string | null {
+  const parsedToken = parseInviteCode(token);
+  if (!parsedToken.ok) return null;
+
+  const group = typeof groupId === "string" ? groupId.trim() : "";
+  if (!GROUP_ID_PATTERN.test(group)) return null;
+
+  let base: URL;
+  try {
+    base = new URL(baseUrl);
+  } catch {
+    return null;
+  }
+  if (base.protocol !== "https:" && base.protocol !== "http:") return null;
+
+  const url = new URL(`/join/${encodeURIComponent(parsedToken.code)}`, base);
+  url.searchParams.set("group", group);
+
+  const link = url.toString();
+  return isSafeInviteUrl(link) ? link : null;
+}
+
 export type InviteFailureKind =
   | "invalid_link"
   | "not_found"

@@ -33,7 +33,9 @@ const AnchorSessionKindSchema = z.enum(["deposit", "withdrawal"]);
 const AnchorSessionStatusSchema = z.enum([
   "incomplete",
   "pending_user_transfer_start",
+  "pending_external",
   "pending_anchor",
+  "no_market_active",
   "completed",
   "error",
   "refunded",
@@ -173,6 +175,7 @@ export const BalancesResponseSchema = z.object({
       user: UserSchema,
       net: DecimalStringSchema,
       assetCode: z.string(),
+      assetIssuer: z.string().nullable().optional(),
     })
   ),
   suggestions: z.array(

@@ -1,10 +1,12 @@
 import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 const fieldBase =
   "w-full bg-white border-3 border-ink rounded-xl px-4 py-2.5 font-body text-ink placeholder:text-ink/40 " +
   "shadow-brutal-sm focus:shadow-brutal focus:-translate-x-px focus:-translate-y-px " +
-  "focus:outline-none transition-all duration-100 disabled:opacity-50 disabled:bg-paper";
+  "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40 " +
+  "transition-all duration-100 disabled:opacity-50 disabled:bg-paper";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   ({ className, ...props }, ref) => (
@@ -42,6 +44,45 @@ export function Label({
       )}
       {...props}
     />
+  );
+}
+
+/**
+ * Inline validation message for a form field. Pair the `id` with the field's
+ * `aria-describedby` (and set `aria-invalid` on the field) so the message is
+ * announced with it; `role="alert"` announces it when it first appears.
+ * Renders nothing when there is no message.
+ */
+export function FieldError({
+  id,
+  badge,
+  children,
+}: {
+  id?: string;
+  /**
+   * Optional short label rendered as a flamingo neobrutalist `Badge` in
+   * front of the message (e.g. "Split"), to make the error scannable.
+   */
+  badge?: string;
+  children?: React.ReactNode;
+}) {
+  if (!children) return null;
+  if (badge) {
+    return (
+      <p
+        id={id}
+        role="alert"
+        className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-bold text-flamingo-dark font-body"
+      >
+        <Badge tone="flamingo" aria-hidden="true">{badge}</Badge>
+        <span>{children}</span>
+      </p>
+    );
+  }
+  return (
+    <p id={id} role="alert" className="mt-1 text-xs font-bold text-flamingo-dark font-body">
+      {children}
+    </p>
   );
 }
 

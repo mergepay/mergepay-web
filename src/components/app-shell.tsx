@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatePresence, motion } from "framer-motion";
 import { Logo, LogoMark } from "./logo";
 import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
@@ -24,19 +25,25 @@ import { useWalletScopedCache } from "@/lib/queries";
 import { useWalletStatus } from "@/hooks/useWalletStatus";
 import { WalletStatusPanel } from "./wallet/wallet-status";
 import { shortKey } from "@/lib/format";
-import { FOCUSABLE_SELECTOR, nextFocusIndex } from "@/lib/dialog";
+import { useDialogFocus } from "./ui/useDialogFocus";
 
 import { HorizonHealthIndicator } from "./HorizonHealthIndicator";
 import { OfflineSyncBanner } from "./OfflineSyncBanner";
+import { OfflineBanner } from "./OfflineBanner";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
+import { BottomNav } from "./layout/BottomNav";
+import { CommandPalette } from "./CommandPalette";
 
-const NAV = [
+
+export const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/groups", label: "Groups", icon: Users },
   { href: "/anchors", label: "Anchors", icon: Banknote },
   { href: "/history", label: "History", icon: History },
   { href: "/settings", label: "Settings", icon: Settings },
-];
+] as const;
+
+export type NAV = typeof NAV[number];
 
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -45,62 +52,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const { refresh: refreshWallet, ...walletStatus } = useWalletStatus();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
 
-  const getDrawerFocusable = useCallback(
-    () =>
-      drawerRef.current
-        ? Array.from(
-            drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-          ).filter((el) => el.tabIndex !== -1)
-        : [],
-    []
-  );
+  // Escape, Tab trapping, focus containment and the page scroll lock while the
+  // nav drawer is open — the same contract the dialog primitive gives, so a
+  // dialog opened over the drawer owns Escape and focus instead of both
+  // surfaces reacting to the same key press.
+  useDialogFocus({
+    open: mobileOpen,
+    onClose: () => setMobileOpen(false),
+    panelRef: drawerRef,
+  });
 
-  // Trap focus inside mobile drawer and handle Escape to close.
+  // The drawer belongs to the page it was opened over. Link clicks inside it
+  // close it directly, but a back/forward navigation or a programmatic
+  // redirect changes the route without firing those, so every route change
+  // closes it here (#619).
   useEffect(() => {
-    if (!mobileOpen) return;
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+    setMobileOpen(false);
+  }, [pathname]);
 
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      const tag = (document.activeElement?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || document.activeElement?.hasAttribute("contenteditable")) return;
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
         e.stopPropagation();
-        setMobileOpen(false);
-        return;
+        setCmdPaletteOpen((prev) => !prev);
       }
-      if (e.key !== "Tab") return;
-      const focusable = getDrawerFocusable();
-      if (focusable.length === 0) return;
-      const active = document.activeElement as HTMLElement | null;
-      const target = nextFocusIndex(
-        focusable.length,
-        active ? focusable.indexOf(active) : -1,
-        e.shiftKey
-      );
-      if (target === null) return;
-      e.preventDefault();
-      focusable[target]?.focus();
     }
-
-    window.addEventListener("keydown", handleKeyDown, true);
-
-    // Focus the first focusable element in the drawer after mount.
-    const frame = requestAnimationFrame(() => {
-      const focusable = getDrawerFocusable();
-      if (focusable.length > 0) focusable[0]?.focus();
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("keydown", handleKeyDown, true);
-      // Restore focus to the trigger when the drawer closes.
-      previousFocusRef.current?.focus();
-    };
-  }, [mobileOpen, getDrawerFocusable]);
+    window.addEventListener("keydown", handleGlobalKeyDown, true);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown, true);
+  }, []);
 
   // Group content must never survive a switch to a different wallet.
   useWalletScopedCache();
@@ -204,43 +189,63 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
 
-      {/* mobile drawer */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-50 lg:hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Navigation menu"
-        >
-          <div
-            className="absolute inset-0 bg-ink/60"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div
-            ref={drawerRef}
-            className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper"
-          >
-            <button
+      {/* mobile drawer — framer-motion slide-over (#619): the panel springs
+          in from the left edge and the backdrop fades, matching the
+          MobileNavDrawer used by the public navbar. AnimatePresence keeps the
+          panel mounted for the exit animation; the focus/scroll-lock contract
+          still follows `mobileOpen` via useDialogFocus. */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               onClick={() => setMobileOpen(false)}
-              aria-label="Close"
-              className="absolute right-3 top-4 rounded-lg border-2 border-ink bg-cream p-1.5 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
+              aria-hidden="true"
+              className="absolute inset-0 bg-ink/60"
+            />
+            <motion.div
+              ref={drawerRef}
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Navigation menu"
+              // The dialog is where focus lands, so it has to be focusable.
+              tabIndex={-1}
+              className="absolute inset-y-0 left-0 flex w-72 flex-col border-r-3 border-ink bg-paper outline-none"
             >
-              <X className="h-4 w-4" />
-            </button>
-            {navContent}
+              <button
+                onClick={() => setMobileOpen(false)}
+                aria-label="Close navigation menu"
+                className="absolute right-3 top-4 rounded-lg border-2 border-ink bg-cream p-1.5 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              {navContent}
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
-      <main className="lg:pl-64">
+      {/* The bottom padding clears the fixed mobile bottom nav, plus the
+          device's safe-area inset so content is not hidden by a home
+          indicator (#542). */}
+      <main className="lg:pl-64 pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-0">
         {/* Persistent reconnect prompt while the Freighter wallet is
             disconnected; also hosts the connection poll. */}
         <WalletDisconnectedBanner />
+        <OfflineBanner />
         <OfflineSyncBanner />
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-10">
           {children}
         </div>
       </main>
+      <BottomNav />
+      <CommandPalette open={cmdPaletteOpen} onClose={() => setCmdPaletteOpen(false)} />
     </div>
   );
 }

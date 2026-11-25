@@ -36,11 +36,20 @@ const variants: Record<Variant, string> = {
 };
 
 const sizes: Record<Size, string> = {
-  sm: "text-xs px-3 py-1.5 rounded-lg",
-  md: "text-sm px-5 py-2.5 rounded-xl",
-  lg: "text-base px-7 py-3.5 rounded-xl",
-  icon: "h-10 w-10 rounded-xl",
+sm: "text-xs px-3 py-2 min-h-[44px] rounded-lg",
+  md: "text-sm px-5 py-3 min-h-[44px] rounded-xl",
+  lg: "text-base px-7 py-4 min-h-[44px] rounded-xl",
+  icon: "h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl",
 };
+
+/**
+ * The class list for a given variant/size without rendering a `<button>`.
+ * Lets an anchor (e.g. the ErrorBoundary "Return to Dashboard" escape hatch)
+ * look identical to a Button while remaining a real navigation link.
+ */
+export function buttonClassName(variant: Variant = "primary", size: Size = "md") {
+  return cn(base, variants[variant], sizes[size]);
+}
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
@@ -64,9 +73,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       type={type}
       className={cn(base, variants[variant], sizes[size], className)}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
     >
-      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+      {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
       {children}
     </button>
   )

@@ -1,0 +1,165 @@
+"use client";
+
+/**
+ * Minimal accessible dialog primitive built on the native `<dialog>` element.
+ *
+ * `showModal()` provides `role="dialog"`, `aria-modal="true"` semantics, focus
+ * containment, and Escape-key dismissal for free. The Escape-to-close behavior
+ * is wired through the `cancel` event (fired when the user presses Escape
+ * while the dialog is modal) and `onClose` is invoked for both programmatic
+ * and user-initiated dismissal so trigger buttons regain focus via the
+ * browser's built-in restore.
+ */
+
+import { useEffect, useId, useRef } from "react";
+import { dialogStack, shouldCloseOnEscape } from "@/lib/dialog";
+import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
+
+export interface AccessibleDialogProps {
+  /** Whether the dialog is open. */
+  isOpen: boolean;
+  /** Called when the dialog is dismissed via Escape or the close affordance. */
+  onClose: () => void;
+  /** Accessible name for the dialog (rendered via the internal heading). */
+  title?: string;
+  /** Disable Escape/backdrop dismissal, e.g. for destructive flows. */
+  dismissible?: boolean;
+  children: React.ReactNode;
+  className?: string;
+}
+
+export function AccessibleDialog({
+  isOpen,
+  onClose,
+  title,
+  dismissible = true,
+  children,
+  className,
+}: AccessibleDialogProps) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const wasOpenRef = useRef(false);
+  const stackId = useId();
+  const titleId = useId();
+
+  // `showModal()` makes the page inert but does not stop it scrolling behind
+  // the backdrop; share the app's reference-counted lock so stacked overlays
+  // release it only when the last one closes.
+  useBodyScrollLock(isOpen);
+
+  // Whatever had focus when the dialog opened, noted during render — before
+  // `showModal()` moves focus inside.
+  const openerRef = useRef<HTMLElement | null>(null);
+  if (isOpen && !wasOpenRef.current && typeof document !== "undefined") {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
+  // Register with the shared stack so only the topmost dialog reacts to Escape,
+  // and hand focus back to the trigger when the dialog closes or unmounts.
+  // Browsers restore focus after `close()`, but not when React removes the
+  // element outright, so this does it explicitly for both paths.
+  useEffect(() => {
+    if (!isOpen) return;
+    dialogStack.push(stackId);
+    const opener = openerRef.current;
+    return () => {
+      dialogStack.remove(stackId);
+      if (opener?.isConnected && typeof opener.focus === "function") opener.focus();
+    };
+  }, [isOpen, stackId]);
+
+  // Keep the native element in sync with the React-driven open state.
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (isOpen && !dialog.open) {
+      dialog.showModal();
+    } else if (!isOpen && dialog.open) {
+      dialog.close();
+    }
+  }, [isOpen]);
+
+  // Escape is routed through the shared `shouldCloseOnEscape` policy so stacked
+  // dialogs only react when they are the topmost entry.
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    const handleCancel = (event: Event) => {
+      const allowed = shouldCloseOnEscape({
+        key: "Escape",
+        dismissible,
+        isTopmost: dialogStack.isTopmost(stackId),
+      });
+      // Always prevent the native default so dismissal goes through React state.
+      event.preventDefault();
+      if (allowed) onClose();
+    };
+    dialog.addEventListener("cancel", handleCancel);
+    return () => dialog.removeEventListener("cancel", handleCancel);
+  }, [dismissible, onClose, stackId]);
+
+  // Closing the element outside of React state (e.g. the native close button)
+  // is surfaced so the parent can reset `isOpen`.
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    const handleClose = () => {
+      if (wasOpenRef.current) onClose();
+    };
+    dialog.addEventListener("close", handleClose);
+    return () => dialog.removeEventListener("close", handleClose);
+  }, [onClose, stackId]);
+
+  useEffect(() => {
+    wasOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  return (
+    <dialog
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={title ? titleId : undefined}
+      aria-label={title}
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        // Always swallow the native default: otherwise the browser also fires
+        // `cancel`, and `onClose` would run twice for one key press.
+        e.preventDefault();
+        if (
+          shouldCloseOnEscape({
+            key: e.key,
+            dismissible,
+            isTopmost: dialogStack.isTopmost(stackId),
+            isComposing: e.nativeEvent.isComposing,
+          })
+        ) {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      onClick={(e) => {
+        // Click on the backdrop (the dialog element itself outside the box)
+        const dialog = ref.current;
+        if (dialog && dismissible && dialogStack.isTopmost(stackId)) {
+          const rect = dialog.getBoundingClientRect();
+          if (
+            e.clientX < rect.left ||
+            e.clientX > rect.right ||
+            e.clientY < rect.top ||
+            e.clientY > rect.bottom
+          ) {
+            onClose();
+          }
+        }
+      }}
+      className={className ?? "flex flex-col w-full max-w-[calc(100vw-2rem)] sm:max-w-lg rounded-2xl border-3 border-ink bg-cream p-4 sm:p-6 shadow-brutal max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"}
+    >
+      {title && (
+        <h2 id={titleId} className="shrink-0 font-display text-lg uppercase tracking-tight">{title}</h2>
+      )}
+      <div className="flex-1 overflow-y-auto">
+        {children}
+      </div>
+    </dialog>
+  );
+}

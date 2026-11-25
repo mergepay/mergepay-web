@@ -14,31 +14,107 @@
 
 import { MAX_DECIMAL_PLACES } from "./money";
 import { z } from "zod";
+import {
+  checkSplitPercent,
+  checkStellarAmount,
+  splitPercentMessage,
+  stellarAmountMessage,
+} from "./validations/sanitize";
 
-/** API-bound schema: decimal strings are retained as strings to avoid float drift. */
+/**
+ * API-bound schema: decimal strings are retained as strings to avoid float drift.
+ *
+ * Every amount must be a positive Stellar quantity (plain decimal, at most 7
+ * places, within int64 stroops); every split ratio must be a finite
+ * percentage above 0 with at most 2 decimals; and each participant may appear
+ * once. These are the malformed inputs a hand-built payload could otherwise
+ * send past the form (#884).
+ */
+const apiAmountSchema = z
+  .string()
+  .trim()
+  .superRefine((value, ctx) => {
+    const result = checkStellarAmount(value);
+    if (!result.ok) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: stellarAmountMessage(result.issue) });
+    }
+  });
+
 export const expenseSplitSchema = z.object({
-  amount: z.string().regex(/^\d+(?:\.\d{1,7})?$/),
+  amount: apiAmountSchema,
   splitType: z.enum(["equal", "custom", "percentage"]),
   shares: z.array(z.object({
-    userId: z.string().min(1),
-    amount: z.string().regex(/^\d+(?:\.\d{1,7})?$/).optional(),
-    percent: z.number().finite().min(0).max(100).optional(),
+    userId: z.string().trim().min(1),
+    amount: z.string().trim().optional(),
+    percent: z.number().optional(),
   })).min(1),
 }).superRefine((value, ctx) => {
-  if (value.splitType === "custom") {
-    const total = value.shares.reduce((sum, share) => sum + toUnits(share.amount ?? "0"), 0n);
-    if (total !== toUnits(value.amount)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["shares"], message: "Exact shares must equal the expense total" });
+  const seen = new Set<string>();
+  value.shares.forEach((share, index) => {
+    if (seen.has(share.userId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["shares", index, "userId"],
+        message: "A participant is selected more than once",
+      });
+    }
+    seen.add(share.userId);
+  });
+
+  const total = checkStellarAmount(value.amount);
+
+  if (value.splitType === "equal") {
+    if (total.ok && total.stroops < BigInt(value.shares.length)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["amount"],
+        message: `Amount is too small to split between ${value.shares.length} people`,
+      });
+    }
+    return;
   }
-  if (value.splitType === "percentage") {
-    const total = value.shares.reduce((sum, share) => sum + BigInt(Math.round((share.percent ?? 0) * 100)), 0n);
-    if (total !== 10000n) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["shares"], message: "Percentages must total exactly 100%" });
+
+  if (value.splitType === "custom") {
+    let sum = 0n;
+    let allValid = true;
+    value.shares.forEach((share, index) => {
+      const result = checkStellarAmount(share.amount ?? "");
+      if (!result.ok) {
+        allValid = false;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["shares", index, "amount"],
+          message: stellarAmountMessage(result.issue, "Share amount"),
+        });
+        return;
+      }
+      sum += result.stroops;
+    });
+    if (allValid && total.ok && sum !== total.stroops) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["shares"], message: "Exact shares must equal the expense total" });
+    }
+    return;
+  }
+
+  let totalBp = 0n;
+  let allValid = true;
+  value.shares.forEach((share, index) => {
+    const issue = checkSplitPercent(share.percent);
+    if (issue) {
+      allValid = false;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["shares", index, "percent"],
+        message: splitPercentMessage(issue),
+      });
+      return;
+    }
+    totalBp += BigInt(Math.round((share.percent as number) * 100));
+  });
+  if (allValid && totalBp !== 10000n) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["shares"], message: "Percentages must total exactly 100%" });
   }
 });
-
-function toUnits(value: string): bigint {
-  const [whole, fraction = ""] = value.split(".");
-  return BigInt(whole) * 10_000_000n + BigInt(fraction.padEnd(7, "0"));
-}
 
 /** Decimal places accepted for an expense amount (Stellar's precision). */
 export const AMOUNT_DECIMAL_PLACES = MAX_DECIMAL_PLACES;
@@ -119,6 +195,81 @@ export function splitEqualUnits(total: bigint, count: number): bigint[] {
   return Array.from({ length: count }, (_, i) =>
     BigInt(i) < remainder ? base + 1n : base
   );
+}
+
+/**
+ * Keystroke rules for the amount and percentage inputs (issue #520).
+ *
+ * A half-typed value is not an error: `""`, `"5"`, `"5."` and `".5"` are states
+ * a caret passes through on the way to `"5.25"`, so the inputs accept those and
+ * reject everything else before it reaches state. That distinction matters
+ * because a `type="number"` field cannot make it — the browser lets `-5`, `1e5`
+ * and any precision through, and `Number()` then quietly accepts all three.
+ */
+const TYPABLE_AMOUNT = new RegExp(`^\\d*(?:\\.\\d{0,${AMOUNT_DECIMAL_PLACES}})?$`);
+const TYPABLE_PERCENT = new RegExp(`^\\d*(?:\\.\\d{0,${PERCENT_DECIMAL_PLACES}})?$`);
+
+/** Keys a decimal field must swallow. */
+const BLOCKED_DECIMAL_KEYS: readonly string[] = ["e", "E", "+", "-"];
+
+/** Drop this keystroke? `e`/`E` build exponent notation, `-`/`+` signed amounts. */
+export function isBlockedDecimalKey(key: string): boolean {
+  return BLOCKED_DECIMAL_KEYS.includes(key);
+}
+
+/**
+ * May `value` sit in a Stellar amount input while it is being typed?
+ *
+ * `decimalPlaces` narrows the rule for assets configured with less than
+ * Stellar's 7-decimal maximum (#897); it is clamped to 0–7.
+ */
+export function isTypableAmount(
+  value: string,
+  decimalPlaces: number = AMOUNT_DECIMAL_PLACES
+): boolean {
+  if (value === "") return true;
+  if (decimalPlaces === AMOUNT_DECIMAL_PLACES) return TYPABLE_AMOUNT.test(value);
+  const places = Math.max(0, Math.min(AMOUNT_DECIMAL_PLACES, Math.floor(decimalPlaces)));
+  const pattern =
+    places === 0 ? /^\d*$/ : new RegExp(`^\\d*(?:\\.\\d{0,${places}})?$`);
+  return pattern.test(value);
+}
+
+/** The same rule for a percentage input: unsigned, at most two decimals. */
+export function isTypablePercent(value: string): boolean {
+  return value === "" || TYPABLE_PERCENT.test(value);
+}
+
+/**
+ * Error text for a committed amount entry, or `null` when it is usable.
+ *
+ * For fields that sit outside the expense schema — the currency converter's
+ * local amount and manual rate feed a preview rather than the payload, so they
+ * need the plain-positive-decimal rule without the required-field half of it.
+ * An empty field is empty, not wrong.
+ */
+export function amountFieldError(
+  value: string,
+  decimalPlaces: number = AMOUNT_DECIMAL_PLACES
+): string | null {
+  const trimmed = value.trim();
+  // Empty is empty, and a lone dot is where ".5" begins — neither has gone
+  // wrong yet, so neither gets shouted at while the field is being typed.
+  if (trimmed === "" || trimmed === ".") return null;
+  const units = parseDecimalUnits(trimmed, decimalPlaces);
+  if (units === null) return "Amount must be a plain number";
+  if (units === "too_precise") {
+    return `Amount must have at most ${decimalPlaces} decimal places`;
+  }
+  if (units <= 0n) {
+    // A run of zeros is how "0.5" starts, so it is not a mistake yet — but once
+    // the fraction is full there is nowhere left to type a non-zero digit.
+    const fraction = trimmed.includes(".") ? trimmed.slice(trimmed.indexOf(".") + 1) : "";
+    const canStillGrowPositive = /^[0.]+$/.test(trimmed) && fraction.length < decimalPlaces;
+    if (canStillGrowPositive) return null;
+    return "Amount must be greater than zero";
+  }
+  return null;
 }
 
 export type FormErrors = Partial<Record<string, string>>;

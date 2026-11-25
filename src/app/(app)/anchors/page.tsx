@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   ArrowDownToLine,
+  ArrowLeftRight,
   ArrowUpFromLine,
   Banknote,
   ExternalLink,
@@ -21,14 +22,18 @@ import { handleApiError } from "@/lib/errorHandler";
 import { signXdr, WalletError, NotInstalledMessage } from "@/lib/stellar";
 import { Timestamp } from "@/components/timestamp";
 import type { AnchorSessionKind } from "@/lib/types";
-import type { AnchorSession } from "@/lib/types";
-import { AnchorFlowModal } from "@/components/AnchorFlowModal";
+import { LazyAnchorInteractiveModal, LazySep24Modal } from "@/components/lazy-modals";
+import { useMountOnFirstOpen } from "@/components/ui/lazy-overlay";
 
 export default function AnchorsPage() {
   const anchors = useAnchors();
   const sessions = useAnchorSessions();
   const [busy, setBusy] = useState<string | null>(null);
-  const [activeSession, setActiveSession] = useState<AnchorSession | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [newTransferOpen, setNewTransferOpen] = useState(false);
+  // Code-split dialogs (#887): fetched on first open, not with the page.
+  const mountSessionModal = useMountOnFirstOpen(activeSessionId !== null);
+  const mountTransferModal = useMountOnFirstOpen(newTransferOpen);
 
   async function startFlow(
     kind: AnchorSessionKind,
@@ -56,9 +61,9 @@ export default function AnchorsPage() {
       });
 
       sessions.refetch();
-      setActiveSession(session);
       if (session.interactiveUrl) {
-        toast.success("Anchor flow ready");
+        setActiveSessionId(session.id);
+        toast.success("Complete the transfer in the secure anchor window");
       } else {
         toast.success("Anchor session started");
       }
@@ -79,6 +84,11 @@ export default function AnchorsPage() {
       <PageHeader
         title="Anchors"
         description="Move between fiat and Stellar assets through SEP-24 anchors — no crypto workflow required."
+        action={
+          <Button onClick={() => setNewTransferOpen(true)}>
+            <ArrowLeftRight className="h-4 w-4" /> New transfer
+          </Button>
+        }
       />
 
       {anchors.isError || sessions.isError ? (
@@ -161,8 +171,6 @@ export default function AnchorsPage() {
         />
       )}
 
-      <AnchorFlowModal session={activeSession} onClose={() => setActiveSession(null)} />
-
       <h2 className="mb-3 mt-10 font-display text-xl uppercase tracking-tight">
         Your transfers
       </h2>
@@ -214,6 +222,21 @@ export default function AnchorsPage() {
         </div>
       ) : (
         <p className="text-sm text-ink/50">No anchor transfers yet.</p>
+      )}
+      {mountSessionModal && (
+        <LazyAnchorInteractiveModal
+          sessionId={activeSessionId}
+          onClose={() => setActiveSessionId(null)}
+        />
+      )}
+      {mountTransferModal && (
+        <LazySep24Modal
+          open={newTransferOpen}
+          onClose={() => setNewTransferOpen(false)}
+          onSessionStarted={() => {
+            void sessions.refetch();
+          }}
+        />
       )}
     </>
   );

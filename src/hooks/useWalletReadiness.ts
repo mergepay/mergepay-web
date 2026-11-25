@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { WatchWalletChanges } from "@stellar/freighter-api";
 import { useAuth as useAuthStore } from "@/lib/auth-store";
-import { probeWallet } from "@/lib/stellar";
+import { probeWallet, getAddress } from "@/lib/stellar";
 import {
   evaluateWalletReadiness,
   type WalletProbe,
@@ -18,6 +18,7 @@ const INITIAL_PROBE: WalletProbe = {
   publicKey: null,
   networkPassphrase: null,
   networkName: null,
+  locked: false,
 };
 
 export interface UseWalletReadiness extends WalletReadiness {
@@ -47,6 +48,17 @@ export function useWalletReadiness(): UseWalletReadiness {
   const runProbe = useCallback(async () => {
     try {
       const next = await probeWallet();
+      // Detect locked state: if wallet is available but no public key and we can detect locked
+      if (next.status === "resolved" && !next.publicKey) {
+        try {
+          await getAddress();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (msg.toLowerCase().includes("locked")) {
+            next.locked = true;
+          }
+        }
+      }
       if (mounted.current) setProbe(next);
     } catch {
       // A probe that throws is indistinguishable from no wallet at all.
@@ -56,6 +68,7 @@ export function useWalletReadiness(): UseWalletReadiness {
           publicKey: null,
           networkPassphrase: null,
           networkName: null,
+          locked: false,
         });
       }
     }
@@ -76,6 +89,7 @@ export function useWalletReadiness(): UseWalletReadiness {
             publicKey: null,
             networkPassphrase: null,
             networkName: null,
+            locked: params.error.toLowerCase().includes("locked"),
           });
           return;
         }
@@ -84,6 +98,7 @@ export function useWalletReadiness(): UseWalletReadiness {
           publicKey: params.address || null,
           networkPassphrase: params.networkPassphrase || null,
           networkName: params.network || null,
+          locked: false,
         });
       });
     } catch {

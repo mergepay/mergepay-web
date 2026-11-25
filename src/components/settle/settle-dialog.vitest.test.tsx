@@ -1,14 +1,37 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { ApiRequestError, api } from "@/lib/api";
+import { UserRejectedError, WalletError, signXdr } from "@/lib/stellar";
 import { SettleDialog, type SettleTarget } from "./settle-dialog";
 
 const mutateAsync = vi.fn();
-const statusQuery = { data: undefined };
+const statusQuery: {
+  data: { status: string; stellarTxHash?: string | null } | undefined;
+  pollingStalled: boolean;
+  pollingTimedOut: boolean;
+  restartPolling: ReturnType<typeof vi.fn>;
+  refetch: ReturnType<typeof vi.fn>;
+} = {
+  data: undefined,
+  pollingStalled: false,
+  pollingTimedOut: false,
+  restartPolling: vi.fn(),
+  refetch: vi.fn(),
+};
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+
+vi.mock("framer-motion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("framer-motion")>();
+  // jsdom has no matchMedia, which the progress components read.
+  return { ...actual, useReducedMotion: () => true };
+});
 
 vi.mock("@/lib/queries", () => ({
   useConfirmSettlement: () => ({ mutateAsync }),
   useSettlementStatus: () => statusQuery,
+  useSettlementCacheRefresh: () => vi.fn(),
 }));
 
 vi.mock("@/lib/stellar", async () => {
@@ -77,10 +100,22 @@ const settlement = {
   status: "confirmed",
 };
 
+/** The step the progress bar marks as current. */
+const currentStep = () =>
+  screen.getByRole("list", { name: "Settlement progress" }).querySelector("[aria-current=step]");
+
+const settleNow = () => fireEvent.click(screen.getByRole("button", { name: /settle now/i }));
+
 describe("SettleDialog state transitions", () => {
+  beforeEach(() => {
+    vi.mocked(signXdr).mockResolvedValue("signed-xdr");
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     statusQuery.data = undefined;
+    statusQuery.pollingStalled = false;
+    statusQuery.pollingTimedOut = false;
   });
 
   it("moves from review through signing/submitting to done", async () => {
@@ -100,10 +135,15 @@ describe("SettleDialog state transitions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /settle now/i }));
     expect(await screen.findByText(/submitting to stellar/i)).toBeInTheDocument();
+    expect(currentStep()).toHaveTextContent("Sign");
 
     confirmSettlement();
     expect(await screen.findByText("Settled!")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    expect(currentStep()).toHaveTextContent("Done");
+    expect(toast.success).toHaveBeenCalledWith("Settled on Stellar");
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.warning).not.toHaveBeenCalled();
   });
 
   it("surfaces the API message in the failed step when confirmation fails", async () => {
@@ -116,5 +156,167 @@ describe("SettleDialog state transitions", () => {
 
     await waitFor(() => expect(screen.getByText(message)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+  });
+});
+
+describe("SettleDialog final-result toasts", () => {
+  beforeEach(() => {
+    vi.mocked(signXdr).mockResolvedValue("signed-xdr");
+    vi.mocked(api.createSettlement).mockResolvedValue(intent as never);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    statusQuery.data = undefined;
+    statusQuery.pollingStalled = false;
+    statusQuery.pollingTimedOut = false;
+  });
+
+  it("warns, rather than errors, when the signature is declined in Freighter", async () => {
+    vi.mocked(signXdr).mockRejectedValue(new UserRejectedError());
+
+    render(<SettleDialog open onClose={vi.fn()} groupId="group-1" target={target} />);
+    settleNow();
+
+    expect(await screen.findByText("Cancelled")).toBeInTheDocument();
+    expect(toast.warning).toHaveBeenCalledWith(
+      "Signature declined",
+      expect.objectContaining({ description: expect.stringContaining("Nothing was sent"), id: "settlement-failure" })
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(mutateAsync).not.toHaveBeenCalled();
+    // The failure happened while signing, so that is the leg the progress bar marks.
+    expect(currentStep()).toHaveTextContent("Sign");
+  });
+
+  it("raises an error toast for a wallet problem and keeps the wallet's own wording", async () => {
+    vi.mocked(signXdr).mockRejectedValue(new WalletError("Freighter is locked", "locked"));
+
+    render(<SettleDialog open onClose={vi.fn()} groupId="group-1" target={target} />);
+    settleNow();
+
+    expect(await screen.findByText("Wallet locked")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith(
+      "Wallet error",
+      expect.objectContaining({ description: expect.stringContaining("Freighter is locked") })
+    );
+  });
+
+  it("names the API failure as a settlement failure, not a wallet error", async () => {
+    mutateAsync.mockRejectedValue(new ApiRequestError(502, "UPSTREAM", "The settlement could not be confirmed"));
+
+    render(<SettleDialog open onClose={vi.fn()} groupId="group-1" target={target} />);
+    settleNow();
+
+    await screen.findByText("The settlement could not be confirmed");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Settlement failed",
+      expect.objectContaining({
+        // The wallet had signed by then, so the toast must not read as "nothing happened".
+        description: expect.stringContaining("may still go through"),
+      })
+    );
+  });
+
+  it("raises an error toast when Stellar rejects the payment on submission", async () => {
+    mutateAsync.mockResolvedValue({ settlement: { ...settlement, status: "failed", stellarTxHash: null } });
+
+    render(<SettleDialog open onClose={vi.fn()} groupId="group-1" target={target} />);
+    settleNow();
+
+    expect(await screen.findByText("Stellar rejected this transaction. Please try again.")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith(
+      "Payment failed",
+      expect.objectContaining({ description: "Stellar rejected this payment. No funds moved." })
+    );
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(currentStep()).toHaveTextContent("Submit");
+  });
+
+  it("raises an error toast when polling later finds the payment failed", async () => {
+    mutateAsync.mockResolvedValue({ settlement: { ...settlement, status: "submitted" } });
+    const view = render(<SettleDialog open onClose={vi.fn()} groupId="group-1" target={target} />);
+    settleNow();
+    expect(await screen.findByText("Waiting for confirmation")).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
+
+    statusQuery.data = { status: "failed" };
+    view.rerender(<SettleDialog open onClose={vi.fn()} groupId="group-1" target={target} />);
+
+    expect(await screen.findByText("Stellar rejected this transaction. Please try again.")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith("Payment failed", expect.anything());
+  });
+
+  it("shows no toast for an input the user can fix on the spot", async () => {
+    render(<SettleDialog open onClose={vi.fn()} groupId="group-1" target={{ ...target, amount: "0" }} />);
+    settleNow();
+
+    // The failed step replaces the review step, which is when the progress bar appears.
+    await waitFor(() => expect(screen.queryByRole("button", { name: /settle now/i })).not.toBeInTheDocument());
+    expect(api.createSettlement).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(currentStep()).toHaveTextContent("Review");
+  });
+});
+
+describe("SettleDialog while the status can no longer be read", () => {
+  beforeEach(() => {
+    vi.mocked(signXdr).mockResolvedValue("signed-xdr");
+    vi.mocked(api.createSettlement).mockResolvedValue(intent as never);
+    mutateAsync.mockResolvedValue({ settlement: { ...settlement, status: "submitted" } });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    statusQuery.data = undefined;
+    statusQuery.pollingStalled = false;
+    statusQuery.pollingTimedOut = false;
+  });
+
+  it("cannot be closed while polling is healthy", async () => {
+    const onClose = vi.fn();
+    render(<SettleDialog open onClose={onClose} groupId="group-1" target={target} />);
+    settleNow();
+
+    expect(await screen.findByText("Waiting for confirmation")).toBeInTheDocument();
+    expect(currentStep()).toHaveTextContent("Submit");
+    expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("lets the user leave, and warns once, when status checks stall", async () => {
+    statusQuery.pollingStalled = true;
+    const onClose = vi.fn();
+    render(<SettleDialog open onClose={onClose} groupId="group-1" target={target} />);
+    settleNow();
+
+    expect(await screen.findByText("Couldn't check status")).toBeInTheDocument();
+    expect(toast.warning).toHaveBeenCalledTimes(1);
+    expect(toast.warning).toHaveBeenCalledWith(
+      "Couldn't check the payment status",
+      expect.objectContaining({ description: expect.stringContaining("may still be processing") })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the wait ran out, and offers a fresh check, when polling times out", async () => {
+    statusQuery.pollingTimedOut = true;
+    render(<SettleDialog open onClose={vi.fn()} groupId="group-1" target={target} />);
+    settleNow();
+
+    expect(await screen.findByText("Still waiting for confirmation")).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't check status")).not.toBeInTheDocument();
+    expect(toast.warning).toHaveBeenCalledWith("Still waiting for confirmation", expect.anything());
+
+    fireEvent.click(screen.getByRole("button", { name: /check status/i }));
+    expect(statusQuery.restartPolling).toHaveBeenCalledTimes(1);
+    expect(statusQuery.refetch).toHaveBeenCalledTimes(1);
+    // Checking again must not build or sign a second payment.
+    expect(api.createSettlement).toHaveBeenCalledTimes(1);
+    expect(signXdr).toHaveBeenCalledTimes(1);
   });
 });

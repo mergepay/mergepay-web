@@ -10,6 +10,7 @@ import {
   isAbortError,
   NETWORK_ERROR_MESSAGE,
   networkFailure,
+  logRenderError,
 } from "../errorHandler";
 
 describe("apiErrorMessage", () => {
@@ -109,5 +110,69 @@ describe("networkFailure", () => {
     const abort = new DOMException("aborted", "AbortError");
     const err = networkFailure(abort);
     assert.strictEqual(err, abort);
+  });
+});
+
+describe("logRenderError", () => {
+  /** Capture `console.error` calls made while `fn` runs. */
+  function capture(fn: () => void): unknown[][] {
+    const original = console.error;
+    const calls: unknown[][] = [];
+    console.error = (...args: unknown[]) => {
+      calls.push(args);
+    };
+    try {
+      fn();
+    } finally {
+      console.error = original;
+    }
+    return calls;
+  }
+
+  it("logs one structured line with the component stack outside production", () => {
+    const calls = capture(() =>
+      logRenderError(new Error("render exploded"), { componentStack: "\n    at Bomb" })
+    );
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0][0], "[mergepay] render error");
+    assert.deepEqual(calls[0][1], {
+      name: "Error",
+      message: "render exploded",
+      componentStack: "\n    at Bomb",
+    });
+  });
+
+  it("stays silent in production", () => {
+    // Next's typings freeze `NODE_ENV`, which is exactly what a test flipping
+    // the branch needs to get past.
+    const env = process.env as Record<string, string | undefined>;
+    const previous = env.NODE_ENV;
+    env.NODE_ENV = "production";
+    try {
+      assert.strictEqual(capture(() => logRenderError(new Error("x"))).length, 0);
+    } finally {
+      env.NODE_ENV = previous;
+    }
+  });
+
+  it("keeps only scalar fields, so attached state never reaches the console", () => {
+    // A wallet error can have the account, the XDR, or the signing payload hung
+    // off it; the log line must survive that without repeating it.
+    const leaky = Object.assign(new Error("signing failed"), {
+      secretKey: "SABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOP",
+    });
+    const calls = capture(() => logRenderError(leaky));
+    assert.deepEqual(calls[0][1], { name: "Error", message: "signing failed" });
+    assert.ok(!JSON.stringify(calls).includes("SABCDEFGHIJKLMNOPQRSTUVWXYZ"));
+  });
+
+  it("describes a thrown non-Error without stringifying its contents", () => {
+    const calls = capture(() => logRenderError({ amount: "10.00", payer: "user-1" }));
+    assert.deepEqual(calls[0][1], { message: "[object Object]" });
+  });
+
+  it("omits a missing component stack instead of logging null", () => {
+    const calls = capture(() => logRenderError(new Error("x"), { componentStack: null }));
+    assert.deepEqual(calls[0][1], { name: "Error", message: "x" });
   });
 });

@@ -1,21 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { Check, FileText, Trash2 } from "lucide-react";
+import { Check, FileText, Loader2, Pencil, Receipt, Trash2 } from "lucide-react";
+import { ReceiptPreview } from "@/components/ui/receipt-preview";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Badge, statusTone } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Money } from "@/components/amount";
 import { AssetBadge } from "@/components/asset-badge";
+import { FiatEquivalent, FiatInline } from "@/components/FiatEquivalent";
 import { Button } from "@/components/ui/button";
 import {
   SettleDialog,
   type SettleTarget,
 } from "@/components/settle/settle-dialog";
 import { useDeleteExpense } from "@/lib/queries";
+import { useUpdateExpenseMutation } from "@/hooks/useExpenseMutations";
+import { Input, Label, Textarea, FieldError } from "@/components/ui/input";
+import { validateMergepayMemo } from "@/lib/validations/memo";
 import { handleApiError } from "@/lib/errorHandler";
 import { Timestamp } from "@/components/timestamp";
+import { ExpenseReceiptModal } from "@/components/ExpenseReceiptModal";
+import { MemoBadge } from "@/components/stellar/MemoBadge";
 import type { Expense, GroupMember } from "@/lib/types";
 
 export function ExpenseCard({
@@ -37,25 +44,70 @@ export function ExpenseCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [settleTarget, setSettleTarget] = useState<SettleTarget | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const del = useDeleteExpense(groupId);
+  const update = useUpdateExpenseMutation(groupId);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ title: "", description: "", memo: "" });
+  const [editError, setEditError] = useState<string | null>(null);
 
+  const isPending = Boolean(expense.isOptimistic || expense.pending);
   const isPayer = expense.payerUserId === currentUserId;
   const myShare = expense.shares.find((s) => s.userId === currentUserId);
-  const canDelete = isPayer && expense.shares.every((s) => s.status !== "settled");
+  const canDelete = !isPending && isPayer && expense.shares.every((s) => s.status !== "settled");
   const settledCount = expense.shares.filter((s) => s.status === "settled").length;
   // Mirror the per-card "Settle my share" button below: only `pending` shares
   // are directly settleable from the UI; "settling" is server-reconciled.
   const canSelectForBulk =
-    selectable && !isPayer && !!myShare && myShare.status === "pending";
+    !isPending && selectable && !isPayer && !!myShare && myShare.status === "pending";
+
+  const canEdit = !isPending && isPayer;
 
   async function handleDelete() {
     if (!confirm("Delete this expense? This cannot be undone.")) return;
     try {
+      // The card is removed from the cache immediately (optimistic); on
+      // failure the mutation restores it and we explain what happened.
       await del.mutateAsync(expense.id);
       toast.success("Expense deleted");
     } catch (e) {
-      handleApiError(e, "Could not delete");
+      handleApiError(e, "Could not delete the expense. It has been restored.");
     }
+  }
+
+  function startEditing() {
+    setDraft({
+      title: expense.title,
+      description: expense.description ?? "",
+      memo: expense.memo ?? "",
+    });
+    setEditError(null);
+    setEditing(true);
+  }
+
+  function saveEdit(event: React.FormEvent) {
+    event.preventDefault();
+    const title = draft.title.trim();
+    const description = draft.description.trim();
+    const memo = draft.memo.trim();
+    if (!title) return setEditError("Title is required");
+    if (title.length > 80) return setEditError("Title must be 80 characters or fewer");
+    if (description.length > 500) return setEditError("Description must be 500 characters or fewer");
+    if (memo && !validateMergepayMemo(memo).valid) {
+      return setEditError("Memo must look like MP:<code> and fit in 28 bytes");
+    }
+
+    const data: { title?: string; description?: string; memo?: string } = {};
+    if (title !== expense.title) data.title = title;
+    if (description !== (expense.description ?? "")) data.description = description;
+    if (memo !== (expense.memo ?? "")) data.memo = memo;
+
+    setEditing(false);
+    if (Object.keys(data).length === 0) return;
+    // Fire and forget: the edit renders immediately from the optimistic
+    // cache, and the mutation rolls back + toasts on failure.
+    update.mutate({ expenseId: expense.id, data });
   }
 
   function settleMyShare() {
@@ -71,7 +123,11 @@ export function ExpenseCard({
   }
 
   return (
-    <Card>
+    <Card
+      className={isPending ? "opacity-70 bg-cream/50" : undefined}
+      data-testid="expense-card"
+      data-expense-id={expense.id}
+    >
       <div className="flex items-stretch">
         {selectable && (
           <button
@@ -89,8 +145,6 @@ export function ExpenseCard({
             }`}
           >
             <span
-              // Visual indicator only — the wrapping <button aria-pressed>
-              // carries the toggle semantics. Don't add role="checkbox" here.
               aria-hidden="true"
               className={`flex h-6 w-6 items-center justify-center rounded-md border-2 border-ink transition-colors ${
                 selected ? "bg-lime shadow-brutal-sm" : "bg-white"
@@ -114,6 +168,14 @@ export function ExpenseCard({
               <p className="truncate font-display text-base uppercase tracking-tight">
                 {expense.title}
               </p>
+              {isPending && (
+                <span className="inline-flex items-center gap-1">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ink/60" />
+                  <Badge tone="paper" className="text-[10px] uppercase">
+                    {expense.isOptimistic ? "Posting…" : "Saving…"}
+                  </Badge>
+                </span>
+              )}
               {expense.receiptUrl && <FileText className="h-3.5 w-3.5 text-ink/40" />}
             </div>
             <p className="text-xs text-ink/50">
@@ -124,9 +186,10 @@ export function ExpenseCard({
             </p>
           </div>
           <div className="text-right">
-            <Money value={expense.amount} assetCode={expense.assetCode} />
-            <div className="mt-1 flex justify-end gap-1">
+            <Money value={expense.amount} assetCode={expense.assetCode} assetIssuer={expense.assetIssuer} />
+            <div className="mt-1 flex items-center justify-end gap-1.5">
               <AssetBadge code={expense.assetCode} />
+              <FiatEquivalent amount={expense.amount} assetCode={expense.assetCode} />
             </div>
           </div>
         </button>
@@ -134,6 +197,52 @@ export function ExpenseCard({
 
       {expanded && (
         <div className="border-t-3 border-ink bg-paper px-4 py-3">
+          {editing && (
+            <form
+              onSubmit={saveEdit}
+              className="mb-3 space-y-2 rounded-xl border-2 border-ink bg-white p-3"
+              aria-label={`Edit expense "${expense.title}"`}
+            >
+              <div>
+                <Label htmlFor={`edit-title-${expense.id}`}>Title</Label>
+                <Input
+                  id={`edit-title-${expense.id}`}
+                  value={draft.title}
+                  maxLength={80}
+                  onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor={`edit-description-${expense.id}`}>Description</Label>
+                <Textarea
+                  id={`edit-description-${expense.id}`}
+                  value={draft.description}
+                  maxLength={500}
+                  onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor={`edit-memo-${expense.id}`}>Memo</Label>
+                <Input
+                  id={`edit-memo-${expense.id}`}
+                  value={draft.memo}
+                  placeholder="MP:code"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => setDraft((d) => ({ ...d, memo: e.target.value }))}
+                />
+              </div>
+              <FieldError id={`edit-error-${expense.id}`} badge="Edit">{editError}</FieldError>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" size="sm">
+                  Save
+                </Button>
+              </div>
+            </form>
+          )}
           {expense.description && (
             <p className="mb-3 text-sm text-ink/70">{expense.description}</p>
           )}
@@ -141,11 +250,7 @@ export function ExpenseCard({
             <span className="font-display text-[10px] uppercase tracking-widest text-ink/50">
               Shares · {settledCount}/{expense.shares.length} settled
             </span>
-            {expense.memo && (
-              <span className="font-mono text-[10px] text-ink/40">
-                memo: {expense.memo}
-              </span>
-            )}
+            {expense.memo && <MemoBadge memo={expense.memo} compact />}
           </div>
           <div className="space-y-1.5">
             {expense.shares.map((share) => {
@@ -153,6 +258,8 @@ export function ExpenseCard({
               return (
                 <div
                   key={share.id}
+                  data-testid="expense-share"
+                  data-user-id={share.userId}
                   className="flex items-center justify-between rounded-lg border-2 border-ink bg-white px-3 py-1.5"
                 >
                   <span className="flex items-center gap-2">
@@ -163,7 +270,8 @@ export function ExpenseCard({
                     </span>
                   </span>
                   <span className="flex items-center gap-2">
-                    <Money value={share.shareAmount} assetCode={expense.assetCode} />
+                    <Money value={share.shareAmount} assetCode={expense.assetCode} assetIssuer={expense.assetIssuer} />
+                    <FiatInline amount={share.shareAmount} assetCode={expense.assetCode} />
                     <Badge tone={statusTone(share.status)}>{share.status}</Badge>
                   </span>
                 </div>
@@ -173,12 +281,35 @@ export function ExpenseCard({
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setReceiptOpen(true)}
+                aria-label={`View receipt for \"${expense.title}\"`}
+              >
+                <Receipt className="h-3.5 w-3.5" /> Receipt
+              </Button>
               {expense.receiptUrl && (
-                <a href={expense.receiptUrl} target="_blank" rel="noopener noreferrer">
-                  <Button variant="ghost" size="sm">
-                    <FileText className="h-3.5 w-3.5" /> Receipt
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPreviewOpen(true)}
+                    aria-label={`Preview image receipt for \"${expense.title}\"`}
+                  >
+                    <FileText className="h-3.5 w-3.5" /> Image
                   </Button>
-                </a>
+                </>
+              )}
+              {canEdit && !editing && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={startEditing}
+                  aria-label={`Edit expense "${expense.title}"`}
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </Button>
               )}
               {canDelete && (
                 <Button
@@ -211,6 +342,21 @@ export function ExpenseCard({
         onClose={() => setSettleTarget(null)}
         groupId={groupId}
         target={settleTarget}
+      />
+
+      {expense.receiptUrl && (
+        <ReceiptPreview
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          url={expense.receiptUrl}
+          title={`Receipt — ${expense.title}`}
+        />
+      )}
+
+      <ExpenseReceiptModal
+        open={receiptOpen}
+        onClose={() => setReceiptOpen(false)}
+        expense={expense}
       />
     </Card>
   );

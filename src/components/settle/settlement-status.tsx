@@ -7,6 +7,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { MemoBadge } from "@/components/stellar/MemoBadge";
 import { TxLink } from "@/components/tx-link";
 import { fullDate } from "@/lib/format";
 import {
@@ -67,6 +68,9 @@ export function SettlementStatusDetail({
         {showTx && settlement.stellarTxHash && (
           <TxLink hash={settlement.stellarTxHash} />
         )}
+        {/* Verifies the MP: memo the payment was settled with, so the
+            history view ties the on-chain transfer to its expense. */}
+        <MemoBadge memo={settlement.memo} />
       </div>
 
       <p className="mt-1 text-xs text-ink/60">{view.detail}</p>

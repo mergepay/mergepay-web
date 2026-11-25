@@ -9,7 +9,8 @@ type Tone =
   | "aqua"
   | "butter"
   | "ink"
-  | "paper";
+  | "paper"
+  | "pending";
 
 const tones: Record<Tone, string> = {
   grape: "bg-grape-pale text-grape-dark",
@@ -20,6 +21,7 @@ const tones: Record<Tone, string> = {
   butter: "bg-butter-pale text-ink",
   ink: "bg-ink text-lime",
   paper: "bg-paper text-ink",
+  pending: "bg-butter-pale text-butter-dark",
 };
 
 export function Badge({
@@ -48,7 +50,9 @@ export function statusTone(status: string): Tone {
     case "settling":
     case "submitted":
     case "pending_user_transfer_start":
+    case "pending_external":
     case "pending_anchor":
+    case "no_market_active":
     case "awaiting_signatures":
       return "butter";
     case "failed":

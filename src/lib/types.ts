@@ -19,7 +19,7 @@ export type StellarNetwork = "testnet" | "public";
 export type Role = "admin" | "member" | "viewer";
 export type SplitType = "equal" | "custom" | "percentage";
 export type ShareStatus = "pending" | "settling" | "settled";
-export type SettlementStatus = "pending" | "submitted" | "confirmed" | "failed";
+export type SettlementStatus = "pending" | "submitted" | "settling" | "confirmed" | "failed";
 export type TreasuryDirection = "deposit" | "withdrawal";
 export type TreasuryTxStatus =
   | "pending"
@@ -31,7 +31,9 @@ export type AnchorSessionKind = "deposit" | "withdrawal";
 export type AnchorSessionStatus =
   | "incomplete"
   | "pending_user_transfer_start"
+  | "pending_external"
   | "pending_anchor"
+  | "no_market_active"
   | "completed"
   | "error"
   | "refunded";
@@ -126,6 +128,31 @@ export interface GroupDetail {
   group: Group;
   members: GroupMember[];
   yourRole: Role;
+  /**
+   * Invites created from this client that have not been redeemed yet (#812).
+   *
+   * The API only returns the member roster, so these live exclusively in the
+   * React Query cache: a freshly generated invite is appended optimistically
+   * while the request is in flight and reconciled with the server's copy once
+   * it succeeds. Optional so payloads read from the API stay valid.
+   */
+  pendingInvites?: PendingGroupInvite[];
+}
+
+/**
+ * A group invite that has been sent but not yet accepted.
+ *
+ * `code` is `null` until the API answers, which is why members-panel renders
+ * the pending state rather than a copy affordance for those rows.
+ */
+export interface PendingGroupInvite {
+  id: string;
+  groupId: string;
+  code: string | null;
+  maxUses: number | null;
+  expiresAt: string | null;
+  createdAt: string;
+  pending: boolean;
 }
 
 export interface CreateGroupRequest {
@@ -234,6 +261,8 @@ export interface Expense {
   receiptUrl: string | null;
   createdAt: string;
   shares: ExpenseShare[];
+  isOptimistic?: boolean;
+  pending?: boolean;
 }
 
 export interface ExpensesResponse {
@@ -254,6 +283,8 @@ export interface MemberBalance {
   /** Signed decimal string: positive = is owed, negative = owes. */
   net: string;
   assetCode: string;
+  /** Optional for compatibility with older balance responses that sent only the code. */
+  assetIssuer?: string | null;
 }
 
 export interface SettlementSuggestion {
@@ -448,12 +479,26 @@ export interface AnchorSession {
   createdAt: string;
 }
 
-export interface AnchorDepositRequest {
+/**
+ * Values a SEP-24 start request can prefill on the anchor's interactive
+ * page. All optional: an anchor collects anything that is missing itself.
+ * Validated client-side by `src/lib/validations/anchor.ts` before submission.
+ */
+export interface AnchorTransferPrefill {
+  /** Transfer amount as a plain decimal string (e.g. "12.5"). */
+  amount?: string;
+  /** Stellar account the anchor should fund (deposit) or pay out (withdrawal). */
+  destination?: string;
+  /** Text memo attached to the transfer (max 28 bytes on Stellar). */
+  memo?: string;
+}
+
+export interface AnchorDepositRequest extends AnchorTransferPrefill {
   assetCode: string;
   anchorName?: string;
 }
 
-export interface AnchorWithdrawRequest {
+export interface AnchorWithdrawRequest extends AnchorTransferPrefill {
   assetCode: string;
   anchorName?: string;
 }
@@ -483,6 +528,33 @@ export interface AnchorSessionsResponse {
   sessions: AnchorSession[];
 }
 
+/**
+ * How an anchor's SEP-24 interactive UI is presented.
+ *
+ * Anchors that forbid framing (`frame-ancestors` / `X-Frame-Options`) must
+ * be opened in a popup window instead of an inline iframe.
+ */
+export type AnchorInteractiveMode = "iframe" | "popup";
+
+/**
+ * Resolved SEP-24 interactive details for a started transfer.
+ *
+ * Built from the session returned by `POST /anchors/sessions/:id/complete`
+ * after the wallet signs the anchor's SEP-10 challenge. The modal renders the
+ * anchor-hosted transaction URL and any customer/KYC fields the anchor
+ * requires before the transfer can settle.
+ */
+export interface AnchorInteractiveInfo {
+  /** The underlying SEP-24 session (source of truth for status). */
+  session: AnchorSession;
+  /** Anchor-hosted transfer/KYC URL, or `null` when not issued / not https. */
+  interactiveUrl: string | null;
+  /** Preferred presentation mode for the interactive URL. */
+  mode: AnchorInteractiveMode;
+  /** Customer/KYC fields the anchor reports as required, if any. */
+  customerFields: string[];
+}
+
 // ---------------------------------------------------------------------------
 // History & uploads
 // ---------------------------------------------------------------------------
@@ -509,6 +581,30 @@ export interface ConfiguredAsset {
   name?: string;
 }
 
+/**
+ * Asset codes the app can settle in. XLM is the native asset; USDC is the
+ * supported issued asset (see `SETTLEMENT_ASSETS` in `src/lib/constants.ts`).
+ */
+export type SettlementAssetCode = "XLM" | "USDC";
+
+/** Quote side of a ticker pair: a settlement asset or the USD reference. */
+export type TickerQuoteCode = SettlementAssetCode | "USD";
+
+/**
+ * A trading pair shown by the exchange-rate ticker (#904), e.g. XLM/USD
+ * ("how many USD is 1 XLM") or USDC/XLM ("how many XLM is 1 USDC").
+ */
+export interface AssetTickerPair {
+  base: SettlementAssetCode;
+  quote: TickerQuoteCode;
+}
+
+/** USD reference prices for the settlement assets, as the ticker caches them. */
+export interface AssetUsdPrices {
+  XLM: number;
+  USDC: number;
+}
+
 export interface HorizonBalanceItem {
   asset_type: string;
   balance: string;
@@ -524,6 +620,21 @@ export interface TrustlineAsset {
   balance: string;
   hasTrustline: boolean;
   limit?: string;
+}
+
+export interface AssetTrustlineWidgetProps {
+  /** Optional connected account public key. Falls back to active auth/wallet key. */
+  publicKey?: string;
+  /** Assets to inspect and verify. Defaults to SETTLEMENT_ASSETS (XLM, USDC). */
+  requiredAssets?: ConfiguredAsset[];
+  /** Minimum balance thresholds required for each asset. */
+  minimumBalances?: Record<string, string | number>;
+  /** Callback fired when a trustline is successfully added through the widget. */
+  onTrustlineAdded?: (assetCode: string) => void;
+  /** Optional container CSS class. */
+  className?: string;
+  /** Whether to render in compact presentation mode. */
+  compact?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -552,6 +663,9 @@ export interface GroupActivityEvent {
   assetCode?: string;
   timestamp: string;
   isOptimistic?: boolean;
+  status?: SettlementStatus;
+  /** On-chain memo tag (`MP:…`) of the expense or settlement, when it has one. */
+  memo?: string | null;
   metadata?: Record<string, unknown>;
 }
 

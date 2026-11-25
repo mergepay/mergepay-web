@@ -1,7 +1,13 @@
 "use client";
 
-import { QueryClient } from "@tanstack/react-query";
-import { ApiRequestError, ApiValidationError, isSessionExpired } from "./api";
+import { MutationCache, QueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { isSessionExpired } from "./api";
+import {
+  MAX_TRANSIENT_RETRIES,
+  retryDelayWithBackoff,
+  shouldRetryRequest,
+} from "./retryPolicy";
 
 /**
  * Global React Query caching strategy.
@@ -28,11 +34,32 @@ export const DEFAULT_STALE_TIME_MS = 30_000; // 30 seconds
 export const DEFAULT_GC_TIME_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
- * Maximum number of automatic retries for a failed query. Combined with the
- * terminal-error guards below, transient network/5xx failures retry at most
- * twice before surfacing to the UI.
+ * Maximum number of automatic retries for a failed query (#900). Only
+ * transient failures — network errors, timeouts, 408/429 and 5xx from
+ * Horizon or mergepay-api — are retried; 4xx and schema-validation errors
+ * fail fast. See `src/lib/retryPolicy.ts`.
  */
-export const DEFAULT_RETRY_COUNT = 2;
+export const DEFAULT_RETRY_COUNT = MAX_TRANSIENT_RETRIES;
+
+/**
+ * Global `retry` predicate: never retry once the session has ended (a login
+ * is required), otherwise defer to the shared transient-error policy.
+ */
+export function queryRetry(failureCount: number, error: unknown): boolean {
+  if (isSessionExpired()) return false;
+  return shouldRetryRequest(failureCount, error, {
+    maxRetries: DEFAULT_RETRY_COUNT,
+  });
+}
+
+/**
+ * Global `retryDelay`: exponential backoff (1s, 2s, 4s… capped at 30s) with
+ * a little jitter so many tabs retrying after a Horizon blip do not land in
+ * the same instant. A server `Retry-After` hint is honoured when longer.
+ */
+export function queryRetryDelay(failureCount: number, error: unknown): number {
+  return retryDelayWithBackoff(failureCount, error, { jitter: 0.2 });
+}
 
 /**
  * Create the app's singleton QueryClient with project-wide defaults.
@@ -42,33 +69,44 @@ export const DEFAULT_RETRY_COUNT = 2;
  * gets a fresh, isolated cache.
  */
 export function createQueryClient(): QueryClient {
+  const mutationCache = new MutationCache({
+    onMutate: () => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        toast.error("You are currently offline. Please reconnect before submitting changes.");
+      }
+    },
+    onError: () => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        toast.error("Network unavailable. Your transaction could not be submitted.");
+      }
+      // Leave mutations in a recoverable state while the browser is offline so
+      // they can resume cleanly once connectivity returns. The app-level forms
+      // already gate submit buttons when `navigator.onLine` is false.
+    },
+  });
+
   return new QueryClient({
+    mutationCache,
     defaultOptions: {
       queries: {
         staleTime: DEFAULT_STALE_TIME_MS,
         gcTime: DEFAULT_GC_TIME_MS,
-        // Revalidate stale queries when the user returns to the tab; fresh
-        // queries (within `staleTime`) are served from cache without a fetch.
-        refetchOnWindowFocus: true,
-        retry: (failureCount, error) => {
-          // Never retry once the session is gone — a login is required.
-          if (isSessionExpired()) return false;
-          // Client errors (4xx) are deterministic; retrying won't change them.
-          if (
-            error instanceof ApiRequestError &&
-            error.status >= 400 &&
-            error.status < 500
-          ) {
-            return false;
-          }
-          // A schema-validated 200 response is not going to become
-          // valid on the next attempt. Never retry validation errors
-          // — the next polling tick will surface fresh data.
-          if (error instanceof ApiValidationError) {
-            return false;
-          }
-          return failureCount < DEFAULT_RETRY_COUNT;
-        },
+        networkMode: "offlineFirst",
+        // Revalidate stale queries when the user returns to the tab while online;
+        // fresh queries (within `staleTime`) or offline state avoids futile network hits.
+        refetchOnWindowFocus: () => (typeof navigator !== "undefined" ? navigator.onLine : true),
+        retry: queryRetry,
+        retryDelay: queryRetryDelay,
+      },
+      mutations: {
+        networkMode: "always",
+        // Mutations submit transactions and create records, which are not
+        // idempotent in general: a retry after a timeout could double-submit
+        // a payment. They stay opt-in per hook — expense creation retries
+        // with an idempotency key (see `shouldRetryExpenseCreate` in
+        // queries.ts) — rather than inheriting the query policy.
+        retry: false,
+        throwOnError: false,
       },
     },
   });

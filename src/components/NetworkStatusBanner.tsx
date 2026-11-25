@@ -1,79 +1,93 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Wifi, WifiOff } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import { motion, AnimatePresence } from "framer-motion";
+import { WifiOff, AlertTriangle, RefreshCw } from "lucide-react";
+import { useNetworkStatus } from "@/lib/hooks/useNetworkStatus";
+import { cn } from "@/lib/utils";
 
-type ConnectionState = "online" | "offline" | "reconnected";
-const RECONNECTED_DURATION_MS = 4000;
+export interface NetworkStatusBannerProps {
+  className?: string;
+}
 
 /**
- * Browser connectivity is a hint, not a guarantee that Stellar or the API is
- * reachable. Never imply that transactions are queued or automatically retried.
+ * Global network status warning banner following the neobrutalist design system.
+ * Announces state changes via aria-live="polite" and automatically dismisses/triggers
+ * data refetching when connection is restored.
  */
-export function NetworkStatusBanner() {
-  const [connection, setConnection] = useState<ConnectionState>("online");
+export function NetworkStatusBanner({ className }: NetworkStatusBannerProps) {
+  const { isOnline, isApiDegraded, latencyMs, refetch } = useNetworkStatus();
+  const [userDismissed, setUserDismissed] = useState(false);
 
+  // Automatically reset user dismissal when connection drops again
   useEffect(() => {
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    if (!isOnline || isApiDegraded) {
+      setUserDismissed(false);
+    }
+  }, [isOnline, isApiDegraded]);
 
-    const clearReconnectTimer = () => {
-      if (reconnectTimer !== undefined) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = undefined;
-      }
-    };
+  const shouldShow = (!isOnline || isApiDegraded) && !userDismissed;
 
-    const handleOffline = () => {
-      clearReconnectTimer();
-      setConnection("offline");
-    };
-
-    const handleOnline = () => {
-      clearReconnectTimer();
-      setConnection((previous) => previous === "offline" ? "reconnected" : "online");
-      reconnectTimer = setTimeout(() => setConnection("online"), RECONNECTED_DURATION_MS);
-    };
-
-    // Read navigator only after mount to avoid server/client hydration mismatch.
-    if (!navigator.onLine) handleOffline();
-    window.addEventListener("offline", handleOffline);
-    window.addEventListener("online", handleOnline);
-
-    return () => {
-      clearReconnectTimer();
-      window.removeEventListener("offline", handleOffline);
-      window.removeEventListener("online", handleOnline);
-    };
-  }, []);
-
-  if (connection === "online") return null;
-
-  const offline = connection === "offline";
+  if (!shouldShow) return null;
 
   return (
-    <div className="fixed inset-x-0 top-0 z-50 px-3 pt-3 pointer-events-none sm:px-6">
-      <Card
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        className={`pointer-events-auto mx-auto flex max-w-3xl items-center gap-3 px-4 py-3 ${offline ? "bg-flamingo-pale" : "bg-lime-pale"}`}
-        data-testid="network-status-banner"
-      >
-        {offline ? <WifiOff aria-hidden="true" className="h-5 w-5 shrink-0" /> : <Wifi aria-hidden="true" className="h-5 w-5 shrink-0" />}
-        <div className="min-w-0 flex-1">
-          <p className="font-display text-sm uppercase">
-            {offline ? "You're offline" : "Connection restored"}
-          </p>
-          <p className="text-xs sm:text-sm">
-            {offline
-              ? "Check your internet connection before submitting or retrying transactions."
-              : "You're back online. Check any pending transactions before trying again."}
-          </p>
-        </div>
-        <Badge tone={offline ? "flamingo" : "lime"}>{offline ? "Offline" : "Online"}</Badge>
-      </Card>
-    </div>
+    <AnimatePresence>
+      {shouldShow && (
+        <motion.div
+          key="network-status-banner"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className={cn(
+            "sticky top-0 z-50 overflow-hidden border-b-[3px] border-ink bg-mustard px-4 py-3 shadow-brutal-sm",
+            !isOnline ? "bg-flamingo text-ink" : "bg-mustard text-ink",
+            className
+          )}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 text-xs sm:text-sm font-black uppercase tracking-[0.1em]">
+            <div className="flex items-center gap-2.5">
+              {!isOnline ? (
+                <>
+                  <WifiOff className="h-4 w-4 shrink-0 text-ink" />
+                  <span>You are currently offline. Stellar transactions and balance syncing are paused.</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-ink" />
+                  <span>
+                    Network latency detected {latencyMs ? `(${latencyMs}ms)` : "(API degraded)"}. Operations may be delayed.
+                  </span>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="inline-flex items-center gap-1.5 rounded-lg border-2 border-ink bg-cream px-2.5 py-1 text-xs font-bold shadow-brutal-sm hover:bg-paper transition-colors"
+                aria-label="Retry connection"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Retry</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserDismissed(true)}
+                className="rounded-lg border-2 border-ink bg-cream px-2.5 py-1 text-xs font-bold shadow-brutal-sm hover:bg-paper transition-colors"
+                aria-label="Dismiss network banner"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
+
+export default NetworkStatusBanner;

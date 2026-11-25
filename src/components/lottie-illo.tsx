@@ -1,14 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Lottie from "lottie-react";
+import { createContext, useContext, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
+
+// `next/dynamic` gives its `loading` component no props, so the fallback the
+// caller chose reaches it through context.
+const LottieFallbackContext = createContext<React.ReactNode>(null);
+
+function LottieLoading() {
+  return <>{useContext(LottieFallbackContext)}</>;
+}
+
+// The player (lottie-web) is the heaviest thing on the landing page and needs
+// `document`, so it loads in its own chunk, in the browser only (#707).
+const Lottie = dynamic(() => import("lottie-react"), {
+  ssr: false,
+  loading: LottieLoading,
+});
 
 /**
  * Renders a locally-hosted Lottie JSON animation (from /public/lottie).
- * The JSON is fetched at runtime so it stays out of the JS bundle. While it
- * loads — or if it fails — we show a neobrutalist SVG fallback, so the surface
- * is never empty.
+ * The JSON is fetched at runtime and the player is code-split, so neither is in
+ * the initial bundle. Until both have arrived — or if either fails — we show a
+ * neobrutalist SVG fallback in the same box, so the surface is never empty and
+ * nothing shifts when the animation takes over.
  */
 export function LottieIllo({
   src,
@@ -22,6 +38,7 @@ export function LottieIllo({
   label?: string;
 }) {
   const [data, setData] = useState<unknown>(null);
+  const [playerReady, setPlayerReady] = useState(false);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -32,26 +49,39 @@ export function LottieIllo({
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("not ok"))))
       .then((json) => active && setData(json))
       .catch(() => active && setFailed(true));
+    // Fetch the player chunk alongside the JSON rather than after it; the
+    // `dynamic` component above then resolves from the module cache.
+    import("lottie-react")
+      .then(() => active && setPlayerReady(true))
+      .catch(() => active && setFailed(true));
     return () => {
       active = false;
     };
   }, [src]);
 
   const fallbackNode = fallback ?? <CoinsIllustration />;
+  const ready = Boolean(data) && playerReady && !failed;
 
   return (
-    <div className={cn("relative", className)} role="img" aria-label={label}>
-      {data && !failed ? (
-        <Lottie
-          animationData={data as object}
-          loop
-          autoplay
-          style={{ width: "100%", height: "100%" }}
-          rendererSettings={{ preserveAspectRatio: "xMidYMid meet" }}
-        />
-      ) : (
-        fallbackNode
-      )}
+    <div
+      className={cn("relative", className)}
+      role="img"
+      aria-label={label}
+      aria-busy={!ready && !failed ? true : undefined}
+    >
+      <LottieFallbackContext.Provider value={fallbackNode}>
+        {ready ? (
+          <Lottie
+            animationData={data as object}
+            loop
+            autoplay
+            style={{ width: "100%", height: "100%" }}
+            rendererSettings={{ preserveAspectRatio: "xMidYMid meet" }}
+          />
+        ) : (
+          fallbackNode
+        )}
+      </LottieFallbackContext.Provider>
     </div>
   );
 }

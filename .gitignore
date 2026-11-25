@@ -32,3 +32,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local playwright browsers / test artifacts
+.pw-browsers/
+test-results/
+playwright-report/
+blob-report/
+

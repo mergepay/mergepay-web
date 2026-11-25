@@ -8,6 +8,45 @@ import { cn } from "@/lib/utils";
 import { describeSectionError } from "@/lib/sectionState";
 
 /**
+ * Generic page/section wrapper with an optional header (title, description,
+ * action slot). Used by list and history views to keep headers consistent.
+ */
+export function Section({
+  title,
+  description,
+  action,
+  children,
+  className,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn("space-y-4", className)}>
+      {(title || description || action) && (
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            {title && (
+              <h2 className="font-display text-lg uppercase tracking-tight text-ink">
+                {title}
+              </h2>
+            )}
+            {description && (
+              <p className="mt-1 max-w-xl text-sm text-ink/70">{description}</p>
+            )}
+          </div>
+          {action}
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
+/**
  * Local failure state for one dashboard section.
  *
  * Rendered in place of that section only, so the rest of the page keeps

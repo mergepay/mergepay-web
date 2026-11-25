@@ -4,18 +4,19 @@ import { useState } from "react";
 import {
   AlertTriangle,
   Loader2,
+  Lock,
   ShieldX,
   Wallet,
   WifiOff,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import CopyButton from "@/components/ui/CopyButton";
 import { cn } from "@/lib/utils";
 import { shortKey } from "@/lib/format";
 import { STELLAR_NETWORK } from "@/lib/constants";
-import { FREIGHTER_INSTALL_URL, WalletError, connectWallet } from "@/lib/stellar";
+import { FREIGHTER_INSTALL_URL, LockedMessage, WalletError, connectWallet } from "@/lib/stellar";
+import { showWalletErrorToast } from "@/lib/walletToasts";
 import { networkDisplayName, type WalletStatus } from "@/lib/walletStatus";
 
 function StatusIcon({ kind }: { kind: WalletStatus["kind"] }) {
@@ -25,6 +26,8 @@ function StatusIcon({ kind }: { kind: WalletStatus["kind"] }) {
       return <Loader2 className={cn(className, "animate-spin")} />;
     case "unavailable":
       return <ShieldX className={className} />;
+    case "locked":
+      return <Lock className={className} />;
     case "disconnected":
       return <WifiOff className={className} />;
     case "network_mismatch":
@@ -72,6 +75,14 @@ function RecoveryAction({
     );
   }
 
+  if (status.actionKind === "unlock") {
+    return (
+      <span className="text-xs text-ink/70">
+        <LockedMessage />
+      </span>
+    );
+  }
+
   return (
     <Button
       size={size}
@@ -85,8 +96,13 @@ function RecoveryAction({
           await connectWallet();
           onConnected?.();
         } catch (e) {
-          toast.error(
-            e instanceof WalletError ? e.message : "Could not reach your wallet."
+          // Locked and missing-extension failures name the step that fixes
+          // them rather than reading like an unexplained dead end (#487).
+          showWalletErrorToast(
+            e instanceof WalletError ? e.code : "unknown",
+            e instanceof Error && e.message
+              ? e.message
+              : "Could not reach your wallet."
           );
         } finally {
           setConnecting(false);

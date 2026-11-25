@@ -19,6 +19,12 @@ export function Tabs({
   onChange: (id: string) => void;
   className?: string;
 }) {
+  const focusTab = (index: number) => {
+    const nextIndex = (index + tabs.length) % tabs.length;
+    const tab = document.getElementById(tabs[nextIndex]?.id);
+    tab?.focus();
+  };
+
   return (
     <div
       role="tablist"
@@ -30,11 +36,30 @@ export function Tabs({
       {tabs.map((tab) => (
         <button
           key={tab.id}
+          id={tab.id}
+          type="button"
           role="tab"
           aria-selected={active === tab.id}
+          tabIndex={active === tab.id ? 0 : -1}
           onClick={() => onChange(tab.id)}
+          onKeyDown={(event) => {
+            const index = tabs.findIndex(({ id }) => id === tab.id);
+            if (event.key === "ArrowRight") {
+              event.preventDefault();
+              focusTab(index + 1);
+            } else if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              focusTab(index - 1);
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              focusTab(0);
+            } else if (event.key === "End") {
+              event.preventDefault();
+              focusTab(tabs.length - 1);
+            }
+          }}
           className={cn(
-            "flex items-center gap-1.5 rounded-xl border-2 px-3.5 py-1.5 font-display text-xs uppercase tracking-wide transition-all duration-100",
+            "flex items-center gap-1.5 rounded-xl border-2 px-3.5 py-1.5 font-display text-xs uppercase tracking-wide transition-all duration-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40",
             active === tab.id
               ? "border-ink bg-ink text-lime shadow-brutal-sm"
               : "border-transparent text-ink/70 hover:border-ink hover:bg-cream"

@@ -67,7 +67,12 @@ function freshLocalId(): string {
 export const useOfflineStore = create<OfflineSyncState>()(
   persist(
     (set, get) => ({
-      isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
+      // Start "online" so the first render matches the SSR HTML; the real
+      // connectivity state is applied by `useOfflineSync` (AppShell) in an
+      // effect. A render-time `navigator.onLine` read here diverges from the
+      // server (Node ≥21 exposes a global `navigator` without `onLine`) and
+      // breaks React hydration.
+      isOnline: true,
       drafts: [],
       lastAttemptAt: null,
 

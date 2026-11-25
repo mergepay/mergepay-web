@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, LogOut, UserPlus, UserMinus, Shield, ShieldCheck, Eye } from "lucide-react";
+import { Archive, LogOut, UserPlus, UserMinus, Shield, ShieldCheck, Eye, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { PubkeyChip } from "@/components/tx-link";
-import { InviteDialog } from "./invite-dialog";
+import { InviteMemberModal } from "./InviteMemberModal";
+import { GroupInviteModal } from "./GroupInviteModal";
 import {
   useArchiveGroup,
   useLeaveGroup,
@@ -29,6 +30,7 @@ export function MembersPanel({
 }) {
   const router = useRouter();
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
   const archive = useArchiveGroup(detail.group.id);
   const leave = useLeaveGroup(detail.group.id);
   const updateRole = useUpdateMemberRole(detail.group.id);
@@ -81,13 +83,24 @@ export function MembersPanel({
         <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
           {detail.members.length} member{detail.members.length === 1 ? "" : "s"}
         </h3>
-        {isAdmin ? (
-          <Button size="sm" onClick={() => setInviteOpen(true)}>
-            <UserPlus className="h-4 w-4" /> Invite
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setQrOpen(true)}
+            aria-label="Share group QR code"
+            data-testid="members-share-qr"
+          >
+            <QrCode className="h-4 w-4" aria-hidden /> Share QR
           </Button>
-        ) : (
-          <Badge tone="paper">Members</Badge>
-        )}
+          {isAdmin ? (
+            <Button size="sm" onClick={() => setInviteOpen(true)}>
+              <UserPlus className="h-4 w-4" /> Invite
+            </Button>
+          ) : (
+            <Badge tone="paper">Members</Badge>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -119,6 +132,11 @@ export function MembersPanel({
                       onChange={(e) => handleRoleChange(m.id, e.target.value as Role)}
                       disabled={updateRole.isPending}
                       aria-label={`Change role for ${m.user.displayName}`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.currentTarget.blur();
+                        }
+                      }}
                       className="rounded-lg border-2 border-ink bg-paper px-2 py-1 text-xs font-bold shadow-brutal-sm focus:outline-none focus:ring-2 focus:ring-grape"
                     >
                       <option value="admin">Admin</option>
@@ -147,6 +165,45 @@ export function MembersPanel({
         })}
       </div>
 
+      {(detail.pendingInvites?.length ?? 0) > 0 && (
+        <div className="space-y-2" data-testid="pending-invites">
+          <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
+            Pending invites
+          </h3>
+          {detail.pendingInvites?.map((invite) => (
+            <Card
+              key={invite.id}
+              className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between"
+              data-testid="pending-invite"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-ink bg-butter">
+                  <UserPlus className="h-4 w-4" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate font-bold">
+                    {invite.pending ? "Sending invitation…" : "Invite sent"}
+                  </p>
+                  <p className="text-xs text-ink/50">
+                    {invite.code ? (
+                      <span className="font-mono">{invite.code}</span>
+                    ) : (
+                      "Awaiting invite code"
+                    )}
+                    {invite.expiresAt
+                      ? ` · expires ${new Date(invite.expiresAt).toLocaleDateString()}`
+                      : " · never expires"}
+                  </p>
+                </div>
+              </div>
+              <div className="self-end sm:self-auto">
+                <Badge tone="butter">Pending</Badge>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 border-t-3 border-ink pt-5">
         {isAdmin && !detail.group.archived && (
           <Button variant="outline" onClick={handleArchive} loading={archive.isPending}>
@@ -159,10 +216,18 @@ export function MembersPanel({
       </div>
 
 
-      <InviteDialog
+      <InviteMemberModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
         groupId={detail.group.id}
+        groupName={detail.group.name}
+      />
+
+      <GroupInviteModal
+        open={qrOpen}
+        onClose={() => setQrOpen(false)}
+        groupId={detail.group.id}
+        groupName={detail.group.name}
       />
     </div>
   );

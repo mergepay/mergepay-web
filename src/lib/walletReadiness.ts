@@ -32,6 +32,8 @@ export type WalletReadinessCode =
   | "checking"
   /** Freighter is not installed or not reachable in this browser. */
   | "wallet_unavailable"
+  /** Freighter is present but locked. */
+  | "wallet_locked"
   /** Freighter is present but no account is shared with the app. */
   | "wallet_disconnected"
   /** The active account is not the one this session authenticated as. */
@@ -44,6 +46,7 @@ export type WalletRecovery =
   | "none"
   | "install_wallet"
   | "connect_wallet"
+  | "unlock_wallet"
   | "switch_account"
   | "switch_network";
 
@@ -56,6 +59,8 @@ export interface WalletProbe {
   networkPassphrase: string | null;
   /** Wallet's own name for its network (e.g. `"FUTURENET"`), if any. */
   networkName?: string | null;
+  /** Whether the wallet is locked (requires user to unlock in extension). */
+  locked?: boolean;
 }
 
 export interface WalletReadinessInput extends WalletProbe {
@@ -123,6 +128,16 @@ export function evaluateWalletReadiness(
     };
   }
 
+  if (input.locked) {
+    return {
+      ready: false,
+      code: "wallet_locked",
+      title: "Wallet locked",
+      detail: "Your Freighter wallet is locked. Unlock it in the extension to continue.",
+      recovery: "unlock_wallet",
+    };
+  }
+
   if (!input.publicKey) {
     return {
       ready: false,
@@ -170,6 +185,7 @@ export function evaluateWalletReadiness(
 export function isRecoverableInWallet(readiness: WalletReadiness): boolean {
   return (
     readiness.recovery === "connect_wallet" ||
+    readiness.recovery === "unlock_wallet" ||
     readiness.recovery === "switch_network" ||
     readiness.recovery === "switch_account"
   );

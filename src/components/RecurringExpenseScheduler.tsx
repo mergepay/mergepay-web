@@ -10,6 +10,12 @@ import { Input, Label, Select, FieldHint } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Money } from "@/components/amount";
+import {
+  AMOUNT_DECIMAL_PLACES,
+  isBlockedDecimalKey,
+  isTypableAmount,
+} from "@/lib/expenseValidation";
+import { validateExpenseAmount } from "@/lib/validation";
 import type { GroupMember, SplitType } from "@/lib/types";
 
 export type RecurrenceInterval = "weekly" | "biweekly" | "monthly" | "custom";
@@ -90,9 +96,21 @@ export function RecurringExpenseScheduler({
     );
   }, [interval, customDays]);
 
+  // Empty is not an error yet — the field just hasn't been filled in.
+  const amountError = useMemo(() => {
+    if (amount.trim() === "") return null;
+    const result = validateExpenseAmount(amount, assetCode);
+    return result.valid ? null : result.error ?? "Enter a valid amount";
+  }, [amount, assetCode]);
+
   function handleCreateSchedule() {
-    if (!title.trim() || !amount.trim() || Number(amount) <= 0) {
-      toast.error("Please enter a valid title and positive amount");
+    const validatedAmount = validateExpenseAmount(amount, assetCode);
+    if (!title.trim()) {
+      toast.error("Please enter a valid title");
+      return;
+    }
+    if (!validatedAmount.valid) {
+      toast.error(validatedAmount.error ?? "Please enter a positive amount");
       return;
     }
 
@@ -100,7 +118,10 @@ export function RecurringExpenseScheduler({
       id: `rec-${Date.now()}`,
       groupId,
       title: title.trim(),
-      amount: Number(amount).toFixed(7),
+      // The validator's normalised string, not `Number(amount).toFixed(7)`:
+      // rounding silently turned an unrepresentable amount into a different
+      // number the user never entered.
+      amount: validatedAmount.normalized ?? amount.trim(),
       assetCode,
       interval,
       intervalDays: interval === "custom" ? Number(customDays) : undefined,
@@ -221,12 +242,30 @@ export function RecurringExpenseScheduler({
               <Label htmlFor="rec-amount">Amount</Label>
               <Input
                 id="rec-amount"
-                type="number"
-                step="any"
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
                 placeholder="0.00"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  if (isTypableAmount(e.target.value)) setAmount(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (isBlockedDecimalKey(e.key)) e.preventDefault();
+                }}
+                aria-invalid={amountError ? true : undefined}
+                aria-describedby={amountError ? "rec-amount-error" : "rec-amount-hint"}
+                className={amountError ? "border-flamingo" : undefined}
               />
+              {amountError ? (
+                <p id="rec-amount-error" role="alert" className="text-xs font-bold text-flamingo-dark">
+                  {amountError}
+                </p>
+              ) : (
+                <div id="rec-amount-hint">
+                  <FieldHint>Up to {AMOUNT_DECIMAL_PLACES} decimal places (1 stroop).</FieldHint>
+                </div>
+              )}
             </div>
             <div className="space-y-1">
               <Label htmlFor="rec-asset">Asset</Label>

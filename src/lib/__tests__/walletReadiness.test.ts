@@ -54,6 +54,13 @@ describe("evaluateWalletReadiness — blocking states (#112)", () => {
     assert.equal(result.recovery, "connect_wallet");
   });
 
+  it("blocks when wallet is locked, and offers unlock action", () => {
+    const result = evaluateWalletReadiness(ready({ locked: true, publicKey: null }));
+    assert.equal(result.ready, false);
+    assert.equal(result.code, "wallet_locked");
+    assert.equal(result.recovery, "unlock_wallet");
+  });
+
   it("blocks when the wallet is on a different network", () => {
     const result = evaluateWalletReadiness(ready({ networkPassphrase: PUBLIC }));
     assert.equal(result.ready, false);

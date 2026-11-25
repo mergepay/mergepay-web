@@ -1,0 +1,204 @@
+"use client";
+
+import { useCallback, useEffect, useId, useRef, type RefObject } from "react";
+import {
+  FOCUSABLE_SELECTOR,
+  createFocusContainmentListener,
+  dialogStack,
+  escapeBelongsToPopup,
+  isPrimaryAction,
+  nextFocusIndex,
+  pickInitialFocusIndex,
+  shouldCloseOnEscape,
+} from "@/lib/dialog";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scrollLock";
+
+export interface DialogFocusOptions {
+  open: boolean;
+  onClose: () => void;
+  /**
+   * The `role="dialog"` panel. It must carry `tabIndex={-1}`: that is where
+   * focus is parked when the dialog has no controls to Tab to, and a plain
+   * `div` cannot receive focus, so the trap would silently do nothing.
+   */
+  panelRef: RefObject<HTMLElement | null>;
+  /**
+   * The dialog body when it can be told apart from the title bar. Initial
+   * focus prefers the first control here over the close button; without it
+   * the panel itself takes focus. Marking the body with a ref instead of a
+   * class selector keeps the rule working through a styling change.
+   */
+  contentRef?: RefObject<HTMLElement | null>;
+  /** When false, Escape is ignored — e.g. a settlement mid-signature. */
+  dismissible?: boolean;
+}
+
+/**
+ * The focus and keyboard contract every modal surface in the app shares:
+ * focus enters the dialog when it opens, Tab cannot walk out of it, focus that
+ * escapes some other way is pulled back, Escape closes only the topmost
+ * dialog, the page behind cannot scroll, and focus returns to the trigger on
+ * close.
+ *
+ * The rules themselves are the pure functions in `src/lib/dialog.ts`; this
+ * hook is only the DOM wiring, so `Dialog`, `MobileDrawer`, the nav drawer and
+ * the receipt lightbox cannot drift four different versions of "trapped", and
+ * a keyboard-only user gets the same behaviour from all of them.
+ */
+export function useDialogFocus({
+  open,
+  onClose,
+  panelRef,
+  contentRef,
+  dismissible = true,
+}: DialogFocusOptions): void {
+  // Per-instance stack slot. A hard-coded id would make two simultaneously
+  // open surfaces of the same type fight for one slot.
+  const slotId = useId();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  // Read through a ref, not the effect's dependencies. A dialog locks itself
+  // while a request is in flight (`dismissible={!busy}`), and a dependency on
+  // the flag would tear the whole effect down and rebuild it each time: focus
+  // would jump to the page behind and then back to the first control, and the
+  // dialog would be pushed on top of the Escape stack, taking the key from any
+  // dialog stacked above it.
+  const dismissibleRef = useRef(dismissible);
+  dismissibleRef.current = dismissible;
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  // Whatever had focus when the dialog opened, noted while rendering, before the
+  // commit that mounts it. By the time an effect runs, a field with React's
+  // `autoFocus` has already taken focus, so `document.activeElement` would be a
+  // control inside the dialog and focus could never return to the trigger.
+  const openerRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+  if (open && !wasOpenRef.current && typeof document !== "undefined") {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+  wasOpenRef.current = open;
+
+  const listFocusable = useCallback((root: HTMLElement | null) => {
+    if (!root) return [];
+    return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+      (el) =>
+        el.tabIndex !== -1 &&
+        !el.matches("[hidden], [inert], [aria-hidden='true']") &&
+        !el.closest("[hidden], [inert], [aria-hidden='true']") &&
+        window.getComputedStyle(el).visibility !== "hidden"
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    dialogStack.push(slotId);
+    previousFocusRef.current = openerRef.current;
+
+    // A control inside the dialog that already has focus took it itself while
+    // mounting (React's `autoFocus`). That is an explicit choice, like
+    // `data-autofocus`, and the "primary action" rule below must not undo it.
+    // Focus the focus-containment listener pulls in later does not count.
+    const alreadyFocused = document.activeElement;
+    const selfFocused =
+      panelRef.current &&
+      alreadyFocused instanceof HTMLElement &&
+      alreadyFocused !== panelRef.current &&
+      panelRef.current.contains(alreadyFocused)
+        ? alreadyFocused
+        : null;
+
+    const panelFocusable = () => listFocusable(panelRef.current);
+    const contentFocusable = () => listFocusable(contentRef?.current ?? null);
+
+    // Reference-counted, not a direct `body.style.overflow` write: with a
+    // confirmation stacked over a drawer, closing them out of order would
+    // otherwise restore the page's scroll while one overlay is still open, or
+    // leave `overflow: hidden` stuck on the body after both have closed.
+    const scrollLock = lockBodyScroll();
+
+    function onKeyDown(e: KeyboardEvent) {
+      // Escape inside an open dropdown closes the dropdown, not the dialog:
+      // leave the key for the popup's own handler.
+      if (e.key === "Escape" && escapeBelongsToPopup(e.target, panelRef.current)) return;
+      if (
+        shouldCloseOnEscape({
+          key: e.key,
+          dismissible: dismissibleRef.current,
+          isTopmost: dialogStack.isTopmost(slotId),
+          isComposing: e.isComposing,
+        })
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+
+      if (!dialogStack.isTopmost(slotId) || e.key !== "Tab") return;
+      const focusable = panelFocusable();
+      const active = document.activeElement as HTMLElement | null;
+      const target = nextFocusIndex(
+        focusable.length,
+        active ? focusable.indexOf(active) : -1,
+        e.shiftKey
+      );
+      if (target === null) {
+        if (focusable.length === 0) {
+          e.preventDefault();
+          panelRef.current?.focus();
+        }
+        return;
+      }
+      e.preventDefault();
+      focusable[target]?.focus();
+    }
+
+    // Wait a frame: the panel is often rendered by the same commit that flips
+    // `open`, and with an exit animation its controls may not be in the DOM
+    // yet when this effect runs.
+    const frame = requestAnimationFrame(() => {
+      if (selfFocused?.isConnected && document.activeElement === selfFocused) return;
+
+      const body = contentFocusable();
+      if (body.length > 0) {
+        const index = pickInitialFocusIndex(
+          body.map((el) => ({
+            autofocus: el.hasAttribute("data-autofocus"),
+            primary: isPrimaryAction(el),
+            inBody: true,
+          }))
+        );
+        (body[index] ?? panelRef.current)?.focus();
+        return;
+      }
+      panelRef.current?.focus();
+    });
+
+    const containment = createFocusContainmentListener({
+      getContainer: () => panelRef.current,
+      getFocusable: panelFocusable,
+      isActive: () => dialogStack.isTopmost(slotId),
+    });
+
+    // Window, not the document: a key event targeted at the document itself
+    // never bubbles up to it, so a document listener would miss it — and every
+    // element-targeted press passes through window on its way, so this catches
+    // both. Capture, so `stopPropagation` wins over shortcuts bound below.
+    window.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("focusin", containment);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("focusin", containment);
+      dialogStack.remove(slotId);
+      unlockBodyScroll(scrollLock);
+      // Only hand focus back if the trigger is still on the page — a route
+      // change can unmount it while this dialog was open.
+      const previous = previousFocusRef.current;
+      if (previous?.isConnected && typeof previous.focus === "function") {
+        previous.focus();
+      }
+    };
+  }, [open, slotId, panelRef, contentRef, listFocusable]);
+}

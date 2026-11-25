@@ -6,10 +6,17 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { WatchWalletChanges } from "@stellar/freighter-api";
 import { useAuth as useAuthStore } from "@/lib/auth-store";
-import { loginWithWallet, logout as walletLogout } from "@/lib/stellar";
+import {
+  loginWithWallet,
+  logout as walletLogout,
+  isFreighterAvailable,
+  WalletNotInstalledError,
+} from "@/lib/stellar";
 import { shortKey } from "@/lib/format";
 import { isSessionExpired, resetSessionExpired } from "@/lib/api";
+import { clearClientSession } from "@/lib/sessionMonitor";
 import { shouldPurgeAccountData } from "@/lib/walletSession";
+import { track } from "@/lib/telemetry";
 
 export type WalletChangeAction = "none" | "disconnected" | "changed";
 
@@ -33,12 +40,14 @@ export function useAuth() {
   const [isLoading, setIsLoading] = useState(false);
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
-  const hydrated = useAuthStore((s) => s.hydrated);
   const restoreStatus = useAuthStore((s) => s.restoreStatus);
+  const walletError = useAuthStore((s) => s.walletError);
+  const clearWalletError = useAuthStore((s) => s.clearWalletError);
+  const setWalletError = useAuthStore((s) => s.setWalletError);
 
   const isAuthenticated = !!token;
   /** True until the persisted session has been resolved one way or another. */
-  const restoring = !hydrated || restoreStatus !== "settled";
+  const restoring = restoreStatus !== "settled";
 
   const logout = useCallback(async () => {
     try {
@@ -47,13 +56,25 @@ export function useAuth() {
       // Groups, balances and history are all scoped to the authenticated
       // account, so nothing cached may survive into the next session.
       queryClient.clear();
-      useAuthStore.getState().forgetWallet();
+      clearClientSession();
     }
   }, [queryClient]);
 
   const login = useCallback(async () => {
+    // Detect if Freighter extension is installed before invoking connection hooks
+    const available = await isFreighterAvailable();
+    if (!available) {
+      const err = new WalletNotInstalledError();
+      useAuthStore.getState().setWalletError({
+        code: "not_installed",
+        message: err.message,
+      });
+      throw err;
+    }
+
     setIsLoading(true);
     try {
+      useAuthStore.getState().clearWalletError();
       const loggedInUser = await loginWithWallet();
       resetSessionExpired();
       await queryClient.invalidateQueries();
@@ -80,9 +101,11 @@ export function useAuth() {
         useAuthStore.getState().setActiveWalletPublicKey(params.address || null);
         const action = walletChangeAction(params, user.stellarPublicKey);
         if (action === "disconnected") {
+          track("wallet_disconnected", { reason: "disconnected" });
           toast.info("Wallet disconnected. Logging out...");
           logout();
         } else if (action === "changed") {
+          track("wallet_disconnected", { reason: "account_changed" });
           // The displayed public key follows the wallet immediately, then
           // the previous account's data is dropped before anything else
           // can render against it.
@@ -112,9 +135,11 @@ export function useAuth() {
   return {
     user,
     token,
-    hydrated,
     restoring,
     isAuthenticated,
+    walletError,
+    setWalletError,
+    clearWalletError,
     login,
     logout,
     isLoading,

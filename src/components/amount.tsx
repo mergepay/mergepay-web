@@ -1,9 +1,10 @@
 import { cn } from "@/lib/utils";
-import { formatAssetAmount, type FormatAmountOptions } from "@/lib/currency";
+import { formatAssetAmount, formatStellarAssetAmount, type FormatAmountOptions } from "@/lib/currency";
 
 interface AmountProps {
   value: string | number | null | undefined;
   assetCode: string | null | undefined;
+  assetIssuer?: string | null;
   className?: string;
   /** Precision/locale overrides. Rarely needed — see `lib/currency.ts`. */
   format?: FormatAmountOptions;
@@ -37,11 +38,10 @@ function AmountText({
  * Signed amount with semantic color: green-ish (lime-dark) when positive
  * (you are owed), flamingo when negative (you owe).
  */
-export function NetAmount({ value, assetCode, className, format }: AmountProps) {
-  const amount = formatAssetAmount(value, assetCode, {
-    signDisplay: "always",
-    ...format,
-  });
+export function NetAmount({ value, assetCode, assetIssuer, className, format }: AmountProps) {
+  const amount = assetIssuer
+    ? formatStellarAssetAmount(value, { assetCode, assetIssuer }, { signDisplay: "always", ...format })
+    : formatAssetAmount(value, assetCode, { signDisplay: "always", ...format });
   const positive = amount.amount.startsWith("+");
   const negative = amount.amount.startsWith("-");
 
@@ -59,10 +59,12 @@ export function NetAmount({ value, assetCode, className, format }: AmountProps) 
   );
 }
 
-export function Money({ value, assetCode, className, format }: AmountProps) {
+export function Money({ value, assetCode, assetIssuer, className, format }: AmountProps) {
   return (
     <AmountText
-      amount={formatAssetAmount(value, assetCode, format)}
+      amount={assetIssuer
+        ? formatStellarAssetAmount(value, { assetCode, assetIssuer }, format)
+        : formatAssetAmount(value, assetCode, format)}
       className={cn("font-mono font-bold tabular-nums", className)}
     />
   );

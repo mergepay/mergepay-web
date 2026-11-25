@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AssetBadge } from "@/components/asset-badge";
-import { signXdr } from "@/lib/stellar";
+import { addTrustline, WalletError } from "@/lib/stellar";
 
 export interface TrustlineCheckResult {
   hasTrustline: boolean;
@@ -61,22 +61,26 @@ export function TrustlineDialog({
       setStatus("signing");
       setErrorMessage(null);
 
-      // In production or when connected to Freighter/Horizon, we construct or sign the changeTrust op
-      // Simulating / coordinating the trustline signature via Freighter
-      toast.info(`Preparing trustline creation for ${assetCode}...`);
+      const { txHash } = await addTrustline(accountPublicKey, assetCode, assetIssuer);
 
       setStatus("success");
-      toast.success(`Trustline for ${assetCode} successfully established!`);
+      toast.success(`Trustline for ${assetCode} established (tx ${txHash.slice(0, 8)}…)`);
       if (onSuccess) {
         onSuccess();
       }
       setTimeout(() => {
         onClose();
       }, 1500);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message =
+        err instanceof WalletError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Failed to add trustline in wallet";
       setStatus("error");
-      setErrorMessage(err?.message || "Failed to add trustline in wallet");
-      toast.error("Failed to add trustline");
+      setErrorMessage(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
