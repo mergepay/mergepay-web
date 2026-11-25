@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WalletWarningDialog } from "./WalletWarningDialog";
+import { NetworkMismatchError } from "@/lib/stellar";
 
 describe("WalletWarningDialog (#716)", () => {
   it("does not render when open is false", () => {
@@ -97,6 +98,45 @@ describe("WalletWarningDialog (#716)", () => {
     const retryBtn = screen.getByTestId("retry-connection-button");
     expect(retryBtn).toBeDisabled();
     expect(screen.getByTestId("wallet-warning-dismiss")).toBeDisabled();
+  });
+
+  it("renders a dedicated network mismatch dialog naming both networks", () => {
+    render(
+      <WalletWarningDialog
+        open={true}
+        error={new NetworkMismatchError("Stellar Testnet", "Stellar Mainnet")}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("wallet-warning-title")).toHaveTextContent(
+      /Wrong Stellar Network/i
+    );
+    expect(screen.getByTestId("wallet-warning-message")).toHaveTextContent(
+      /on Stellar Testnet, but this app is set to Stellar Mainnet/i
+    );
+    expect(screen.getByTestId("wallet-warning-message")).toHaveTextContent(
+      /switch the network to Stellar Mainnet/i
+    );
+  });
+
+  it("renders network mismatch guidance from the error code alone", () => {
+    render(
+      <WalletWarningDialog
+        open={true}
+        errorCode="network_mismatch"
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("wallet-warning-title")).toHaveTextContent(
+      /Wrong Stellar Network/i
+    );
+    expect(screen.getByTestId("wallet-warning-message")).toHaveTextContent(
+      /Open Freighter, switch the network/i
+    );
   });
 
   it("invokes onClose when Dismiss button is clicked", () => {
