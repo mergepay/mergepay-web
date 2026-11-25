@@ -130,6 +130,44 @@ describe("exact decimal parsing and rounding (#320)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Locale and scale coverage for the Stellar asset formatters (#817)
+// ---------------------------------------------------------------------------
+describe("localized Stellar asset formatting (#817)", () => {
+  it("renders asset-less and asset-prefixed amounts in a non-US locale", () => {
+    assert.equal(
+      formatCurrencyAmount("1234.5", "USDC", { locale: "de-DE" }),
+      "1.234,50 USDC"
+    );
+    assert.equal(
+      formatMoney("1234567.89", "XLM", { locale: "en-GB" }),
+      "1,234,567.89 XLM"
+    );
+  });
+
+  it("reads exponential notation without ever rendering it", () => {
+    assert.equal(formatCurrencyAmount("1e-7", "XLM"), "0.0000001 XLM");
+    assert.equal(formatCurrencyAmount("1.5e3", "USDC"), "1,500.00 USDC");
+    assert.equal(
+      formatCurrencyAmount("1e21", "XLM"),
+      "1,000,000,000,000,000,000,000.00 XLM"
+    );
+  });
+
+  it("keeps extremely small balances at stroop precision", () => {
+    assert.equal(formatCurrencyAmount("0.0000001", "USDC"), "0.0000001 USDC");
+    assert.equal(formatCurrencyAmount("0.00000001", "XLM"), "0.00 XLM");
+  });
+
+  it("shows a negative balance without dropping the sign", () => {
+    assert.equal(formatCurrencyAmount("-12.5", "XLM"), "-12.50 XLM");
+    assert.equal(
+      formatMoney("-0.0000001", "USDC"),
+      "-0.0000001 USDC"
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // initials — small deterministic helper shipped with the formatters
 // ---------------------------------------------------------------------------
 describe("initials (#320)", () => {
