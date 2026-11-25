@@ -6,9 +6,9 @@ import { GroupQRCode } from "./GroupQRCode";
 
 vi.mock("@/components/ui/lazy-qr-code", () => ({
   QRCodeSVG: Object.assign(
-    forwardRef(({ value, ...props }: { value: string; [key: string]: unknown }, ref: any) => (
-      <svg ref={ref} data-testid="qr-svg" data-value={value} {...props} />
-    )),
+    forwardRef(function MockQRCodeSVG({ value, ...props }: { value: string; [key: string]: unknown }, ref: any) {
+      return <svg ref={ref} data-testid="qr-svg" data-value={value} {...props} />;
+    }),
     { displayName: "QRCodeSVG" }
   ),
 }));
