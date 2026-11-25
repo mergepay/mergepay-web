@@ -13,6 +13,7 @@ import {
 import { PageHeader } from "@/components/app-shell";
 import { HistoryFilterBar } from "@/components/history/HistoryFilterBar";
 import { TransactionFilter, type AssetFilter, type StatusFilter } from "@/components/history/TransactionFilter";
+import { ExportFilteredCsvButton } from "@/components/history/ExportFilteredCsvButton";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
@@ -67,6 +68,7 @@ export default function HistoryPage() {
     DEFAULT_HISTORY_VIEW.filters
   );
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [restored, setRestored] = useState(false);
 
   const [selectedAsset, setSelectedAsset] = useState<AssetFilter>((searchParams.get("asset") as AssetFilter) || "ALL");
@@ -78,13 +80,14 @@ export default function HistoryPage() {
     const stored = readHistoryView();
     setFilter(stored.kind);
     setFilters(stored.filters);
+    setSortOrder(stored.sortOrder ?? "newest");
     setRestored(true);
   }, []);
 
   useEffect(() => {
     if (!restored) return;
-    writeHistoryView({ kind: filter, filters });
-  }, [restored, filter, filters]);
+    writeHistoryView({ kind: filter, filters, sortOrder });
+  }, [restored, filter, filters, sortOrder]);
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -118,21 +121,23 @@ export default function HistoryPage() {
     return sortHistoryRows([
       ...expenses.map((e) => ({ type: "expense" as const, item: e, date: e.createdAt })),
       ...settlements.map((s) => ({ type: "settlement" as const, item: s, date: s.createdAt })),
-    ]);
-  }, [filter, expenses, settlements]);
+    ], sortOrder);
+  }, [filter, expenses, settlements, sortOrder]);
 
   const filteredItems = useMemo(
     () =>
       kindItems.filter(({ type, item }) => {
         const row = toHistoryRow({ type, ...item });
         if (!matchesHistoryFilters(row, filters)) return false;
-        if (selectedAsset !== "ALL" && row.assetCode !== selectedAsset) return false;
+        if (!matchesHistoryFilters(row, {
+          assetCode: selectedAsset === "ALL" ? undefined : selectedAsset,
+          fromDate: startDate,
+          toDate: endDate,
+        })) return false;
         if (selectedStatus !== "ALL") {
           if (type === "settlement" && item.status.toUpperCase() !== selectedStatus) return false;
           if (type === "expense" && selectedStatus === "PENDING") return false;
         }
-        if (startDate && new Date(row.createdAt) < new Date(startDate)) return false;
-        if (endDate && new Date(row.createdAt) > new Date(endDate + "T23:59:59")) return false;
         return true;
       }),
     [kindItems, filters, selectedAsset, selectedStatus, startDate, endDate]
@@ -162,6 +167,7 @@ export default function HistoryPage() {
   }
 
   function handleResetFilters() {
+    setCurrentPage(1);
     setFilters({ kind: filter });
     setSelectedAsset("ALL");
     setSelectedStatus("ALL");
@@ -185,6 +191,13 @@ export default function HistoryPage() {
               >
                 <RefreshCcw className="h-4 w-4" /> Refresh
               </Button>
+              <ExportFilteredCsvButton
+                items={filteredItems}
+                assetCode={selectedAsset}
+                startDate={startDate}
+                endDate={endDate}
+                filtered={searching}
+              />
               <GroupExportMenu
                 groupId="all"
                 expenses={expenses}
@@ -196,6 +209,12 @@ export default function HistoryPage() {
         }
       />
 
+      <label className="mb-3 flex items-center gap-2 text-sm font-bold" htmlFor="history-sort">Sort transactions
+        <select id="history-sort" value={sortOrder} onChange={(event) => { setSortOrder(event.target.value as "newest" | "oldest"); setCurrentPage(1); }} className="rounded-lg border-2 border-ink bg-paper px-3 py-2">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+        </select>
+      </label>
       <Tabs
         className="mb-6"
         active={filter}
@@ -209,16 +228,31 @@ export default function HistoryPage() {
 
       {hasData && (
         <div className="space-y-4 mb-6">
-          <HistoryFilterBar value={filters} onChange={setFilters} />
+          <HistoryFilterBar value={filters} onChange={(next) => {
+            setFilters(next);
+            setCurrentPage(1);
+          }} />
           <TransactionFilter
             selectedAsset={selectedAsset}
-            onAssetChange={setSelectedAsset}
+            onAssetChange={(asset) => {
+              setSelectedAsset(asset);
+              setCurrentPage(1);
+            }}
             selectedStatus={selectedStatus}
-            onStatusChange={setSelectedStatus}
+            onStatusChange={(status) => {
+              setSelectedStatus(status);
+              setCurrentPage(1);
+            }}
             startDate={startDate}
-            onStartDateChange={setStartDate}
+            onStartDateChange={(date) => {
+              setStartDate(date);
+              setCurrentPage(1);
+            }}
             endDate={endDate}
-            onEndDateChange={setEndDate}
+            onEndDateChange={(date) => {
+              setEndDate(date);
+              setCurrentPage(1);
+            }}
             onReset={handleResetFilters}
           />
         </div>

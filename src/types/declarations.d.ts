@@ -44,6 +44,11 @@ declare module "@stellar/stellar-sdk" {
     addOperation(op: any): TransactionBuilder;
     setTimeout(seconds: number): TransactionBuilder;
     build(): any;
+    /** Decodes a (possibly fee-bump) envelope; `hash()` is the network tx hash. */
+    static fromXDR(
+      envelope: string,
+      networkPassphrase: string
+    ): { hash(): { toString(encoding: "hex"): string } };
   }
   export class Account {
     constructor(accountId: string, sequence: string);
@@ -52,6 +57,11 @@ declare module "@stellar/stellar-sdk" {
     static text(value: string): Memo;
     type: string;
     value: string;
+  }
+  export class StrKey {
+    static isValidEd25519PublicKey(publicKey: string): boolean;
+    static isValidEd25519SecretSeed(seed: string): boolean;
+    static isValidMed25519PublicKey(publicKey: string): boolean;
   }
 }
 

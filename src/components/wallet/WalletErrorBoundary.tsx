@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { logRenderError } from "@/lib/errorHandler";
 import { FREIGHTER_INSTALL_URL, WalletError, WalletLockedError, WalletNotInstalledError, UserRejectedError, WalletDisconnectedError, WalletNetworkError } from "@/lib/stellar";
 
+export const WALLET_SUPPORT_URL = "https://github.com/mergepay/mergepay-web/issues";
+
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
@@ -121,6 +123,15 @@ export class WalletErrorBoundary extends Component<Props, State> {
                     <ExternalLink className="h-4 w-4" /> Install Freighter
                   </a>
                 )}
+
+                <a
+                  href={WALLET_SUPPORT_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-bold text-ink underline underline-offset-2 hover:text-grape"
+                >
+                  Still stuck? Get support
+                </a>
               </div>
             </div>
           </div>

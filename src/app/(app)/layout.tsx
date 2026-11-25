@@ -1,33 +1,50 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { AppShell } from "../../components/app-shell";
 import { AuthGuard } from "../../components/auth-guard";
 import { WalletErrorBoundary } from "../../components/wallet/WalletErrorBoundary";
 import { ErrorBoundary } from "../../components/ui/ErrorBoundary";
 import { MutationSyncIndicator } from "../../components/ui/MutationSyncIndicator";
 import { SessionTimeoutDialog } from "../../components/SessionTimeoutDialog";
-import { useInactivityTimeout } from "../../lib/hooks/useInactivityTimeout";
-import { useAuth } from "../../lib/auth-store";
+import { useIdleSession } from "../../hooks/useIdleSession";
+import { clearClientSession } from "../../lib/sessionMonitor";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { forgetWallet } = useAuth();
+  const queryClient = useQueryClient();
   const [showTimeoutDialog, setShowTimeoutDialog] = useState(false);
 
+  /**
+   * Tear down everything scoped to the signed-in account. React Query holds
+   * groups, balances and history, so clearing only the auth store would leave
+   * the previous user's figures renderable after the next sign-in (#898).
+   */
+  const clearAccountCache = () => {
+    queryClient.clear();
+    // Auth, the selected group and the active asset are all account-scoped;
+    // reset them together so the next sign-in starts clean (#898).
+    clearClientSession();
+  };
+
   const handleSessionTimeout = () => {
-    forgetWallet();
+    clearAccountCache();
+    toast.error("Your session expired due to inactivity.");
     window.location.href = "/";
   };
 
-  const { showWarning, resetTimers } = useIdleSession(handleSessionTimeout);
+  const { showWarning, resetTimers, warningSeconds } =
+    useIdleSession(handleSessionTimeout);
 
   const handleContinueSession = () => {
     resetTimers();
     setShowTimeoutDialog(false);
+    toast.success("Session extended.");
   };
 
   const handleLogout = () => {
-    forgetWallet();
+    clearAccountCache();
     window.location.href = "/";
   };
 
@@ -59,6 +76,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         open={showTimeoutDialog}
         onContinue={handleContinueSession}
         onLogout={handleLogout}
+        secondsRemaining={warningSeconds}
       />
     </WalletErrorBoundary>
   );

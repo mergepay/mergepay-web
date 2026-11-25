@@ -8,22 +8,26 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { GroupErrorBoundary } from "@/components/groups/GroupErrorBoundary";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Plus, Users, Receipt, ArrowLeft, SearchX, Download } from "lucide-react";
+import { Plus, Users, Receipt, ArrowLeft, SearchX, Download, QrCode } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog";
 import { CurrencyTicker } from "@/components/CurrencyTicker";
-import { InviteMemberModal } from "@/components/groups/InviteMemberModal";
 import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import { BalancesPanel } from "@/components/balances/balances-panel";
 import { ExpenseCard } from "@/components/expenses/expense-card";
 import { GroupActivityFeed } from "@/components/groups/GroupActivityFeed";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { ExportGroupStatementButton } from "@/components/ExportGroupStatementButton";
-import { ExportGroupModal } from "@/components/modals/ExportGroupModal";
 import { hasExportableHistory } from "@/lib/utils/export";
-import { TreasuryView } from "@/components/treasury/TreasuryView";
+import {
+  LazyAddExpenseDialog,
+  LazyExportGroupModal,
+  LazyInviteMemberModal,
+  LazyTreasuryView,
+} from "@/components/lazy-modals";
+import { useMountOnFirstOpen } from "@/components/ui/lazy-overlay";
 import { MultiPayerOverview } from "@/components/groups/MultiPayerOverview";
+import { GroupInviteModal } from "@/components/groups/GroupInviteModal";
 import { ExpenseListFilters, type ExpenseFilterState } from "@/components/expenses/expense-list-filters";
 import { filterExpenses } from "@/lib/expenseFilters";
 import { ListSkeleton, GroupHeaderSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
@@ -42,6 +46,13 @@ export default function GroupDetailPage() {
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [shareQrOpen, setShareQrOpen] = useState(false);
+  // Heavy dialogs are code-split (#887) and mounted on first open, so their
+  // chunks download when used rather than with the page.
+  const mountAddExpense = useMountOnFirstOpen(addExpenseOpen);
+  const mountInvite = useMountOnFirstOpen(inviteOpen);
+  const mountExport = useMountOnFirstOpen(exportOpen);
+  const mountShareQr = useMountOnFirstOpen(shareQrOpen);
   const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
 
   // The route is the source of truth for which group is active — mirror it into
@@ -98,15 +109,24 @@ export default function GroupDetailPage() {
               size="sm"
               onClick={() => setExportOpen(true)}
               disabled={!hasExportableHistory(expenses, settlements)}
+              aria-label="Export group expense history"
               title={
                 hasExportableHistory(expenses, settlements)
                   ? undefined
                   : "No expenses or settlements to export yet"
               }
             >
-              <Download className="h-4 w-4 mr-1" /> Export
+              <Download className="h-4 w-4 mr-1" aria-hidden="true" /> Export
             </Button>
             <ExportGroupStatementButton groupId={groupId} expenses={expenses} settlements={settlements} />
+            <Button
+              variant="outline"
+              onClick={() => setShareQrOpen(true)}
+              aria-label="Share group QR code"
+              data-testid="group-share-qr"
+            >
+              <QrCode className="h-4 w-4 mr-1" aria-hidden /> Share QR
+            </Button>
             <Button variant="outline" onClick={() => setInviteOpen(true)}>
               <Users className="h-4 w-4 mr-1" /> Invite
             </Button>
@@ -249,7 +269,7 @@ export default function GroupDetailPage() {
 
             {group?.treasuryEnabled && (
               <ErrorBoundary>
-                <TreasuryView
+                <LazyTreasuryView
                   groupId={groupId}
                   treasuryEnabled={group.treasuryEnabled}
                   requiredSigners={group.treasuryRequiredSigners}
@@ -264,29 +284,44 @@ export default function GroupDetailPage() {
           </div>
         </div>
 
-        <ExportGroupModal
-          open={exportOpen}
-          onClose={() => setExportOpen(false)}
-          groupId={groupId}
-          groupName={group?.name}
-          expenses={expenses}
-          settlements={settlements}
-        />
+        {mountExport && (
+          <LazyExportGroupModal
+            open={exportOpen}
+            onClose={() => setExportOpen(false)}
+            groupId={groupId}
+            groupName={group?.name}
+            expenses={expenses}
+            settlements={settlements}
+          />
+        )}
 
-        <AddExpenseDialog
-          open={addExpenseOpen}
-          onClose={() => setAddExpenseOpen(false)}
-          groupId={groupId}
-          members={members}
-          currentUserId={currentUserId}
-        />
+        {mountAddExpense && (
+          <LazyAddExpenseDialog
+            open={addExpenseOpen}
+            onClose={() => setAddExpenseOpen(false)}
+            groupId={groupId}
+            members={members}
+            currentUserId={currentUserId}
+          />
+        )}
 
-        <InviteMemberModal
-          open={inviteOpen}
-          onClose={() => setInviteOpen(false)}
-          groupId={groupId}
-          groupName={group?.name}
-        />
+        {mountShareQr && (
+          <GroupInviteModal
+            open={shareQrOpen}
+            onClose={() => setShareQrOpen(false)}
+            groupId={groupId}
+            groupName={group?.name}
+          />
+        )}
+
+        {mountInvite && (
+          <LazyInviteMemberModal
+            open={inviteOpen}
+            onClose={() => setInviteOpen(false)}
+            groupId={groupId}
+            groupName={group?.name}
+          />
+        )}
       </div>
     </GroupErrorBoundary>
   );

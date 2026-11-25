@@ -22,6 +22,8 @@ export interface TransactionFilterProps {
   className?: string;
 }
 
+import { getStoredGroupPreferences, setStoredGroupPreferences } from "@/lib/storage";
+
 export function TransactionFilter({
   searchQuery = "",
   onSearchChange,
@@ -38,6 +40,42 @@ export function TransactionFilter({
 }: TransactionFilterProps) {
   const assets: AssetFilter[] = ["ALL", "XLM", "USDC"];
   const statuses: StatusFilter[] = ["ALL", "PENDING", "SETTLED"];
+
+  React.useEffect(() => {
+    const stored = getStoredGroupPreferences();
+    if (stored.historyFilters && typeof stored.historyFilters === "object") {
+      const hf = stored.historyFilters as Record<string, unknown>;
+      if (typeof hf.selectedAsset === "string" && onAssetChange) {
+        onAssetChange(hf.selectedAsset as AssetFilter);
+      }
+      if (typeof hf.selectedStatus === "string" && onStatusChange) {
+        onStatusChange(hf.selectedStatus as StatusFilter);
+      }
+      if (typeof hf.searchQuery === "string" && onSearchChange) {
+        onSearchChange(hf.searchQuery);
+      }
+      if (typeof hf.startDate === "string" && onStartDateChange) {
+        onStartDateChange(hf.startDate);
+      }
+      if (typeof hf.endDate === "string" && onEndDateChange) {
+        onEndDateChange(hf.endDate);
+      }
+    }
+  }, []);
+
+  const updateHistoryStorage = (partial: Record<string, unknown>) => {
+    const current = getStoredGroupPreferences();
+    const historyFilters = {
+      ...(current.historyFilters || {}),
+      selectedAsset,
+      selectedStatus,
+      searchQuery,
+      startDate,
+      endDate,
+      ...partial,
+    };
+    setStoredGroupPreferences({ historyFilters });
+  };
 
   const hasActiveFilters =
     selectedAsset !== "ALL" ||
@@ -62,7 +100,10 @@ export function TransactionFilter({
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
+              onChange={(e) => {
+                onSearchChange(e.target.value);
+                updateHistoryStorage({ searchQuery: e.target.value });
+              }}
               placeholder="Search by title, memo or participant..."
               aria-label="Search transactions"
               className="w-full rounded-xl border-2 border-ink bg-cream pl-9 pr-3 py-1.5 font-mono text-xs text-ink placeholder:text-ink/40 outline-none focus:ring-2 focus:ring-grape"
@@ -94,7 +135,10 @@ export function TransactionFilter({
               <button
                 key={asset}
                 type="button"
-                onClick={() => onAssetChange(asset)}
+                onClick={() => {
+                onAssetChange(asset);
+                updateHistoryStorage({ selectedAsset: asset });
+              }}
                 aria-pressed={isSelected}
                 className={cn(
                   "rounded-lg border-2 border-ink px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-wider transition-all shadow-brutal-sm",
@@ -120,7 +164,10 @@ export function TransactionFilter({
               <button
                 key={status}
                 type="button"
-                onClick={() => onStatusChange(status)}
+                onClick={() => {
+                onStatusChange(status);
+                updateHistoryStorage({ selectedStatus: status });
+              }}
                 aria-pressed={isSelected}
                 className={cn(
                   "rounded-lg border-2 border-ink px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-wider transition-all shadow-brutal-sm",
@@ -150,7 +197,10 @@ export function TransactionFilter({
               id="start-date"
               type="date"
               value={startDate}
-              onChange={(e) => onStartDateChange?.(e.target.value)}
+              onChange={(e) => {
+                onStartDateChange?.(e.target.value);
+                updateHistoryStorage({ startDate: e.target.value });
+              }}
               aria-label="Start date"
               className="rounded-lg border-2 border-ink bg-cream px-2 py-1 font-mono text-xs text-ink outline-none focus:ring-2 focus:ring-grape"
             />
@@ -161,7 +211,10 @@ export function TransactionFilter({
               id="end-date"
               type="date"
               value={endDate}
-              onChange={(e) => onEndDateChange?.(e.target.value)}
+              onChange={(e) => {
+                onEndDateChange?.(e.target.value);
+                updateHistoryStorage({ endDate: e.target.value });
+              }}
               aria-label="End date"
               className="rounded-lg border-2 border-ink bg-cream px-2 py-1 font-mono text-xs text-ink outline-none focus:ring-2 focus:ring-grape"
             />
