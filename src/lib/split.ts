@@ -56,10 +56,19 @@ export function toStroops(amount: string | number): bigint {
   const raw = (typeof amount === "number" ? amount.toFixed(7) : amount).trim();
   if (!raw) throw new Error(`toStroops: empty amount`);
 
+  // Keep the split calculator's historical parseFloat-like handling for
+  // malformed values with more than one decimal point (for example,
+  // "1.5.5" is interpreted as "1.5"). The input control rejects these
+  // values, but callers of this low-level helper may still provide them.
+  const firstDecimal = raw.indexOf(".");
+  const secondDecimal = raw.indexOf(".", firstDecimal + 1);
+  const normalizedRaw =
+    secondDecimal === -1 ? raw : raw.slice(0, secondDecimal);
+
   // Parse through decimal digits, never floating-point multiplication. The
   // split calculator historically truncates beyond seven decimals; retain
   // that UI behavior while still avoiding binary drift and preserving signs.
-  const parsed = parseExactDecimal(raw, 30);
+  const parsed = parseExactDecimal(normalizedRaw, 30);
   if (!parsed.ok) throw new Error(`toStroops: invalid amount`);
   return parsed.value.scaled / BigInt(10) ** BigInt(23);
 }
