@@ -3,6 +3,7 @@
 import React, { useCallback } from "react";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Lock,
   RefreshCw,
   ExternalLink,
@@ -11,7 +12,8 @@ import {
 } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button, buttonClassName } from "@/components/ui/button";
-import { FREIGHTER_INSTALL_URL } from "@/lib/stellar";
+import { FREIGHTER_INSTALL_URL, NetworkMismatchError } from "@/lib/stellar";
+import { EXPECTED_NETWORK_LABEL } from "@/lib/constants";
 import type { WalletConnectionError } from "@/lib/auth-store";
 
 export interface WalletWarningDialogProps {
@@ -63,6 +65,18 @@ export function WalletWarningDialog({
     rawMessage.toLowerCase().includes("rejected") ||
     rawMessage.toLowerCase().includes("declined") ||
     rawMessage.toLowerCase().includes("cancelled");
+  const isNetworkMismatch =
+    code === "network_mismatch" || error instanceof NetworkMismatchError;
+
+  // NetworkMismatchError carries both network names so the dialog can state
+  // the problem and the fix; anything else falls back to the deployment's
+  // expected network label.
+  const mismatch =
+    error instanceof NetworkMismatchError
+      ? { wallet: error.walletNetwork, expected: error.expectedNetwork }
+      : null;
+  const expectedNetwork = mismatch?.expected ?? EXPECTED_NETWORK_LABEL;
+  const walletNetwork = mismatch?.wallet ?? "a different network";
 
   let title = "Freighter Connection Failed";
   let description =
@@ -97,6 +111,11 @@ export function WalletWarningDialog({
       "The connection request was declined or cancelled in Freighter. To access your Mergepay account, please grant access when prompted.";
     badgeToneClass = "bg-tangerine text-ink";
     icon = <ShieldAlert className="h-6 w-6 text-ink" />;
+  } else if (isNetworkMismatch) {
+    title = "Wrong Stellar Network";
+    description = `Your Freighter wallet is on ${walletNetwork}, but this app is set to ${expectedNetwork}. Open Freighter, switch the network to ${expectedNetwork}, then retry.`;
+    badgeToneClass = "bg-butter text-ink";
+    icon = <ArrowLeftRight className="h-6 w-6 text-ink" />;
   }
 
   const handleRetry = useCallback(async () => {
@@ -136,7 +155,7 @@ export function WalletWarningDialog({
           </div>
         </div>
 
-        {rawMessage && !isLocked && !isNotInstalled && (
+        {rawMessage && !isLocked && !isNotInstalled && !isNetworkMismatch && (
           <div className="rounded-lg border-2 border-ink bg-white/70 p-2.5 font-mono text-[11px] leading-tight text-ink/75 break-words">
             {rawMessage}
           </div>
