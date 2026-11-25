@@ -49,10 +49,15 @@ import {
   calculateOptimisticActivityList,
 } from "./activity";
 import {
+  appendPendingInvite,
   applyOptimisticSettlement,
   buildOptimisticExpense,
+  buildPendingInvite,
+  findExpenseInCaches,
   insertOptimisticExpense,
   removeOptimisticExpense,
+  replacePendingInvite,
+  reverseOptimisticExpenseBalances,
 } from "./optimistic";
 
 export const qk = {
@@ -755,9 +760,48 @@ export function useRemoveMember(groupId: string) {
 }
 
 
+/**
+ * Create a shareable group invite (#812).
+ *
+ * The admin sees the invitation appear in the group's "pending invites"
+ * straight away: `onMutate` appends a placeholder to the cached group detail,
+ * `onError` restores the snapshot (both invite modals also surface the
+ * failure toast), and `onSuccess` swaps the placeholder for the server's
+ * invite so the code and expiry come from the canonical response.
+ */
 export function useCreateInvite(groupId: string) {
+  const qc = useQueryClient();
+
   return useMutation({
     mutationFn: (data: InviteRequest) => api.createInvite(groupId, data),
+
+    onMutate: async (data: InviteRequest) => {
+      const groupKey = qk.group(groupId);
+      // A refetch landing mid-request would otherwise drop the placeholder.
+      await qc.cancelQueries({ queryKey: groupKey });
+
+      const previousGroup = qc.getQueryData<GroupDetail>(groupKey);
+      const pending = buildPendingInvite({ groupId, request: data });
+
+      qc.setQueryData<GroupDetail>(groupKey, (old) =>
+        appendPendingInvite(old, pending)
+      );
+
+      return { previousGroup, pendingId: pending.id };
+    },
+
+    onError: (_err, _data, context) => {
+      if (context?.previousGroup) {
+        qc.setQueryData(qk.group(groupId), context.previousGroup);
+      }
+    },
+
+    onSuccess: ({ invite }, _data, context) => {
+      if (!context?.pendingId) return;
+      qc.setQueryData<GroupDetail>(qk.group(groupId), (old) =>
+        replacePendingInvite(old, context.pendingId, invite)
+      );
+    },
   });
 }
 
@@ -972,11 +1016,13 @@ export function useDeleteExpense(groupId: string) {
     onMutate: async (expenseId: string) => {
       const expensesKey = qk.expenses(groupId);
       const activityKey = qk.activity(groupId);
+      const balancesKey = qk.balances(groupId);
 
       // Cancel in-flight refetches so they don't overwrite the removal.
       await Promise.all([
         qc.cancelQueries({ queryKey: expensesKey }),
         qc.cancelQueries({ queryKey: activityKey }),
+        qc.cancelQueries({ queryKey: balancesKey }),
       ]);
 
       await qc.cancelQueries({ queryKey: qk.history });
@@ -985,6 +1031,16 @@ export function useDeleteExpense(groupId: string) {
       const previousExpenses = qc.getQueriesData({ queryKey: expensesKey });
       const previousHistory = qc.getQueriesData({ queryKey: qk.history });
       const previousActivity = qc.getQueryData<GroupActivityResponse>(activityKey);
+      const previousBalances = qc.getQueryData<BalancesResponse>(balancesKey);
+
+      // Balance summaries derive from the expense list, so reverse this
+      // expense's contribution immediately too (#818).
+      const removed = findExpenseInCaches(previousExpenses, expenseId);
+      if (previousBalances && removed) {
+        qc.setQueryData<BalancesResponse>(balancesKey, (old) =>
+          old ? reverseOptimisticExpenseBalances(old, removed) : old
+        );
+      }
 
       // Remove the expense from every cache entry that holds it (flat +
       // infinite variants handled by removeOptimisticExpense), including the
@@ -996,7 +1052,7 @@ export function useDeleteExpense(groupId: string) {
         removeOptimisticExpense(old, expenseId)
       );
 
-      return { previousExpenses, previousHistory, previousActivity };
+      return { previousExpenses, previousHistory, previousActivity, previousBalances };
     },
 
     onError: (_err, _expenseId, context) => {
@@ -1008,6 +1064,9 @@ export function useDeleteExpense(groupId: string) {
       }
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
+      }
+      if (context?.previousBalances) {
+        qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
     },
 
