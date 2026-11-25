@@ -466,16 +466,11 @@ describe("aggregateBalancesInAsset", () => {
     expect(aggregateBalancesInAsset([{ amount: "-3", assetCode: "XLM" }], "XLM", RATES)).toBe("-3.0000000");
   });
 
-  // Known defect, documented rather than hidden: the sum goes through
-  // `split.toStroops`, which mis-reads a negative amount that has a fractional
-  // part (-1.5 reads as -0.5, -0.5 reads as +0.5), so a debt like this is
-  // reported with the wrong size or even the wrong sign. `it.fails` keeps the
-  // suite green while the bug exists and turns red when it is fixed.
-  it.fails("sums a negative debt with a fractional part (known bug)", () => {
+  it("sums a negative debt with a fractional part", () => {
     expect(aggregateBalancesInAsset([{ amount: "-1.5", assetCode: "XLM" }], "XLM", RATES)).toBe("-1.5000000");
   });
 
-  it.fails("keeps the sign of a negative debt below one unit (known bug)", () => {
+  it("keeps the sign of a negative debt below one unit", () => {
     expect(aggregateBalancesInAsset([{ amount: "-0.5", assetCode: "XLM" }], "XLM", RATES)).toBe("-0.5000000");
   });
 });
