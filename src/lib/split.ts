@@ -24,6 +24,8 @@
  */
 
 // ---------------------------------------------------------------------------
+import { parseExactDecimal } from "./money";
+
 // Decimal-7 ↔ stroops (BigInt) helpers
 // 1 XLM = 10,000,000 stroops. We always carry 7 decimal places on the wire.
 // We avoid BigInt literal syntax (...n) so the source compiles against
@@ -45,19 +47,30 @@ const WEIGHT_SCALE = 1_000_000;
  *   toStroops("0.0000001") // → 1n
  */
 export function toStroops(amount: string | number): bigint {
-  const s = typeof amount === "number" ? amount.toFixed(7) : amount;
-  const trimmed = s.trim();
-  if (!trimmed) {
-    throw new Error(`toStroops: empty amount`);
+  if (typeof amount === "number" && !Number.isFinite(amount)) {
+    throw new Error(`toStroops: invalid number`);
   }
-  // Tolerate a trailing dot ("50.") by padding one zero before splitting.
-  const normalized = trimmed.endsWith(".") ? `${trimmed}0` : trimmed;
-  // Default int to "0" so a leading dot (".5") parses as 0.5 stroops; let
-  // BigInt("-") and other garbage throw so upstream callers surface bad
-  // input instead of silently getting wrong totals.
-  const [int = "0", frac = ""] = normalized.split(".");
-  const padded = (frac + "0000000").slice(0, 7);
-  return BigInt(int) * STROOPS_PER_UNIT + BigInt(padded);
+  // Number callers historically receive seven-place rounding from toFixed;
+  // string callers are parsed as exact user/API decimals and truncated at the
+  // stroop boundary below.
+  const raw = (typeof amount === "number" ? amount.toFixed(7) : amount).trim();
+  if (!raw) throw new Error(`toStroops: empty amount`);
+
+  // Keep the split calculator's historical parseFloat-like handling for
+  // malformed values with more than one decimal point (for example,
+  // "1.5.5" is interpreted as "1.5"). The input control rejects these
+  // values, but callers of this low-level helper may still provide them.
+  const firstDecimal = raw.indexOf(".");
+  const secondDecimal = raw.indexOf(".", firstDecimal + 1);
+  const normalizedRaw =
+    secondDecimal === -1 ? raw : raw.slice(0, secondDecimal);
+
+  // Parse through decimal digits, never floating-point multiplication. The
+  // split calculator historically truncates beyond seven decimals; retain
+  // that UI behavior while still avoiding binary drift and preserving signs.
+  const parsed = parseExactDecimal(normalizedRaw, 30);
+  if (!parsed.ok) throw new Error(`toStroops: invalid amount`);
+  return parsed.value.scaled / BigInt(10) ** BigInt(23);
 }
 
 /**
