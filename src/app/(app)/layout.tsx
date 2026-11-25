@@ -7,7 +7,7 @@ import { WalletErrorBoundary } from "../../components/wallet/WalletErrorBoundary
 import { ErrorBoundary } from "../../components/ui/ErrorBoundary";
 import { MutationSyncIndicator } from "../../components/ui/MutationSyncIndicator";
 import { SessionTimeoutDialog } from "../../components/SessionTimeoutDialog";
-import { useIdleSession } from "../../hooks/useIdleSession";
+import { useInactivityTimeout } from "../../lib/hooks/useInactivityTimeout";
 import { useAuth } from "../../lib/auth-store";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
