@@ -50,7 +50,10 @@ export function toStroops(amount: string | number): bigint {
   if (typeof amount === "number" && !Number.isFinite(amount)) {
     throw new Error(`toStroops: invalid number`);
   }
-  const raw = String(amount).trim();
+  // Number callers historically receive seven-place rounding from toFixed;
+  // string callers are parsed as exact user/API decimals and truncated at the
+  // stroop boundary below.
+  const raw = (typeof amount === "number" ? amount.toFixed(7) : amount).trim();
   if (!raw) throw new Error(`toStroops: empty amount`);
 
   // Parse through decimal digits, never floating-point multiplication. The
