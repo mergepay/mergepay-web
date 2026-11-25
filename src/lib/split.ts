@@ -24,7 +24,7 @@
  */
 
 // ---------------------------------------------------------------------------
-import { assertInt64, toSignedStroops } from "./money";
+import { parseExactDecimal } from "./money";
 
 // Decimal-7 ↔ stroops (BigInt) helpers
 // 1 XLM = 10,000,000 stroops. We always carry 7 decimal places on the wire.
@@ -50,9 +50,15 @@ export function toStroops(amount: string | number): bigint {
   if (typeof amount === "number" && !Number.isFinite(amount)) {
     throw new Error(`toStroops: invalid number`);
   }
-  // String(number) preserves the user's decimal value without the binary
-  // artefacts introduced by multiplying a float and calling toFixed().
-  return assertInt64(toSignedStroops(String(amount)));
+  const raw = String(amount).trim();
+  if (!raw) throw new Error(`toStroops: empty amount`);
+
+  // Parse through decimal digits, never floating-point multiplication. The
+  // split calculator historically truncates beyond seven decimals; retain
+  // that UI behavior while still avoiding binary drift and preserving signs.
+  const parsed = parseExactDecimal(raw, 30);
+  if (!parsed.ok) throw new Error(`toStroops: invalid amount`);
+  return parsed.value.scaled / BigInt(10) ** BigInt(23);
 }
 
 /**
