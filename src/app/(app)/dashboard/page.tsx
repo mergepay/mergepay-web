@@ -19,6 +19,7 @@ import { useMountOnFirstOpen } from "@/components/ui/lazy-overlay";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { TreasuryBalanceWidget } from "@/components/treasury/TreasuryBalanceWidget";
+import { AssetTicker } from "@/components/AssetTicker";
 import type { AnchorSessionKind, Group } from "@/lib/types";
 import { GroupCardSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
 
@@ -63,6 +64,11 @@ export default function DashboardPage() {
             </Button>
           </div>
         </div>
+
+        {/* Live XLM/USD and USDC/XLM rates, with last-known fallback (#904) */}
+        <ErrorBoundary>
+          <AssetTicker />
+        </ErrorBoundary>
 
         {/* Treasury Mode balances & trustlines (#344) */}
         <ErrorBoundary>
