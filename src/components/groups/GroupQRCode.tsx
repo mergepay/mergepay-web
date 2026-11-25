@@ -78,8 +78,8 @@ export function GroupQRCode({ inviteUrl, className }: GroupQRCodeProps) {
         <QrCode className="h-4 w-4 text-ink" />
         <h3 className="font-display text-sm uppercase tracking-widest">Quick Group Invite</h3>
       </div>
-      <CardContent className="flex flex-col items-center space-y-4 pt-4">
-        <div className="rounded-2xl border-3 border-ink bg-white p-4 shadow-brutal flex justify-center">
+      <CardContent className="flex flex-col items-center space-y-4 pt-4 p-4 sm:p-6 w-full">
+        <div className="rounded-2xl border-3 border-ink bg-white p-4 sm:p-6 shadow-brutal flex justify-center w-full max-w-[280px] aspect-square items-center">
           <QRCodeSVG
             ref={qrRef}
             value={inviteUrl}
