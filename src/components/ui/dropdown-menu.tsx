@@ -328,3 +328,62 @@ export function DropdownMenuItem({
     </button>
   );
 }
+
+export interface DropdownMenuRadioItemProps extends DropdownMenuItemProps {
+  /** Whether this option is the current choice (`aria-checked`). */
+  checked: boolean;
+}
+
+/**
+ * One option in a single-choice group (`role="menuitemradio"`). Put the group
+ * inside a `role="group"` element with an `aria-label` when the menu also has
+ * other actions, so screen readers announce the group name.
+ */
+export function DropdownMenuRadioItem({
+  children,
+  onSelect,
+  checked,
+  disabled = false,
+  textValue,
+  keepOpen = false,
+  className,
+}: DropdownMenuRadioItemProps) {
+  const menu = useContext(MenuContext);
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={checked}
+      tabIndex={-1}
+      aria-disabled={disabled || undefined}
+      data-label={textValue}
+      onClick={(event) => {
+        if (disabled) {
+          event.preventDefault();
+          return;
+        }
+        if (!keepOpen) menu?.close(true);
+        // Re-choosing the current option is a no-op, not a second request.
+        if (!checked) onSelect();
+      }}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-lg border-2 border-transparent px-3 py-2 text-left transition-colors focus:outline-none",
+        disabled
+          ? "cursor-not-allowed opacity-50"
+          : "hover:border-ink hover:bg-lime-pale focus:border-ink focus:bg-lime-pale",
+        className
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-ink",
+          checked ? "bg-grape" : "bg-paper"
+        )}
+      >
+        {checked && <span className="h-1.5 w-1.5 rounded-full bg-paper" />}
+      </span>
+      {children}
+    </button>
+  );
+}
