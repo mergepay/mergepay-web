@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Coins,
+  Download,
   Landmark,
   RefreshCw,
   ShieldCheck,
@@ -49,6 +50,11 @@ import {
 import { useCurrencyRates, convertToFiat } from "@/hooks/useCurrencyRates";
 import { useFiatPreference } from "@/lib/fiat-preference";
 import { SETTLEMENT_ASSETS } from "@/lib/constants";
+import {
+  buildTreasuryTransactionsCsv,
+  treasuryCsvFilename,
+} from "@/lib/treasuryCsv";
+import { downloadTextFile } from "@/lib/utils/export";
 import { cn } from "@/lib/utils";
 
 /** Lucide indicator per asset code, with a neutral default. */
@@ -134,11 +140,24 @@ export function TreasuryView({
     expectedAssets
   );
   const trustlines = splitTrustlineState(expectedAssets, balances);
-  const contributions = aggregateMemberContributions(
-    history.data?.transactions ?? []
-  );
+  const transactions = history.data?.transactions ?? [];
+  const contributions = aggregateMemberContributions(transactions);
 
   const loading = info.isLoading && !info.data;
+
+  function handleExportCsv() {
+    const csv = buildTreasuryTransactionsCsv(transactions);
+    if (!csv) {
+      toast.error("No treasury transactions to export yet.");
+      return;
+    }
+    const filename = treasuryCsvFilename();
+    if (downloadTextFile(csv, filename, "text/csv;charset=utf-8")) {
+      toast.success(`Exported treasury history as ${filename}`);
+    } else {
+      toast.error("Downloads are not available in this browser.");
+    }
+  }
 
   return (
     <Card className={cn("overflow-hidden", className)} data-testid="treasury-view">
@@ -153,6 +172,21 @@ export function TreasuryView({
               approval
             </Badge>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCsv}
+            disabled={transactions.length === 0}
+            aria-label="Export treasury transactions as CSV"
+            title={
+              transactions.length === 0
+                ? "No treasury transactions to export yet"
+                : "Download treasury transaction history as CSV"
+            }
+            data-testid="treasury-export-csv"
+          >
+            <Download className="h-3.5 w-3.5" /> Export CSV
+          </Button>
           <Button
             variant="outline"
             size="sm"

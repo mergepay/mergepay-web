@@ -96,9 +96,25 @@ export function matchesExportDateRange(
 }
 
 /**
+ * One `Name: amount (status)` entry per share, separated by semicolons.
+ *
+ * Participant names are user-controlled, so the caller still runs the whole
+ * cell through `escapeCsv`; this helper only decides the readable shape.
+ * Falls back to the user id when the API has not embedded the profile.
+ */
+export function formatExpenseParticipants(expense: Expense): string {
+  return (expense.shares ?? [])
+    .map((share) => {
+      const name = share.user?.displayName ?? share.userId;
+      return `${name}: ${share.shareAmount} (${share.status})`;
+    })
+    .join("; ");
+}
+
+/**
  * Build an RFC 4180 well-formed CSV of the group's expenses with the columns
  * required by the issue: Date, Description, Base Amount, Asset Code, Payer
- * Address, Split Mode, Your Share, Settlement Status.
+ * Address, Split Mode, Participants, Your Share, Settlement Status.
  *
  * Every field is run through `escapeCsv`, so commas, quotes, newlines and
  * formula prefixes (`=`, `+`, `-`, `@`, tab, CR) are neutralized. Rows are
@@ -117,6 +133,7 @@ export function buildExpenseExportCsv(
     "Asset Code",
     "Payer Address",
     "Split Mode",
+    "Participants",
     "Your Share",
     "Settlement Status",
   ];
@@ -137,6 +154,7 @@ export function buildExpenseExportCsv(
         e.assetCode,
         e.payer.stellarPublicKey,
         e.splitType,
+        formatExpenseParticipants(e),
         share?.shareAmount ?? "",
         exportSettlementStatus(share?.status ?? "pending"),
       ]

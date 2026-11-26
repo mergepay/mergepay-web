@@ -14,6 +14,7 @@ import {
 } from "@/lib/utils";
 import type { Expense } from "@/lib/types";
 import { buildFilteredExpenseExportJson } from "@/lib/export";
+import { downloadTextFile } from "@/lib/utils/export";
 
 export interface ExpenseExportModalProps {
   open: boolean;
@@ -85,15 +86,12 @@ export function ExpenseExportModal({
       filename = `mergepay-export-${groupId}-${timestamp}.json`;
     }
 
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Shared helper clicks a temporary anchor and revokes the object URL on
+    // the next tick, so the download is not cancelled by an eager revoke (#889).
+    if (!downloadTextFile(content, filename, mimeType)) {
+      toast.error("Downloads are not available in this browser.");
+      return;
+    }
 
     onClose();
     toast.success(`Exported ${filteredExpenses.length} expense(s) as ${format.toUpperCase()}`);

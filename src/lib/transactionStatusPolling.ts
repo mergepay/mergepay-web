@@ -19,6 +19,12 @@ export interface TransactionStatusResponse {
   ledger?: number;
   error?: string;
   envelopeXdr?: string;
+  /**
+   * Minimum wait before the next probe, set when Horizon rate-limits us
+   * (`429` + `Retry-After`). The poller never probes sooner than this, even
+   * when its own backoff interval is shorter.
+   */
+  retryAfterMs?: number;
 }
 
 export interface PollTransactionStatusOptions {
@@ -115,6 +121,30 @@ export function calculateBackoff(
   return Math.max(initialIntervalMs, Math.min(maxIntervalMs, Math.round(calculated + randomDelta)));
 }
 
+/** Fallback wait when Horizon sends a 429 without a usable `Retry-After`. */
+export const DEFAULT_RATE_LIMIT_BACKOFF_MS = 2000;
+/** Upper bound on a `Retry-After` we honour, so one header can't stall a poll. */
+export const MAX_RATE_LIMIT_BACKOFF_MS = 30_000;
+
+/**
+ * Converts a `Retry-After` header (delta-seconds or an HTTP date) into a wait
+ * in milliseconds, clamped to `[0, MAX_RATE_LIMIT_BACKOFF_MS]`. Missing or
+ * unparseable values fall back to `DEFAULT_RATE_LIMIT_BACKOFF_MS`.
+ */
+export function parseRetryAfterMs(header: string | null, now = Date.now()): number {
+  if (!header) return DEFAULT_RATE_LIMIT_BACKOFF_MS;
+  const trimmed = header.trim();
+  let ms: number;
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    ms = Number(trimmed) * 1000;
+  } else {
+    const at = Date.parse(trimmed);
+    if (Number.isNaN(at)) return DEFAULT_RATE_LIMIT_BACKOFF_MS;
+    ms = at - now;
+  }
+  return Math.min(MAX_RATE_LIMIT_BACKOFF_MS, Math.max(0, Math.round(ms)));
+}
+
 /**
  * Default Horizon transaction status probe querying the /transactions/{hash} endpoint.
  */
@@ -149,11 +179,11 @@ export async function defaultHorizonProbe(
   }
 
   if (response.status === 429) {
-    // Rate limited
-    const retryAfter = response.headers.get("Retry-After");
-    const retrySecs = retryAfter ? parseInt(retryAfter, 10) : 2;
-    const errorMsg = `Horizon rate limited (429). Retry after ${retrySecs}s.`;
-    return { status: "pending", txHash, error: errorMsg };
+    // Rate limited: still pending as far as we know, but back off for as long
+    // as Horizon asks before the next probe.
+    const retryAfterMs = parseRetryAfterMs(response.headers.get("Retry-After"));
+    const errorMsg = `Horizon rate limited (429). Retry after ${Math.ceil(retryAfterMs / 1000)}s.`;
+    return { status: "pending", txHash, error: errorMsg, retryAfterMs };
   }
 
   // Non-200 / non-404 / non-429 unexpected status
@@ -214,6 +244,7 @@ export async function pollTransactionStatus(
   const probe = customProbe ?? ((hash, s) => defaultHorizonProbe(hash, horizonUrl, s));
 
   for (;;) {
+    let retryAfterMs = 0;
     if (signal?.aborted) {
       throw new TransactionPollingAbortedError(txHash);
     }
@@ -241,6 +272,8 @@ export async function pollTransactionStatus(
 
     try {
       const result = await probe(txHash, signal);
+
+      retryAfterMs = result.retryAfterMs ?? 0;
 
       if (result.status !== lastStatus) {
         lastStatus = result.status;
@@ -286,7 +319,8 @@ export async function pollTransactionStatus(
       throw new TransactionPollingTimeoutError(txHash, attempt, Date.now() - startTime);
     }
 
-    const sleepMs = Math.min(currentInterval, remaining);
+    // A rate-limited probe waits at least as long as Horizon asked.
+    const sleepMs = Math.min(Math.max(currentInterval, retryAfterMs), remaining);
     try {
       await delay(sleepMs, signal);
     } catch {

@@ -14,12 +14,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { CreateGroupDialog } from "@/components/groups/create-group-dialog";
-import { JoinGroupDialog } from "@/components/groups/join-group-dialog";
-import { Sep24Modal } from "@/components/anchors/Sep24Modal";
+import { LazyCreateGroupDialog, LazyJoinGroupDialog, LazySep24Modal } from "@/components/lazy-modals";
+import { useMountOnFirstOpen } from "@/components/ui/lazy-overlay";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { GroupBudgetTracker } from "@/components/GroupBudgetTracker";
 import { TreasuryBalanceWidget } from "@/components/treasury/TreasuryBalanceWidget";
+import { AssetTicker } from "@/components/AssetTicker";
 import type { AnchorSessionKind, Group } from "@/lib/types";
 import { GroupCardSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
 
@@ -31,6 +31,10 @@ export default function DashboardPage() {
   // SEP-24 on/off-ramp (#374) — opened from the fiat ramp card below.
   const [rampOpen, setRampOpen] = useState(false);
   const [rampKind, setRampKind] = useState<AnchorSessionKind>("deposit");
+  // Code-split dialogs (#887): fetched on first open, not with the page.
+  const mountCreate = useMountOnFirstOpen(createOpen);
+  const mountJoin = useMountOnFirstOpen(joinOpen);
+  const mountRamp = useMountOnFirstOpen(rampOpen);
 
   function openRamp(kind: AnchorSessionKind) {
     setRampKind(kind);
@@ -60,6 +64,11 @@ export default function DashboardPage() {
             </Button>
           </div>
         </div>
+
+        {/* Live XLM/USD and USDC/XLM rates, with last-known fallback (#904) */}
+        <ErrorBoundary>
+          <AssetTicker />
+        </ErrorBoundary>
 
         {/* Treasury Mode balances & trustlines (#344) */}
         <ErrorBoundary>
@@ -150,13 +159,15 @@ export default function DashboardPage() {
           </SkeletonBoundary>
         </ErrorBoundary>
 
-        <CreateGroupDialog open={createOpen} onClose={() => setCreateOpen(false)} />
-        <JoinGroupDialog open={joinOpen} onClose={() => setJoinOpen(false)} />
-        <Sep24Modal
-          open={rampOpen}
-          defaultKind={rampKind}
-          onClose={() => setRampOpen(false)}
-        />
+        {mountCreate && <LazyCreateGroupDialog open={createOpen} onClose={() => setCreateOpen(false)} />}
+        {mountJoin && <LazyJoinGroupDialog open={joinOpen} onClose={() => setJoinOpen(false)} />}
+        {mountRamp && (
+          <LazySep24Modal
+            open={rampOpen}
+            defaultKind={rampKind}
+            onClose={() => setRampOpen(false)}
+          />
+        )}
       </div>
     </ErrorBoundary>
   );

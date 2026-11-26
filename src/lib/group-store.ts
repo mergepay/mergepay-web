@@ -59,7 +59,10 @@ export const useGroupStore = create<GroupState>()(
         }),
       clearRecentGroups: () => set({ recentGroupIds: [] }),
       setRestored: (v) => set({ restored: v }),
-      clear: () => set({ selectedGroupId: null }),
+      // Full reset for sign-out / session expiry (#898): the active group and
+      // the recent list both describe the account that is leaving, so neither
+      // may leak into the next session.
+      clear: () => set({ selectedGroupId: null, recentGroupIds: [] }),
     }),
     {
       name: "mergepay.selectedGroup",

@@ -10,7 +10,9 @@ import {
 import { api, getInviteByCode } from "./api";
 import { ApiRequestError, handleApiError } from "./errorHandler";
 import { toast } from "sonner";
+import { isAmbiguousSubmissionError } from "./stellar/transactions";
 import { useAuth } from "./auth-store";
+import { telemetryErrorCode, track } from "./telemetry";
 import type {
   BalancesResponse,
   BulkSettleRequest,
@@ -47,10 +49,15 @@ import {
   calculateOptimisticActivityList,
 } from "./activity";
 import {
+  appendPendingInvite,
   applyOptimisticSettlement,
   buildOptimisticExpense,
+  buildPendingInvite,
+  findExpenseInCaches,
   insertOptimisticExpense,
   removeOptimisticExpense,
+  replacePendingInvite,
+  reverseOptimisticExpenseBalances,
 } from "./optimistic";
 
 export const qk = {
@@ -632,6 +639,22 @@ export function invalidationFilters(target: InvalidationTarget): {
   return "queryKey" in target ? target : { queryKey: target };
 }
 
+/**
+ * Refresh everything a settlement changes in one group: expenses, balances,
+ * ledger, the group list row, the activity feed and history. For callers that
+ * learn the outcome without going through `useSettlementStatus` — the settle
+ * dialog's Horizon fallback (#814) — so the page catches up with the chain.
+ */
+export function useSettlementCacheRefresh(groupId: string) {
+  const invalidate = useInvalidator();
+  return useCallback(
+    () => invalidate([...expenseCacheKeys(groupId), qk.activity(groupId), qk.history]),
+    // `invalidate` is rebuilt each render; it only closes over the stable client.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [groupId]
+  );
+}
+
 export function useInvalidator() {
   const qc = useQueryClient();
   return (targets: readonly InvalidationTarget[]) =>
@@ -685,7 +708,13 @@ export function useCreateGroup() {
     mutationFn: (data: CreateGroupRequest) => api.createGroup(data),
     // Exact, everywhere the list is invalidated: `["groups"]` is a prefix of
     // every per-group key, so a loose match refetches all a user's groups.
-    onSuccess: () => invalidate([{ queryKey: qk.groups, exact: true }]),
+    onSuccess: (_data, vars) => {
+      // The group's name and description are user content; only whether a
+      // description was given is recorded.
+      track("group_created", { hasDescription: Boolean(vars.description?.trim()) });
+      return invalidate([{ queryKey: qk.groups, exact: true }]);
+    },
+    onError: (err) => track("group_create_failed", { errorCode: telemetryErrorCode(err) }),
   });
 }
 
@@ -731,9 +760,48 @@ export function useRemoveMember(groupId: string) {
 }
 
 
+/**
+ * Create a shareable group invite (#812).
+ *
+ * The admin sees the invitation appear in the group's "pending invites"
+ * straight away: `onMutate` appends a placeholder to the cached group detail,
+ * `onError` restores the snapshot (both invite modals also surface the
+ * failure toast), and `onSuccess` swaps the placeholder for the server's
+ * invite so the code and expiry come from the canonical response.
+ */
 export function useCreateInvite(groupId: string) {
+  const qc = useQueryClient();
+
   return useMutation({
     mutationFn: (data: InviteRequest) => api.createInvite(groupId, data),
+
+    onMutate: async (data: InviteRequest) => {
+      const groupKey = qk.group(groupId);
+      // A refetch landing mid-request would otherwise drop the placeholder.
+      await qc.cancelQueries({ queryKey: groupKey });
+
+      const previousGroup = qc.getQueryData<GroupDetail>(groupKey);
+      const pending = buildPendingInvite({ groupId, request: data });
+
+      qc.setQueryData<GroupDetail>(groupKey, (old) =>
+        appendPendingInvite(old, pending)
+      );
+
+      return { previousGroup, pendingId: pending.id };
+    },
+
+    onError: (_err, _data, context) => {
+      if (context?.previousGroup) {
+        qc.setQueryData(qk.group(groupId), context.previousGroup);
+      }
+    },
+
+    onSuccess: ({ invite }, _data, context) => {
+      if (!context?.pendingId) return;
+      qc.setQueryData<GroupDetail>(qk.group(groupId), (old) =>
+        replacePendingInvite(old, context.pendingId, invite)
+      );
+    },
   });
 }
 
@@ -910,10 +978,12 @@ export function useCreateExpense(groupId: string) {
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
       }
+      track("expense_create_failed", { errorCode: telemetryErrorCode(err) });
       handleApiError(err, "Failed to create expense. Balances and activity reverted.");
     },
     // Confirm the expense landed on the server and notify the user.
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
+      track("expense_created", { splitType: vars.splitType, participantCount: vars.shares.length });
       toast.success("Expense added successfully");
       // Keep the transaction history in sync alongside the group list so
       // the history page reflects the new expense without a manual refresh.
@@ -946,35 +1016,57 @@ export function useDeleteExpense(groupId: string) {
     onMutate: async (expenseId: string) => {
       const expensesKey = qk.expenses(groupId);
       const activityKey = qk.activity(groupId);
+      const balancesKey = qk.balances(groupId);
 
       // Cancel in-flight refetches so they don't overwrite the removal.
       await Promise.all([
         qc.cancelQueries({ queryKey: expensesKey }),
         qc.cancelQueries({ queryKey: activityKey }),
+        qc.cancelQueries({ queryKey: balancesKey }),
       ]);
+
+      await qc.cancelQueries({ queryKey: qk.history });
 
       // Snapshot everything we touch so onError can roll back cleanly.
       const previousExpenses = qc.getQueriesData({ queryKey: expensesKey });
+      const previousHistory = qc.getQueriesData({ queryKey: qk.history });
       const previousActivity = qc.getQueryData<GroupActivityResponse>(activityKey);
+      const previousBalances = qc.getQueryData<BalancesResponse>(balancesKey);
+
+      // Balance summaries derive from the expense list, so reverse this
+      // expense's contribution immediately too (#818).
+      const removed = findExpenseInCaches(previousExpenses, expenseId);
+      if (previousBalances && removed) {
+        qc.setQueryData<BalancesResponse>(balancesKey, (old) =>
+          old ? reverseOptimisticExpenseBalances(old, removed) : old
+        );
+      }
 
       // Remove the expense from every cache entry that holds it (flat +
-      // infinite variants handled by removeOptimisticExpense).
+      // infinite variants handled by removeOptimisticExpense), including the
+      // cross-group history feed (#892).
       qc.setQueriesData({ queryKey: expensesKey }, (old: unknown) =>
         removeOptimisticExpense(old, expenseId)
       );
+      qc.setQueriesData({ queryKey: qk.history }, (old: unknown) =>
+        removeOptimisticExpense(old, expenseId)
+      );
 
-      return { previousExpenses, previousActivity };
+      return { previousExpenses, previousHistory, previousActivity, previousBalances };
     },
 
     onError: (_err, _expenseId, context) => {
       // Put every cache entry back the way it was.
-      if (context?.previousExpenses) {
-        for (const [queryKey, queryData] of context.previousExpenses) {
+      for (const snapshot of [context?.previousExpenses, context?.previousHistory]) {
+        for (const [queryKey, queryData] of snapshot ?? []) {
           qc.setQueryData(queryKey, queryData);
         }
       }
       if (context?.previousActivity) {
         qc.setQueryData(qk.activity(groupId), context.previousActivity);
+      }
+      if (context?.previousBalances) {
+        qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
     },
 
@@ -982,6 +1074,7 @@ export function useDeleteExpense(groupId: string) {
       // Whether it succeeded or failed, let the server's view win.
       invalidate(expenseCacheKeys(groupId));
       qc.invalidateQueries({ queryKey: qk.activity(groupId) });
+      qc.invalidateQueries({ queryKey: qk.history });
     },
   });
 }
@@ -1005,6 +1098,8 @@ export function useBulkSettle(groupId: string) {
   return useMutation({
     mutationFn: (data: BulkSettleRequest) =>
       api.bulkSettleExpenses(groupId, data),
+    onSuccess: (_data, vars) => track("bulk_settlement_submitted", { expenseCount: vars.expenseIds.length }),
+    onError: (err) => track("bulk_settlement_failed", { errorCode: telemetryErrorCode(err) }),
   });
 }
 
@@ -1045,12 +1140,20 @@ export function useConfirmSettlement(groupId: string) {
       return { previousBalances };
     },
     onError: (_error, _variables, context) => {
+      // The signed transaction and hash in `data` are never recorded.
+      track("settlement_failed", { errorCode: telemetryErrorCode(_error) });
       if (context?.previousBalances) {
         qc.setQueryData(qk.balances(groupId), context.previousBalances);
       }
+      // A signed payment whose submit request was lost (timeout, 5xx, dropped
+      // connection) may still land on Stellar. The settle dialog then checks
+      // Horizon directly and owns the messaging (#814); "failed" here would
+      // contradict it.
+      if (isAmbiguousSubmissionError(_error)) return;
       toast.error("Settlement submission failed. Balances were restored.");
     },
     onSuccess: (_data, vars) => {
+      track("settlement_submitted", { status: _data.settlement.status });
       // Seed the polled cache so the dialog reflects "submitted" without
       // forcing an immediate refetch before its first interval tick. Keep the
       // optimistic balance until the status poll reaches a terminal state.

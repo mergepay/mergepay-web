@@ -139,10 +139,15 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     [onClose, allItems, selectedIndex, router]
   );
 
+  // Only while open (#813). The handler claims Enter, Tab, the arrows and "n"
+  // with preventDefault in the capture phase; left attached while the palette
+  // is closed it swallowed those keys across the whole app, so keyboard users
+  // could not press a focused button with Enter or Tab between controls.
   useEffect(() => {
+    if (!open) return;
     window.addEventListener("keydown", handleGlobalKeyDown, true);
     return () => window.removeEventListener("keydown", handleGlobalKeyDown, true);
-  }, [handleGlobalKeyDown]);
+  }, [open, handleGlobalKeyDown]);
 
   const handleItemClick = useCallback(
     (item: NavTarget) => {

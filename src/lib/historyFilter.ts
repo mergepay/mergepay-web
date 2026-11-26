@@ -152,7 +152,10 @@ export function matchesHistoryFilters(
     if (kw && !normalize(row.searchText).includes(kw)) return false;
   }
   if (filters.fromDate) {
-    const from = new Date(filters.fromDate).getTime();
+    const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(filters.fromDate)
+      ? `${filters.fromDate}T00:00:00`
+      : filters.fromDate;
+    const from = new Date(fromDate).getTime();
     if (
       !Number.isNaN(from) &&
       new Date(row.createdAt).getTime() < from
