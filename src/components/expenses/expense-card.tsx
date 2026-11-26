@@ -19,7 +19,6 @@ import { useDeleteExpense } from "@/lib/queries";
 import { useUpdateExpenseMutation } from "@/hooks/useExpenseMutations";
 import { Input, Label, Textarea, FieldError } from "@/components/ui/input";
 import { validateMergepayMemo } from "@/lib/validations/memo";
-import { handleApiError } from "@/lib/errorHandler";
 import { Timestamp } from "@/components/timestamp";
 import { ExpenseReceiptModal } from "@/components/ExpenseReceiptModal";
 import { MemoBadge } from "@/components/stellar/MemoBadge";
@@ -71,8 +70,9 @@ export function ExpenseCard({
       // failure the mutation restores it and we explain what happened.
       await del.mutateAsync(expense.id);
       toast.success("Expense deleted");
-    } catch (e) {
-      handleApiError(e, "Could not delete the expense. It has been restored.");
+    } catch {
+      // `useDeleteExpense` restores the card and shows the failure toast, so
+      // the component does not toast a second time.
     }
   }
 
