@@ -149,4 +149,28 @@ describe("MultiCurrencyBalanceSummary", () => {
     expect(screen.getByText("GISSU…RTWO")).toBeDefined();
     expect(screen.queryByText(/Total in/)).toBeNull();
   });
+
+  it("warns about assets without a trustline but never about native XLM", () => {
+    render(
+      <MultiCurrencyBalanceSummary
+        balances={[
+          balance("user-1", "10.0000000", "XLM"),
+          balance("user-1", "25.0000000", "USDC"),
+        ]}
+      />
+    );
+
+    expect(screen.getAllByText("Missing Trustline").length).toBe(1);
+  });
+
+  it("does not warn when the user has a trustline for the asset", () => {
+    render(
+      <MultiCurrencyBalanceSummary
+        balances={[balance("user-1", "25.0000000", "USDC")]}
+        userTrustlines={["USDC"]}
+      />
+    );
+
+    expect(screen.queryByText("Missing Trustline")).toBeNull();
+  });
 });
