@@ -4,6 +4,7 @@ import { Card, CardContent } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Money } from "../amount";
 import { aggregateBalancesByAsset, getSortedAggregatedBalances } from "@/lib/balanceAggregation";
+import { assetIdentityKey } from "@/lib/utils/balance";
 import {
   aggregateBalancesInAsset,
   assetExchangeRates,
@@ -26,6 +27,16 @@ export interface MultiCurrencyBalanceSummaryProps {
  * Multi-currency balance summary widget displaying net positions per asset.
  * Shows aggregated balances across different Stellar assets (XLM, USDC, etc.)
  * with proper formatting, cross-asset equivalents, and trustline warnings.
+ *
+ * When a group holds more than one distinct asset, each position is also shown
+ * as its equivalent in the summary's base asset and the legs are totalled into
+ * it — a member who is +12 USDC and -80 XLM cannot read their overall position
+ * from two unrelated numbers. The base asset is the first row, so the choice is
+ * stable across renders rather than following whichever rate arrived last.
+ *
+ * Two rows can share an asset code but have different issuers. They are kept
+ * separate (and are never totalled together) because they are different Stellar
+ * assets whose cross rates may not agree.
  */
 export function MultiCurrencyBalanceSummary({
   balances,
@@ -38,9 +49,22 @@ export function MultiCurrencyBalanceSummary({
   const aggregation = aggregateBalancesByAsset(balances, userId);
   const sortedBalances = getSortedAggregatedBalances(aggregation);
   const baseAsset = sortedBalances[0]?.assetCode;
+  const duplicateCodes = new Set(
+    sortedBalances
+      .filter(
+        (balance, index, all) =>
+          all.findIndex((item) => item.assetCode === balance.assetCode) !== index
+      )
+      .map((balance) => balance.assetCode)
+  );
   const exchange = assetExchangeRates(rates);
-  const comparable = baseAsset !== undefined && sortedBalances.length > 1;
-  const convertedTotal = comparable && baseAsset
+  // A single-asset group has nothing to convert against. The cross rate comes
+  // from the fiat feed, so when that has not resolved to a usable pair — or the
+  // same code appears with two issuers — the helpers return null and we show no
+  // estimate rather than a guessed one.
+  const comparable =
+    baseAsset !== undefined && sortedBalances.length > 1 && duplicateCodes.size === 0;
+  const totalInBase = comparable
     ? aggregateBalancesInAsset(
         sortedBalances.map((b) => ({ amount: b.net, assetCode: b.assetCode })),
         baseAsset,
@@ -55,11 +79,6 @@ export function MultiCurrencyBalanceSummary({
           <h3 className="font-display text-xs uppercase tracking-widest text-ink/60">
             Consolidated Balances
           </h3>
-          {baseAsset && convertedTotal !== null && (
-            <span className="text-xs font-bold text-ink">
-              Total in {baseAsset}: {formatAssetAmountText(convertedTotal, baseAsset)}
-            </span>
-          )}
         </div>
 
         {sortedBalances.length === 0 ? (
@@ -70,13 +89,13 @@ export function MultiCurrencyBalanceSummary({
               const isNative = item.assetCode === "XLM";
               const hasTrustline = isNative || userTrustlines.includes(item.assetCode);
               const equivalent =
-                baseAsset && baseAsset !== item.assetCode && exchange
+                comparable && baseAsset && baseAsset !== item.assetCode && exchange
                   ? formatAssetEquivalent(item.net, item.assetCode, baseAsset, exchange)
                   : null;
 
               return (
                 <div
-                  key={item.assetCode}
+                  key={assetIdentityKey(item.assetCode, item.assetIssuer)}
                   className="flex flex-col gap-1 rounded-xl border-2 border-ink/20 bg-cream/55 p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="flex items-center gap-2">
@@ -99,11 +118,26 @@ export function MultiCurrencyBalanceSummary({
                         ({equivalent})
                       </span>
                     )}
-                    <Money value={item.net} assetCode={item.assetCode} assetIssuer={item.assetIssuer} />
+                    <Money
+                      value={item.net}
+                      assetCode={item.assetCode}
+                      assetIssuer={item.assetIssuer}
+                    />
                   </div>
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {totalInBase !== null && baseAsset && (
+          <div className="flex items-center justify-between gap-3 border-t-2 border-ink/10 pt-3">
+            <span className="font-display text-xs uppercase tracking-widest text-ink/60">
+              Total in {baseAsset}
+            </span>
+            <span className="font-mono text-sm font-bold tabular-nums text-ink">
+              {formatAssetAmountText(totalInBase, baseAsset)}
+            </span>
           </div>
         )}
       </CardContent>

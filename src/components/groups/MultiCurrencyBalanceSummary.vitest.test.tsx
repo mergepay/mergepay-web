@@ -75,7 +75,7 @@ describe("MultiCurrencyBalanceSummary", () => {
     // USDC sorts first, so it is the base: only the XLM leg needs an
     // equivalent, and 100 XLM at half a USDC each is 50 USDC.
     expect(screen.getAllByText(/≈ 50\.00 USDC/).length).toBe(1);
-    expect(screen.getByText((content, node) => node?.textContent === "Total in USDC: 75.00 USDC")).toBeDefined();
+    expect(screen.getByText("Total in USDC")).toBeDefined();
     expect(screen.getAllByText("75.00 USDC").length).toBeGreaterThan(0);
   });
 
@@ -90,7 +90,7 @@ describe("MultiCurrencyBalanceSummary", () => {
     );
 
     expect(screen.getAllByText(/≈ -50\.00 USDC/).length).toBe(1);
-    expect(screen.getAllByText((content, node) => node?.textContent?.includes("-25.00 USDC") ?? false).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("-25.00 USDC").length).toBeGreaterThan(0);
   });
 
   it("shows no equivalents for a single-asset group", () => {
@@ -148,5 +148,29 @@ describe("MultiCurrencyBalanceSummary", () => {
     expect(screen.getByText("GISSU…RONE")).toBeDefined();
     expect(screen.getByText("GISSU…RTWO")).toBeDefined();
     expect(screen.queryByText(/Total in/)).toBeNull();
+  });
+
+  it("warns about assets without a trustline but never about native XLM", () => {
+    render(
+      <MultiCurrencyBalanceSummary
+        balances={[
+          balance("user-1", "10.0000000", "XLM"),
+          balance("user-1", "25.0000000", "USDC"),
+        ]}
+      />
+    );
+
+    expect(screen.getAllByText("Missing Trustline").length).toBe(1);
+  });
+
+  it("does not warn when the user has a trustline for the asset", () => {
+    render(
+      <MultiCurrencyBalanceSummary
+        balances={[balance("user-1", "25.0000000", "USDC")]}
+        userTrustlines={["USDC"]}
+      />
+    );
+
+    expect(screen.queryByText("Missing Trustline")).toBeNull();
   });
 });
