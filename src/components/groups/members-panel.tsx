@@ -2,13 +2,25 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, LogOut, UserPlus, UserMinus, Shield, ShieldCheck, Eye, QrCode } from "lucide-react";
+import {
+  Archive,
+  Check,
+  ChevronDown,
+  Eye,
+  LogOut,
+  QrCode,
+  Shield,
+  ShieldCheck,
+  UserMinus,
+  UserPlus,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { PubkeyChip } from "@/components/tx-link";
+import { DropdownMenu, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { InviteMemberModal } from "./InviteMemberModal";
 import { GroupQRCode } from "./GroupQRCode";
 import { useCreateInvite } from "@/lib/queries";
@@ -24,6 +36,17 @@ import {
 import { handleApiError } from "@/lib/errorHandler";
 import { Timestamp } from "@/components/timestamp";
 import type { GroupDetail, Role } from "@/lib/types";
+
+const ROLE_OPTIONS: {
+  value: Role;
+  label: string;
+  hint: string;
+  icon: typeof Shield;
+}[] = [
+  { value: "admin", label: "Admin", hint: "Manage members and settings", icon: ShieldCheck },
+  { value: "member", label: "Member", hint: "Add and settle expenses", icon: Shield },
+  { value: "viewer", label: "Viewer", hint: "Read-only access", icon: Eye },
+];
 
 export function MembersPanel({
   detail,
@@ -131,32 +154,81 @@ export function MembersPanel({
               <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
                 <PubkeyChip publicKey={m.user.stellarPublicKey} />
                 {isAdmin && !isSelf ? (
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={m.role}
-                      onChange={(e) => handleRoleChange(m.id, e.target.value as Role)}
-                      disabled={updateRole.isPending}
-                      aria-label={`Change role for ${m.user.displayName}`}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") {
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      className="rounded-lg border-2 border-ink bg-paper px-2 py-1 text-xs font-bold shadow-brutal-sm focus:outline-none focus:ring-2 focus:ring-grape"
+                  <DropdownMenu
+                    label={`Manage ${m.user.displayName}`}
+                    disabled={updateRole.isPending || removeMember.isPending}
+                    trigger={(props) => (
+                      <Button
+                        {...props}
+                        size="sm"
+                        variant="outline"
+                        aria-label={`Manage ${m.user.displayName}`}
+                      >
+                        <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                        {ROLE_OPTIONS.find((role) => role.value === m.role)?.label ??
+                          m.role}
+                        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                      </Button>
+                    )}
+                  >
+                    {ROLE_OPTIONS.map(({ value, label, hint, icon: Icon }) => {
+                      const current = m.role === value;
+                      return (
+                        <DropdownMenuItem
+                          key={value}
+                          textValue={label}
+                          disabled={current}
+                          onSelect={() => void handleRoleChange(m.id, value)}
+                        >
+                          <Icon
+                            className="mt-0.5 h-4 w-4 shrink-0"
+                            aria-hidden="true"
+                          />
+                          <span className="flex-1">
+                            <span className="block font-display text-xs uppercase tracking-wide">
+                              {label}
+                              {current && (
+                                <span className="sr-only"> (current role)</span>
+                              )}
+                            </span>
+                            <span className="block text-[11px] font-normal normal-case text-ink/60">
+                              {hint}
+                            </span>
+                          </span>
+                          {current && (
+                            <Check
+                              className="mt-0.5 h-4 w-4 shrink-0"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                    <div
+                      role="separator"
+                      className="my-1 border-t-2 border-ink/10"
+                    />
+                    <DropdownMenuItem
+                      textValue={`Remove ${m.user.displayName}`}
+                      onSelect={() =>
+                        void handleRemoveMember(m.id, m.user.displayName)
+                      }
+                      className="text-cherry"
                     >
-                      <option value="admin">Admin</option>
-                      <option value="member">Member</option>
-                      <option value="viewer">Viewer</option>
-                    </select>
-                    <button
-                      onClick={() => handleRemoveMember(m.id, m.user.displayName)}
-                      disabled={removeMember.isPending}
-                      aria-label={`Remove ${m.user.displayName}`}
-                      className="rounded-lg border-2 border-ink bg-flamingo p-1.5 shadow-brutal-sm hover:bg-cherry hover:text-paper transition-colors focus:outline-none focus:ring-2 focus:ring-cherry"
-                    >
-                      <UserMinus className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                      <UserMinus
+                        className="mt-0.5 h-4 w-4 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span className="flex-1">
+                        <span className="block font-display text-xs uppercase tracking-wide">
+                          Remove from group
+                        </span>
+                        <span className="block text-[11px] font-normal normal-case text-ink/60">
+                          Revoke this member&apos;s access
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  </DropdownMenu>
                 ) : (
                   <>
                     {m.role === "admin" && <Badge tone="grape">Admin</Badge>}

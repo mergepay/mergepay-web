@@ -15,7 +15,12 @@ export interface NetworkHealthState {
  */
 export function useNetworkStatus(): NetworkHealthState & { refetch: () => Promise<void> } {
   const [status, setStatus] = useState<NetworkHealthState>(() => ({
-    isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
+    // The first client render must match the server output. Node >= 21 exposes
+    // a bare global `navigator` without `onLine`, so reading it here makes the
+    // server render "offline" while the browser renders "online" — React then
+    // throws hydration error #418/#423 and replaces the whole root. The effect
+    // below applies the real connectivity state right after mount.
+    isOnline: true,
     isApiDegraded: false,
     latencyMs: null,
     lastChecked: Date.now(),
@@ -48,7 +53,7 @@ export function useNetworkStatus(): NetworkHealthState & { refetch: () => Promis
     } catch {
       setStatus((s) => ({
         ...s,
-        isOnline: navigator.onLine,
+        isOnline: typeof navigator === "undefined" ? true : navigator.onLine,
         isApiDegraded: true,
         latencyMs: null,
         lastChecked: Date.now(),
