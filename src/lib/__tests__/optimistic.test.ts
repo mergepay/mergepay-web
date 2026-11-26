@@ -6,6 +6,7 @@ import {
   buildOptimisticExpense,
   insertOptimisticExpense,
   isOptimisticExpenseId,
+  patchOptimisticShareStatus,
   removeOptimisticExpense,
   shareAmountForRequest,
 } from "../optimistic";
@@ -227,6 +228,73 @@ describe("removeOptimisticExpense", () => {
   it("keeps server rows that merely look similar", () => {
     const kept = removeOptimisticExpense({ expenses: [expense("e1")] }, opt.id);
     assert.equal(kept.expenses.length, 1);
+  });
+});
+
+describe("patchOptimisticShareStatus", () => {
+  function expenseWithShares() {
+    const base = expense("e1");
+    return {
+      ...base,
+      shares: [
+        {
+          id: "sh-a",
+          expenseId: base.id,
+          userId: "user-a",
+          user: user(),
+          shareAmount: "5",
+          status: "pending" as const,
+        },
+        {
+          id: "sh-b",
+          expenseId: base.id,
+          userId: "user-b",
+          user: user({ id: "user-b" }),
+          shareAmount: "5",
+          status: "pending" as const,
+        },
+      ],
+    };
+  }
+
+  it("marks only the requested user's share as settling", () => {
+    const target = expenseWithShares();
+    const plain = patchOptimisticShareStatus(
+      { expenses: [target] },
+      target.id,
+      "user-a",
+      "settling"
+    );
+
+    assert.equal(plain.expenses[0].shares[0].status, "settling");
+    assert.equal(plain.expenses[0].shares[1].status, "pending");
+
+    const paged = patchOptimisticShareStatus(
+      { pages: [{ expenses: [target] }], pageParams: [] },
+      target.id,
+      "user-b",
+      "settling"
+    );
+    assert.equal(paged.pages[0].expenses[0].shares[0].status, "pending");
+    assert.equal(paged.pages[0].expenses[0].shares[1].status, "settling");
+  });
+
+  it("returns the same cache object when nothing matched or changed", () => {
+    const target = expenseWithShares();
+    const cache = { expenses: [target] };
+
+    assert.equal(
+      patchOptimisticShareStatus(cache, "missing", "user-a", "settling"),
+      cache
+    );
+    assert.equal(
+      patchOptimisticShareStatus(cache, target.id, "user-c", "settling"),
+      cache
+    );
+    assert.equal(
+      patchOptimisticShareStatus(cache, target.id, "user-a", "pending"),
+      cache
+    );
   });
 });
 
