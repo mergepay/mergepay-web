@@ -21,9 +21,14 @@ import type {
   CreateExpenseRequest,
   Expense,
   ExpenseShare,
+  GroupDetail,
+  Invite,
+  InviteRequest,
+  PendingGroupInvite,
   SplitType,
   User,
 } from "./types";
+import { fromStroops, toSignedStroops } from "./money";
 
 /** Prefix that marks a cache entry as client-generated (never a server id). */
 export const OPTIMISTIC_EXPENSE_PREFIX = "optimistic-expense-";
@@ -336,8 +341,13 @@ export function applyOptimisticSettlement(
 ): BalancesResponse {
   if (!balances || !Array.isArray(balances.balances)) return balances;
 
-  const amount = parseFloat(transfer.amount);
-  if (!Number.isFinite(amount) || amount === 0) return balances;
+  let amount: bigint;
+  try {
+    amount = toSignedStroops(transfer.amount);
+  } catch {
+    return balances;
+  }
+  if (amount === BigInt(0)) return balances;
 
   let changed = false;
   const next = balances.balances.map((row) => {
@@ -347,18 +357,218 @@ export function applyOptimisticSettlement(
       row.assetCode !== transfer.assetCode;
     if (wrongAsset) return row;
 
-    let delta = 0;
+    let delta = BigInt(0);
     if (row.userId === transfer.fromUserId) delta = amount;
     else if (row.userId === transfer.toUserId) delta = -amount;
     else return row;
+
+    let current: bigint;
+    try {
+      current = toSignedStroops(row.net);
+    } catch {
+      return row;
+    }
+
+    changed = true;
+    return { ...row, net: fromStroops(current + delta) };
+  });
+
+  if (!changed) return balances;
+  return { ...balances, balances: next };
+}
+
+/** Prefix that marks an invite row as client-generated (never a server id). */
+export const OPTIMISTIC_INVITE_PREFIX = "optimistic-invite-";
+
+/** True for ids minted by {@link buildPendingInvite}. */
+export function isOptimisticInviteId(id: string): boolean {
+  return typeof id === "string" && id.startsWith(OPTIMISTIC_INVITE_PREFIX);
+}
+
+function newOptimisticInviteId(): string {
+  const c = globalThis.crypto as Crypto | undefined;
+  const unique =
+    c && typeof c.randomUUID === "function"
+      ? c.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${OPTIMISTIC_INVITE_PREFIX}${unique}`;
+}
+
+/**
+ * Build the pending invite row shown while `POST /groups/:id/invite` is in
+ * flight (#812). The inviting admin sees that an invitation is being issued
+ * immediately, without waiting for the API to mint a code.
+ */
+export function buildPendingInvite(args: {
+  groupId: string;
+  request?: InviteRequest;
+  now?: Date;
+}): PendingGroupInvite {
+  const { groupId, request, now } = args;
+  const hours = request?.expiresInHours;
+  const expiresAt =
+    typeof hours === "number" && Number.isFinite(hours) && hours > 0
+      ? new Date((now ?? new Date()).getTime() + hours * 60 * 60 * 1000).toISOString()
+      : null;
+
+  return {
+    id: newOptimisticInviteId(),
+    groupId,
+    code: null,
+    maxUses: request?.maxUses ?? null,
+    expiresAt,
+    createdAt: (now ?? new Date()).toISOString(),
+    pending: true,
+  };
+}
+
+function withPendingInvites(
+  detail: GroupDetail,
+  pendingInvites: PendingGroupInvite[]
+): GroupDetail {
+  return { ...detail, pendingInvites };
+}
+
+/**
+ * Append a pending invite to a cached group detail. A missing cache (cold
+ * load) cannot render a roster anyway, so it is left untouched rather than
+ * fabricating a partial group.
+ */
+export function appendPendingInvite(
+  detail: GroupDetail | undefined,
+  invite: PendingGroupInvite
+): GroupDetail | undefined {
+  if (!detail) return detail;
+  const existing = detail.pendingInvites ?? [];
+  if (existing.some((entry) => entry.id === invite.id)) return detail;
+  return withPendingInvites(detail, [...existing, invite]);
+}
+
+/**
+ * Swap the placeholder created in `onMutate` for the server's invite once the
+ * request succeeds. Any other pending rows are preserved untouched.
+ */
+export function replacePendingInvite(
+  detail: GroupDetail | undefined,
+  placeholderId: string,
+  invite: Invite
+): GroupDetail | undefined {
+  if (!detail || !Array.isArray(detail.pendingInvites)) return detail;
+
+  const confirmed: PendingGroupInvite = {
+    id: invite.id,
+    groupId: invite.groupId,
+    code: invite.code,
+    maxUses: invite.maxUses,
+    expiresAt: invite.expiresAt,
+    createdAt: invite.createdAt,
+    pending: false,
+  };
+
+  let replaced = false;
+  const next = detail.pendingInvites.map((entry) => {
+    if (entry.id !== placeholderId) return entry;
+    replaced = true;
+    return confirmed;
+  });
+
+  return replaced ? withPendingInvites(detail, next) : detail;
+}
+
+/** Drop an invite row by id — used when a caller abandons one explicitly. */
+export function removePendingInvite(
+  detail: GroupDetail | undefined,
+  inviteId: string
+): GroupDetail | undefined {
+  if (!detail || !Array.isArray(detail.pendingInvites)) return detail;
+  const next = detail.pendingInvites.filter((entry) => entry.id !== inviteId);
+  return next.length === detail.pendingInvites.length
+    ? detail
+    : withPendingInvites(detail, next);
+}
+
+/** Cache snapshots as returned by `queryClient.getQueriesData`. */
+type CacheSnapshots = ReadonlyArray<readonly [unknown, unknown]>;
+
+function expenseListFromCache(cache: unknown): Expense[] | null {
+  if (Array.isArray(cache)) return cache as Expense[];
+  if (!cache || typeof cache !== "object") return null;
+
+  const pages = (cache as ExpensePagesLike).pages;
+  if (Array.isArray(pages)) {
+    const found: Expense[] = [];
+    for (const page of pages) {
+      const list = (page as ExpenseListLike)?.expenses;
+      if (isExpenseArray(list)) found.push(...list);
+    }
+    return found;
+  }
+
+  const list = (cache as ExpenseListLike).expenses;
+  return isExpenseArray(list) ? list : null;
+}
+
+/** Find an expense by id across flat, paged and array cache shapes. */
+export function findExpenseInCaches(
+  caches: CacheSnapshots | undefined,
+  expenseId: string
+): Expense | undefined {
+  if (!caches) return undefined;
+  for (const [, data] of caches) {
+    const list = expenseListFromCache(data);
+    const match = list?.find((expense) => expense.id === expenseId);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+/**
+ * Undo the balance contribution of `expense` — the inverse of
+ * `calculateOptimisticBalances` — so deleting an expense updates the "settle
+ * up" panel before the server answers (#818).
+ *
+ * Rows outside the expense's asset, and expenses without share data (older
+ * payloads), are left untouched: a partial dataset must never move money.
+ */
+export function reverseOptimisticExpenseBalances(
+  balances: BalancesResponse,
+  expense: Expense
+): BalancesResponse {
+  if (!balances || !Array.isArray(balances.balances)) return balances;
+
+  const shares = expense.shares ?? [];
+  if (shares.length === 0) return balances;
+
+  const total = parseFloat(expense.amount);
+  if (!Number.isFinite(total)) return balances;
+
+  const shareByUser = new Map<string, number>();
+  for (const share of shares) {
+    const amount = parseFloat(share.shareAmount) || 0;
+    shareByUser.set(share.userId, (shareByUser.get(share.userId) ?? 0) + amount);
+  }
+
+  let changed = false;
+  const next = balances.balances.map((row) => {
+    if (
+      expense.assetCode &&
+      row.assetCode &&
+      row.assetCode !== expense.assetCode
+    ) {
+      return row;
+    }
+
+    const share = shareByUser.get(row.userId) ?? 0;
+    const paid = row.userId === expense.payerUserId ? total : 0;
+    const delta = paid - share;
+    if (delta === 0) return row;
 
     const current = parseFloat(row.net);
     if (!Number.isFinite(current)) return row;
 
     changed = true;
-    return { ...row, net: toDecimalString(current + delta) };
+    return { ...row, net: toDecimalString(current - delta) };
   });
 
-  if (!changed) return balances;
-  return { ...balances, balances: next };
+  return changed ? { ...balances, balances: next } : balances;
 }

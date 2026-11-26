@@ -708,17 +708,11 @@ describe("split.toStroops / split.fromStroops", () => {
     }
   });
 
-  // Known defect, documented rather than hidden: the integer part is parsed with
-  // its sign but the fraction is always added, so a negative amount with a
-  // fractional part loses magnitude ("-1.5" reads as -0.5) and a negative
-  // amount below one unit flips positive ("-0.5" reads as +0.5). `it.fails`
-  // keeps the suite green while the bug exists and turns red the moment it is
-  // fixed, which is the cue to change these to plain `it`.
-  it.fails("reads a negative amount with a fractional part exactly (known bug)", () => {
+  it("reads a negative amount with a fractional part exactly", () => {
     expect(fromStroops(toStroops("-1.5"))).toBe("-1.5000000");
   });
 
-  it.fails("keeps the sign of a negative amount below one unit (known bug)", () => {
+  it("keeps the sign of a negative amount below one unit", () => {
     expect(fromStroops(toStroops("-0.5"))).toBe("-0.5000000");
   });
 
