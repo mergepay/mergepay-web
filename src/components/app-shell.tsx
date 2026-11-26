@@ -19,6 +19,7 @@ import { Logo, LogoMark } from "./logo";
 import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { WalletDisconnectedBanner } from "./layout/wallet-disconnected-banner";
+import { NetworkMismatchBanner } from "./wallet/network-mismatch-banner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useWalletScopedCache } from "@/lib/queries";
@@ -243,6 +244,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Persistent reconnect prompt while the Freighter wallet is
             disconnected; also hosts the connection poll. */}
         <WalletDisconnectedBanner />
+        {/* App-wide prompt when Freighter points at a different network than
+            NEXT_PUBLIC_STELLAR_NETWORK; signing controls stay blocked via
+            `walletStatus.canSign` (#908). */}
+        <NetworkMismatchBanner
+          status={walletStatus}
+          onRefresh={refreshWallet}
+        />
         <OfflineBanner />
         <OfflineSyncBanner />
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-10">
