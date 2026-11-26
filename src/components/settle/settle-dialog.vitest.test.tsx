@@ -30,6 +30,7 @@ vi.mock("framer-motion", async (importOriginal) => {
 
 vi.mock("@/lib/queries", () => ({
   useConfirmSettlement: () => ({ mutateAsync }),
+  useSettleExpense: () => ({ mutateAsync }),
   useSettlementStatus: () => statusQuery,
   useSettlementCacheRefresh: () => vi.fn(),
 }));
