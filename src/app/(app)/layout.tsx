@@ -1,58 +1,52 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { useCallback, useState } from "react";
 import { AppShell } from "../../components/app-shell";
 import { AuthGuard } from "../../components/auth-guard";
 import { WalletErrorBoundary } from "../../components/wallet/WalletErrorBoundary";
 import { ErrorBoundary } from "../../components/ui/ErrorBoundary";
 import { MutationSyncIndicator } from "../../components/ui/MutationSyncIndicator";
 import { SessionTimeoutDialog } from "../../components/SessionTimeoutDialog";
+import { SessionExpiryDialog } from "../../components/session-expiry-dialog";
 import { useIdleSession } from "../../hooks/useIdleSession";
-import { clearClientSession } from "../../lib/sessionMonitor";
+import { useAuth } from "../../hooks/useAuth";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const queryClient = useQueryClient();
-  const [showTimeoutDialog, setShowTimeoutDialog] = useState(false);
+  const { logout, token } = useAuth();
+  const [locked, setLocked] = useState(false);
 
   /**
-   * Tear down everything scoped to the signed-in account. React Query holds
-   * groups, balances and history, so clearing only the auth store would leave
-   * the previous user's figures renderable after the next sign-in (#898).
+   * Idle lock (#910): clear the cached session *and* reveal a re-auth prompt.
+   * The local state flips before `logout()` resolves so no account content can
+   * stay on screen while the best-effort server revoke is in flight.
    */
-  const clearAccountCache = () => {
-    queryClient.clear();
-    // Auth, the selected group and the active asset are all account-scoped;
-    // reset them together so the next sign-in starts clean (#898).
-    clearClientSession();
-  };
+  const handleSessionTimeout = useCallback(() => {
+    setLocked(true);
+    void logout();
+  }, [logout]);
 
-  const handleSessionTimeout = () => {
-    clearAccountCache();
-    toast.error("Your session expired due to inactivity.");
-    window.location.href = "/";
-  };
+  const { showWarning, resetTimers, timeLeftMs } = useIdleSession(
+    handleSessionTimeout,
+    undefined,
+    undefined,
+    Boolean(token) && !locked
+  );
 
-  const { showWarning, resetTimers, warningSeconds } =
-    useIdleSession(handleSessionTimeout);
-
-  const handleContinueSession = () => {
+  const handleContinueSession = useCallback(() => {
     resetTimers();
-    setShowTimeoutDialog(false);
-    toast.success("Session extended.");
-  };
+  }, [resetTimers]);
 
-  const handleLogout = () => {
-    clearAccountCache();
-    window.location.href = "/";
-  };
+  const handleReauthenticated = useCallback(() => {
+    // Start a fresh idle window; otherwise the expired deadline would
+    // immediately reopen the warning dialog over the restored app.
+    resetTimers();
+    setLocked(false);
+  }, [resetTimers]);
 
-  useEffect(() => {
-    if (showWarning) {
-      setShowTimeoutDialog(true);
-    }
-  }, [showWarning]);
+  const handleLogout = useCallback(() => {
+    void logout();
+    window.location.href = "/login";
+  }, [logout]);
 
   return (
     <WalletErrorBoundary subject="wallet session">
@@ -63,20 +57,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Everything in this route group is account data, so the guard waits
             for the wallet session to settle and sends a visitor without one to
             the sign-in screen instead of rendering a shell full of 401s. */}
-        <AuthGuard>
-          <AppShell>
-            <ErrorBoundary>{children}</ErrorBoundary>
-          </AppShell>
-          {/* Non-blocking indicator shown while any mutation is in-flight,
-              e.g. optimistic expense creation or deletion (#375). */}
-          <MutationSyncIndicator />
-        </AuthGuard>
+        {locked ? (
+          <SessionExpiryDialog
+            reason="idle"
+            onReauthenticated={handleReauthenticated}
+          />
+        ) : (
+          <AuthGuard>
+            <AppShell>
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </AppShell>
+            {/* Non-blocking indicator shown while any mutation is in-flight,
+                e.g. optimistic expense creation or deletion (#375). */}
+            <MutationSyncIndicator />
+          </AuthGuard>
+        )}
       </ErrorBoundary>
+      {/* The warning is driven by the same timer that locks the session. Any
+          real interaction resets the countdown and closes the dialog. */}
       <SessionTimeoutDialog
-        open={showTimeoutDialog}
+        open={showWarning && !locked}
+        secondsRemaining={Math.ceil(timeLeftMs / 1000)}
         onContinue={handleContinueSession}
         onLogout={handleLogout}
-        secondsRemaining={warningSeconds}
       />
     </WalletErrorBoundary>
   );
