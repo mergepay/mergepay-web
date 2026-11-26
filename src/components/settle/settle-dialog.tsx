@@ -1,5 +1,7 @@
 "use client";
 
+import { CurrencyTicker } from "@/components/CurrencyTicker";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Clock, Loader2, Lock, PenLine, Plug, QrCode, RefreshCcw, Send, ShieldX, Wallet } from "lucide-react";
@@ -496,6 +498,7 @@ export function SettleDialog({
   >
     <div className="space-y-5">
       <div className="rounded-2xl border-3 border-ink bg-paper p-5"><div className="flex items-center justify-between"><span className="font-display text-xs uppercase tracking-widest text-ink/50">Paying</span><AssetBadge code={active.assetCode} /></div><div className="mt-3 flex items-center gap-3"><Avatar user={active.to} size="lg" /><div><p className="font-display text-lg uppercase tracking-tight">{active.to.displayName}</p><Money value={active.amount} assetCode={active.assetCode} className="text-2xl" /></div></div></div>
+      {step === "review" && <CurrencyTicker assetCode={active.assetCode} amount={active.amount} />}
       {step !== "review" && (
         <TxProgress
           steps={PROGRESS}

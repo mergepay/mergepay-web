@@ -8,7 +8,7 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { GroupErrorBoundary } from "@/components/groups/GroupErrorBoundary";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Plus, Users, Receipt, ArrowLeft, SearchX, Download } from "lucide-react";
+import { Plus, Users, Receipt, ArrowLeft, SearchX, Download, QrCode } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { CurrencyTicker } from "@/components/CurrencyTicker";
@@ -27,6 +27,7 @@ import {
 } from "@/components/lazy-modals";
 import { useMountOnFirstOpen } from "@/components/ui/lazy-overlay";
 import { MultiPayerOverview } from "@/components/groups/MultiPayerOverview";
+import { GroupInviteModal } from "@/components/groups/GroupInviteModal";
 import { ExpenseListFilters, type ExpenseFilterState } from "@/components/expenses/expense-list-filters";
 import { filterExpenses } from "@/lib/expenseFilters";
 import { ListSkeleton, GroupHeaderSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
@@ -45,11 +46,13 @@ export default function GroupDetailPage() {
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [shareQrOpen, setShareQrOpen] = useState(false);
   // Heavy dialogs are code-split (#887) and mounted on first open, so their
   // chunks download when used rather than with the page.
   const mountAddExpense = useMountOnFirstOpen(addExpenseOpen);
   const mountInvite = useMountOnFirstOpen(inviteOpen);
   const mountExport = useMountOnFirstOpen(exportOpen);
+  const mountShareQr = useMountOnFirstOpen(shareQrOpen);
   const setSelectedGroup = useGroupStore((s) => s.setSelectedGroup);
 
   // The route is the source of truth for which group is active — mirror it into
@@ -106,15 +109,24 @@ export default function GroupDetailPage() {
               size="sm"
               onClick={() => setExportOpen(true)}
               disabled={!hasExportableHistory(expenses, settlements)}
+              aria-label="Export group expense history"
               title={
                 hasExportableHistory(expenses, settlements)
                   ? undefined
                   : "No expenses or settlements to export yet"
               }
             >
-              <Download className="h-4 w-4 mr-1" /> Export
+              <Download className="h-4 w-4 mr-1" aria-hidden="true" /> Export
             </Button>
             <ExportGroupStatementButton groupId={groupId} expenses={expenses} settlements={settlements} />
+            <Button
+              variant="outline"
+              onClick={() => setShareQrOpen(true)}
+              aria-label="Share group QR code"
+              data-testid="group-share-qr"
+            >
+              <QrCode className="h-4 w-4 mr-1" aria-hidden /> Share QR
+            </Button>
             <Button variant="outline" onClick={() => setInviteOpen(true)}>
               <Users className="h-4 w-4 mr-1" /> Invite
             </Button>
@@ -290,6 +302,15 @@ export default function GroupDetailPage() {
             groupId={groupId}
             members={members}
             currentUserId={currentUserId}
+          />
+        )}
+
+        {mountShareQr && (
+          <GroupInviteModal
+            open={shareQrOpen}
+            onClose={() => setShareQrOpen(false)}
+            groupId={groupId}
+            groupName={group?.name}
           />
         )}
 

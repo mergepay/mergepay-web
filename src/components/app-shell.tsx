@@ -221,7 +221,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <button
                 onClick={() => setMobileOpen(false)}
-                aria-label="Close"
+                aria-label="Close navigation menu"
                 className="absolute right-3 top-4 rounded-lg border-2 border-ink bg-cream p-1.5 shadow-brutal-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40"
               >
                 <X className="h-4 w-4" />

@@ -127,6 +127,33 @@ describe("Dialog Primitive Accessibility & Focus Trapping", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("returns focus to the trigger when the close button dismisses the dialog", async () => {
+    function Example() {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open invite
+          </button>
+          <Dialog open={open} onClose={() => setOpen(false)} title="Invite member">
+            <button type="button">Send invite</button>
+          </Dialog>
+        </>
+      );
+    }
+
+    render(<Example />);
+    const trigger = screen.getByRole("button", { name: "Open invite" });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    const close = await screen.findByRole("button", { name: "Close Invite member" });
+    fireEvent.click(close);
+
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("keeps focus on the topmost dialog when two dialogs are open", async () => {
     render(
       <>

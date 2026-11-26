@@ -20,12 +20,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { PubkeyChip } from "@/components/tx-link";
-import { AccessibleDialog as Dialog } from "@/components/ui/AccessibleDialog";
 import { DropdownMenu, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { InviteMemberModal } from "./InviteMemberModal";
-import { useCreateInvite } from "@/lib/queries";
-import { describeInviteFailure, isSafeInviteUrl } from "@/lib/inviteLink";
-import { QRCodeSVG } from "@/components/ui/lazy-qr-code";
+import { GroupInviteModal } from "./GroupInviteModal";
 import {
   useArchiveGroup,
   useLeaveGroup,
@@ -57,26 +54,11 @@ export function MembersPanel({
   const router = useRouter();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
-  const [invite, setInvite] = useState<{ code: string; url: string } | null>(null);
   const archive = useArchiveGroup(detail.group.id);
   const leave = useLeaveGroup(detail.group.id);
   const updateRole = useUpdateMemberRole(detail.group.id);
   const removeMember = useRemoveMember(detail.group.id);
-  const createInvite = useCreateInvite(detail.group.id);
   const isAdmin = detail.yourRole === "admin";
-
-  async function generateInvite() {
-    try {
-      const { invite: created } = await createInvite.mutateAsync({});
-      const shareUrl = isSafeInviteUrl(created.url) ? created.url : null;
-      if (shareUrl) {
-        setInvite({ code: created.code, url: shareUrl });
-        setQrOpen(true);
-      }
-    } catch (e) {
-      toast.error(describeInviteFailure(e).description);
-    }
-  }
 
   async function handleArchive() {
     if (!confirm("Archive this group? Members keep read access to the ledger.")) return;
@@ -125,8 +107,14 @@ export function MembersPanel({
           {detail.members.length} member{detail.members.length === 1 ? "" : "s"}
         </h3>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => void generateInvite()} loading={createInvite.isPending}>
-            <QrCode className="h-4 w-4" /> QR Code
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setQrOpen(true)}
+            aria-label="Share group QR code"
+            data-testid="members-share-qr"
+          >
+            <QrCode className="h-4 w-4" aria-hidden /> Share QR
           </Button>
           {isAdmin ? (
             <Button size="sm" onClick={() => setInviteOpen(true)}>
@@ -249,6 +237,45 @@ export function MembersPanel({
         })}
       </div>
 
+      {(detail.pendingInvites?.length ?? 0) > 0 && (
+        <div className="space-y-2" data-testid="pending-invites">
+          <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
+            Pending invites
+          </h3>
+          {detail.pendingInvites?.map((invite) => (
+            <Card
+              key={invite.id}
+              className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between"
+              data-testid="pending-invite"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-ink bg-butter">
+                  <UserPlus className="h-4 w-4" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate font-bold">
+                    {invite.pending ? "Sending invitation…" : "Invite sent"}
+                  </p>
+                  <p className="text-xs text-ink/50">
+                    {invite.code ? (
+                      <span className="font-mono">{invite.code}</span>
+                    ) : (
+                      "Awaiting invite code"
+                    )}
+                    {invite.expiresAt
+                      ? ` · expires ${new Date(invite.expiresAt).toLocaleDateString()}`
+                      : " · never expires"}
+                  </p>
+                </div>
+              </div>
+              <div className="self-end sm:self-auto">
+                <Badge tone="butter">Pending</Badge>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 border-t-3 border-ink pt-5">
         {isAdmin && !detail.group.archived && (
           <Button variant="outline" onClick={handleArchive} loading={archive.isPending}>
@@ -268,41 +295,12 @@ export function MembersPanel({
         groupName={detail.group.name}
       />
 
-      {qrOpen && (
-        <Dialog
-          isOpen={qrOpen}
-          onClose={() => setQrOpen(false)}
-          title="Group QR Code"
-        >
-          {invite && (
-            <div className="flex flex-col items-center space-y-4">
-              <div className="rounded-2xl border-3 border-ink bg-white p-4 shadow-brutal">
-                <QRCodeSVG value={invite.url} size={200} fgColor="#18130E" bgColor="#FFFFFF" level="M" />
-              </div>
-              <div className="w-full space-y-1.5">
-                <label className="font-display text-xs uppercase tracking-widest text-ink/70">
-                  Invite code
-                </label>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 rounded-xl border-2 border-ink bg-paper px-3 py-2 font-mono text-xs select-all">
-                    {invite.code}
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      navigator.clipboard.writeText(invite.code);
-                      toast.success("Invite code copied");
-                    }}
-                  >
-                    Copy
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-        </Dialog>
-      )}
+      <GroupInviteModal
+        open={qrOpen}
+        onClose={() => setQrOpen(false)}
+        groupId={detail.group.id}
+        groupName={detail.group.name}
+      />
     </div>
   );
 }

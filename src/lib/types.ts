@@ -128,6 +128,31 @@ export interface GroupDetail {
   group: Group;
   members: GroupMember[];
   yourRole: Role;
+  /**
+   * Invites created from this client that have not been redeemed yet (#812).
+   *
+   * The API only returns the member roster, so these live exclusively in the
+   * React Query cache: a freshly generated invite is appended optimistically
+   * while the request is in flight and reconciled with the server's copy once
+   * it succeeds. Optional so payloads read from the API stay valid.
+   */
+  pendingInvites?: PendingGroupInvite[];
+}
+
+/**
+ * A group invite that has been sent but not yet accepted.
+ *
+ * `code` is `null` until the API answers, which is why members-panel renders
+ * the pending state rather than a copy affordance for those rows.
+ */
+export interface PendingGroupInvite {
+  id: string;
+  groupId: string;
+  code: string | null;
+  maxUses: number | null;
+  expiresAt: string | null;
+  createdAt: string;
+  pending: boolean;
 }
 
 export interface CreateGroupRequest {
@@ -561,6 +586,24 @@ export interface ConfiguredAsset {
  * supported issued asset (see `SETTLEMENT_ASSETS` in `src/lib/constants.ts`).
  */
 export type SettlementAssetCode = "XLM" | "USDC";
+
+/** Quote side of a ticker pair: a settlement asset or the USD reference. */
+export type TickerQuoteCode = SettlementAssetCode | "USD";
+
+/**
+ * A trading pair shown by the exchange-rate ticker (#904), e.g. XLM/USD
+ * ("how many USD is 1 XLM") or USDC/XLM ("how many XLM is 1 USDC").
+ */
+export interface AssetTickerPair {
+  base: SettlementAssetCode;
+  quote: TickerQuoteCode;
+}
+
+/** USD reference prices for the settlement assets, as the ticker caches them. */
+export interface AssetUsdPrices {
+  XLM: number;
+  USDC: number;
+}
 
 export interface HorizonBalanceItem {
   asset_type: string;

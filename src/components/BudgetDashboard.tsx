@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { BUDGET_CATEGORIES, budgetPercent, budgetUsage, type BudgetExpense, type BudgetLimits, type BudgetCategory } from "@/lib/budgets";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { formatAmount } from "@/lib/format";
 
 export function BudgetDashboard({ expenses, limits, onCategoryClick }: { expenses: BudgetExpense[]; limits: BudgetLimits; onCategoryClick?: (category: BudgetCategory) => void }) {
   const usage = useMemo(() => budgetUsage(expenses), [expenses]);
@@ -12,7 +13,7 @@ export function BudgetDashboard({ expenses, limits, onCategoryClick }: { expense
       {BUDGET_CATEGORIES.map((category) => {
         const limit = limits[category] ?? 0; const used = usage[category]; const percent = budgetPercent(used, limit);
         return <button type="button" key={category} onClick={() => onCategoryClick?.(category)} className="rounded-lg border-2 border-ink bg-paper p-3 text-left hover:bg-butter" aria-label={`Filter expenses by ${category}`}>
-          <div className="flex justify-between text-sm font-bold"><span>{category}</span><span>{used.toFixed(2)} / {limit.toFixed(2)}</span></div>
+          <div className="flex justify-between text-sm font-bold"><span>{category}</span><span>{formatAmount(used)} / {formatAmount(limit)}</span></div>
           <div className="mt-2"><ProgressBar value={percent} label={`${category} budget ${Math.round(percent)} percent used`} /></div>
         </button>;
       })}

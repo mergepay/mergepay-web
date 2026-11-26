@@ -15,6 +15,12 @@ import { useTokenExpiry } from "@/hooks/useTokenExpiry";
  * The redirect must not fire while a restore is in flight — bouncing a
  * still-connected wallet to the login screen is exactly the confusing
  * state this guard exists to avoid.
+ *
+ * Idle-timeout handling lives in the app layout (`useIdleSession` +
+ * `SessionTimeoutDialog`). This guard used to mount a second, competing idle
+ * timer at 13 minutes, so a user could be shown two different expiry dialogs
+ * at once. The guard now owns only the two expiry paths that belong to auth
+ * itself: the proactive JWT `exp` watcher and the reactive 401 dialog.
  */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { token, restoring, logout } = useAuth();

@@ -1,5 +1,6 @@
 import type {
   CreateExpenseRequest,
+  CreateSettlementRequest,
   GroupActivityEvent,
   GroupActivityResponse,
   GroupDetail,
@@ -46,6 +47,39 @@ export function createOptimisticExpenseEvent(
       splitType: request.splitType,
       participantCount: request.shares?.length ?? 0,
     },
+  };
+}
+
+/**
+ * Builds the activity row shown while a settle-up request is awaiting the
+ * server/chain response. Keeping this beside the expense event prevents the
+ * mutation hook from having to invent a second activity payload shape.
+ */
+export function createOptimisticSettlementEvent(
+  groupId: string,
+  request: CreateSettlementRequest,
+  user?: { id: string; displayName: string; avatarUrl: string | null },
+  recipient?: { id: string; displayName: string; avatarUrl: string | null }
+): GroupActivityEvent {
+  const actor = user ?? {
+    id: "current-user",
+    displayName: "You",
+    avatarUrl: null,
+  };
+  const recipientName = recipient?.displayName ?? "a group member";
+
+  return {
+    id: `opt-settlement-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    groupId,
+    type: "payment_settled",
+    actor,
+    description: `Paid ${recipientName}`,
+    amount: request.amount,
+    assetCode: request.assetCode,
+    timestamp: new Date().toISOString(),
+    isOptimistic: true,
+    status: "pending",
+    metadata: { toUserId: request.toUserId },
   };
 }
 
