@@ -1,119 +1,151 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
-
-/** Default inactivity window before the session is ended. */
-export const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-
-/** How long before the timeout the warning is shown. */
-export const WARNING_TIMEOUT_MS = 1 * 60 * 1000; // 1 minute
+import {
+  DEFAULT_IDLE_TIMEOUT_MS,
+  DEFAULT_IDLE_WARNING_MS,
+  IDLE_ACTIVITY_EVENTS,
+  IDLE_CHECK_INTERVAL_MS,
+  evaluateIdleState,
+  resolveIdleTimeoutConfig,
+  type IdleState,
+} from "@/lib/idleTimeout";
 
 export interface UseIdleSessionResult {
-  /** True once the inactivity window has fully elapsed. */
+  /** True once the idle threshold has been reached. */
   isIdle: boolean;
-  /** True while the "your session is about to expire" warning is showing. */
+  /** True while the warning window is open (and after expiry). */
   showWarning: boolean;
-  /** Seconds the warning gives the user to react (for the countdown copy). */
-  warningSeconds: number;
-  /** Restart both timers — call when the user chooses to stay signed in. */
+  /** Milliseconds until the session locks. */
+  timeLeftMs: number;
+  /** Milliseconds since the last observed interaction. */
+  idleMs: number;
+  /** Treat the current moment as activity and restart the countdown. */
   resetTimers: () => void;
 }
 
 /**
- * Idle-session watchdog (#898).
+ * Track user inactivity for the signed-in app shell (#910).
  *
- * Two timers are kept: one fires the warning shortly before the timeout, and
- * one ends the session. Activity resets both, so an active user is never
- * logged out.
+ * Two things are deliberately different from a plain debounce:
  *
- * The timeout callback is read through a ref. Callers (the app layout in
- * particular) pass an inline closure, and keeping it out of the effect
- * dependencies means an unrelated render cannot tear down and rebuild the
- * timers — the bug that made the warning state reset itself.
+ * 1. Activity is recorded in a ref and a single interval evaluates the
+ *    deadline. Background tabs throttle timers, so when the tab regains
+ *    focus/visibility the elapsed time is re-evaluated rather than assumed to
+ *    be under the threshold. Focus alone never *resets* the timer — merely
+ *    looking at the tab is not interaction.
+ * 2. `onTimeout` is read through a ref and fires at most once per idle period.
+ *    Passing a fresh inline callback on every render therefore cannot
+ *    reschedule the countdown, and a re-render can never fire a second lock.
+ *
+ * All listeners and the interval are removed on unmount.
  */
 export function useIdleSession(
   onTimeout: () => void,
-  timeoutMs: number = IDLE_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_IDLE_TIMEOUT_MS,
+  warningMs: number = DEFAULT_IDLE_WARNING_MS,
+  enabled: boolean = true
 ): UseIdleSessionResult {
-  const warningLeadMs = Math.min(WARNING_TIMEOUT_MS, timeoutMs);
-  const [isIdle, setIsIdle] = useState(false);
-  const [showWarning, setShowWarning] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Once the warning is visible, only an explicit "stay signed in" may clear
-  // it. Mouse movement alone must not dismiss a security warning (#898), so
-  // the activity listener reads this ref and ignores events while it is true.
-  const warningVisibleRef = useRef(false);
+  const config = resolveIdleTimeoutConfig({ timeoutMs, warningMs });
 
+  const [state, setState] = useState<IdleState>(() =>
+    evaluateIdleState({
+      lastActivityAt: Date.now(),
+      timeoutMs: config.timeoutMs,
+      warningMs: config.warningMs,
+    })
+  );
+
+  const lastActivityRef = useRef(Date.now());
+  const timeoutFiredRef = useRef(false);
   const onTimeoutRef = useRef(onTimeout);
-  onTimeoutRef.current = onTimeout;
-
-  const clearTimers = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    if (warningTimerRef.current) {
-      clearTimeout(warningTimerRef.current);
-      warningTimerRef.current = null;
-    }
-  }, []);
-
-  const resetTimers = useCallback(() => {
-    warningVisibleRef.current = false;
-    setIsIdle(false);
-    setShowWarning(false);
-    clearTimers();
-
-    warningTimerRef.current = setTimeout(() => {
-      warningVisibleRef.current = true;
-      setShowWarning(true);
-      // A toast guarantees the warning is noticed even if the dialog is
-      // obscured or the tab is in the background. `id` keeps a burst of
-      // activity events from stacking identical warnings.
-      toast.warning("Your session is about to expire", {
-        id: "idle-session-warning",
-        description:
-          "Stay signed in to keep your work, or sign out now. You will be logged out automatically.",
-      });
-    }, Math.max(0, timeoutMs - warningLeadMs));
-
-    timerRef.current = setTimeout(() => {
-      setIsIdle(true);
-      // Read through the ref so a new inline callback does not require
-      // restarting the timers.
-      onTimeoutRef.current();
-    }, timeoutMs);
-  }, [clearTimers, timeoutMs, warningLeadMs]);
 
   useEffect(() => {
-    const events = ["mousemove", "keypress", "click", "scroll", "touchstart"];
-    const handleActivity = () => {
-      // While the persistent warning is on screen, ignore ambient activity.
-      // The user has to choose Continue or Log Out explicitly.
-      if (warningVisibleRef.current) return;
-      resetTimers();
+    onTimeoutRef.current = onTimeout;
+  }, [onTimeout]);
+
+  const resetTimers = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    timeoutFiredRef.current = false;
+    setState(
+      evaluateIdleState({
+        lastActivityAt: lastActivityRef.current,
+        timeoutMs: config.timeoutMs,
+        warningMs: config.warningMs,
+      })
+    );
+  }, [config.timeoutMs, config.warningMs]);
+
+  const resolvedTimeout = config.timeoutMs;
+  const resolvedWarning = config.warningMs;
+
+  useEffect(() => {
+    if (!enabled) {
+      // Signed-out or locked sessions have nothing to protect; showing a
+      // warning over a login redirect would just be noise.
+      setState(
+        evaluateIdleState({
+          lastActivityAt: Date.now(),
+          timeoutMs: resolvedTimeout,
+          warningMs: resolvedWarning,
+        })
+      );
+      return;
+    }
+
+    const evaluate = () => {
+      const next = evaluateIdleState({
+        lastActivityAt: lastActivityRef.current,
+        timeoutMs: resolvedTimeout,
+        warningMs: resolvedWarning,
+      });
+      setState(next);
+
+      if (next.phase === "expired" && !timeoutFiredRef.current) {
+        timeoutFiredRef.current = true;
+        onTimeoutRef.current();
+      }
     };
 
-    events.forEach((event) => {
-      window.addEventListener(event, handleActivity, { passive: true });
-    });
+    const onActivity = () => {
+      // Once locked, only an explicit `resetTimers` may revive the session.
+      if (timeoutFiredRef.current) return;
+      lastActivityRef.current = Date.now();
+      evaluate();
+    };
+
+    // Re-evaluate the real elapsed time when the tab becomes active again.
+    // The interval may have been throttled while hidden, so without this a
+    // user could return to a tab whose session should already be locked.
+    const onFocus = () => evaluate();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") evaluate();
+    };
+
+    for (const eventName of IDLE_ACTIVITY_EVENTS) {
+      window.addEventListener(eventName, onActivity, { passive: true });
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     resetTimers();
+    const interval = window.setInterval(evaluate, IDLE_CHECK_INTERVAL_MS);
 
     return () => {
-      events.forEach((event) => {
-        window.removeEventListener(event, handleActivity);
-      });
-      clearTimers();
+      window.clearInterval(interval);
+      for (const eventName of IDLE_ACTIVITY_EVENTS) {
+        window.removeEventListener(eventName, onActivity);
+      }
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [clearTimers, resetTimers]);
+  }, [enabled, resolvedTimeout, resolvedWarning, resetTimers]);
 
   return {
-    isIdle,
-    showWarning,
-    warningSeconds: Math.ceil(warningLeadMs / 1000),
+    isIdle: state.phase === "expired",
+    showWarning: state.phase !== "active",
+    timeLeftMs: state.remainingMs,
+    idleMs: state.idleMs,
     resetTimers,
   };
 }
