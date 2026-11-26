@@ -60,6 +60,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   // If the session is expired, we still render the children (so forms aren't lost),
   // but we overlay the expiry dialog to force re-auth.
+  //
+  // Inactivity locking lives in the route-group layout (#910), which owns the
+  // single idle timer and swaps this guard out for its own re-auth screen.
   return (
     <>
       {children}
