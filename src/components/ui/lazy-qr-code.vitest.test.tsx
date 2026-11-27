@@ -6,9 +6,16 @@ import { QRCodeSVG } from "./lazy-qr-code";
 const VALUE = "https://mergepay.app/join/7QF3KD2P";
 
 describe("lazy QRCodeSVG", () => {
-  // Runs first: once the chunk is in the module cache the skeleton is skipped.
-  it("holds a skeleton of exactly the code's size while the encoder loads", async () => {
-    render(<QRCodeSVG value={VALUE} size={180} />);
+  // The skeleton only paints while the `qrcode.react` chunk is unresolved, and
+  // that chunk is cached at module scope after its first resolution. Asserting
+  // the two phases from separate cases therefore made the result depend on which
+  // case ran first (and on Vitest's shuffle order), so the cold-then-loaded
+  // sequence is asserted against a single render instead.
+  it("holds a sizing skeleton while the encoder loads, then paints the real code", async () => {
+    const ref = createRef<SVGSVGElement>();
+    const { container } = render(
+      <QRCodeSVG ref={ref} value={VALUE} size={180} fgColor="#18130E" level="M" />
+    );
 
     const skeleton = screen.getByRole("status", { name: /loading qr code/i });
     expect(skeleton).toHaveAttribute("aria-busy", "true");
@@ -17,19 +24,12 @@ describe("lazy QRCodeSVG", () => {
     await waitFor(() =>
       expect(screen.queryByRole("status", { name: /loading qr code/i })).toBeNull()
     );
-  });
-
-  it("renders the real code with the same props and forwards the ref", async () => {
-    const ref = createRef<SVGSVGElement>();
-    const { container } = render(
-      <QRCodeSVG ref={ref} value={VALUE} size={160} fgColor="#18130E" level="M" />
-    );
 
     await waitFor(() => expect(ref.current).toBeInstanceOf(SVGSVGElement));
     const svg = container.querySelector("svg");
     expect(svg).toBe(ref.current);
-    expect(svg).toHaveAttribute("width", "160");
-    expect(svg).toHaveAttribute("height", "160");
+    expect(svg).toHaveAttribute("width", "180");
+    expect(svg).toHaveAttribute("height", "180");
     expect(svg?.querySelector('path[fill="#18130E"]')).not.toBeNull();
   });
 });
