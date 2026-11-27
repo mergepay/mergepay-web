@@ -164,11 +164,11 @@ describe("isValidTxHash", () => {
 describe("buildHistoryCsv", () => {
   it("uses CRLF record separators and escapes descriptions with commas, quotes and line breaks", () => {
     const csv = buildHistoryCsv([
-      expense({ title: 'Team "lunch"', description: 'First, second\\n"third"', payer: user({ displayName: "Ada, Jr." }) }),
+      expense({ title: 'Team "lunch"', description: 'First, second\n"third"', payer: user({ displayName: "Ada, Jr." }) }),
     ], []);
     assert.ok(csv.startsWith("type,date,"));
-    assert.ok(csv.endsWith("\\r\\n"));
-    assert.ok(csv.includes('"First, second\\n""third"""'));
+    assert.ok(csv.endsWith("\r\n"));
+    assert.ok(csv.includes('"First, second\n""third"""'));
     assert.ok(csv.includes('"Ada, Jr."'));
   });
 
