@@ -82,10 +82,13 @@ describe("CommandPalette", () => {
 
   it("executes navigation on Enter", async () => {
     const { onClose } = renderCommandPalette();
-    await waitFor(() => {
-      const input = screen.getByLabelText(/search navigation/i) as HTMLInputElement;
-      input.blur();
-    });
+    const input = screen.getByLabelText(/search navigation/i) as HTMLInputElement;
+    // Wait for the palette's own requestAnimationFrame focus to land before
+    // blurring. Blurring mid-flight let the frame re-focus the input, after
+    // which the Enter keydown was (correctly) swallowed as typing.
+    await waitFor(() => expect(input).toHaveFocus());
+    input.blur();
+    expect(input).not.toHaveFocus();
 
     triggerKey("Enter");
     await waitFor(() => {
