@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Keypair } from "@stellar/stellar-sdk";
 import { describe, expect, it, vi } from "vitest";
 import { TrustlineForm } from "./TrustlineForm";
 
@@ -18,7 +17,7 @@ describe("TrustlineForm", () => {
 
   it("submits validated asset details exactly once", async () => {
     const onSubmit = vi.fn();
-    const assetIssuer = Keypair.random().publicKey();
+    const assetIssuer = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
     render(<TrustlineForm onSubmit={onSubmit} />);
     fireEvent.change(screen.getByLabelText("Asset code"), { target: { value: "USDC" } });
     fireEvent.change(screen.getByLabelText("Issuer public key"), { target: { value: assetIssuer } });
