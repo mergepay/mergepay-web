@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import { TrustlineAssetSchema } from "./trustline-schema";
 
-const issuer = Keypair.random().publicKey();
+const issuer = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
 describe("TrustlineAssetSchema", () => {
   it.each(["", "TOO_LONG_CODE", "US-DC", "USD C", "é", "XLM"])(
