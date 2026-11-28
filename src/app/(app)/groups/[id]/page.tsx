@@ -12,6 +12,9 @@ import { Plus, Users, Receipt, ArrowLeft, SearchX, Download, QrCode } from "luci
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { CurrencyTicker } from "@/components/CurrencyTicker";
+import { InviteMemberModal } from "@/components/groups/InviteMemberModal";
+import { GroupQRCode } from "@/components/groups/GroupQRCode";
+import { buildInviteLink } from "@/lib/inviteLink";
 import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import { BalancesPanel } from "@/components/balances/balances-panel";
 import { ExpenseCard } from "@/components/expenses/expense-card";
@@ -82,6 +85,7 @@ export default function GroupDetailPage() {
   const members: GroupMember[] = groupQuery.data?.members ?? [];
   const currentUserId = useAuth((state) => state.user?.id) ?? "";
   const isAdmin = true;
+  const inviteUrl = typeof window !== "undefined" ? `${window.location.origin}/join/${group?.id ?? groupId}` : "";
 
   const onFilterChange = useCallback((next: ExpenseFilterState) => {
     setFilters(next);
@@ -269,6 +273,9 @@ export default function GroupDetailPage() {
 
           <div className="space-y-6">
             <MultiPayerOverview expenses={expenses} />
+            <ErrorBoundary>
+              <GroupQRCode inviteUrl={inviteUrl} />
+            </ErrorBoundary>
             <ErrorBoundary>
               <BalancesPanel
                 groupId={groupId}

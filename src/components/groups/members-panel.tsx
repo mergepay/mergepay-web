@@ -22,6 +22,10 @@ import { Avatar } from "@/components/ui/avatar";
 import { PubkeyChip } from "@/components/tx-link";
 import { DropdownMenu, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { InviteMemberModal } from "./InviteMemberModal";
+import { GroupQRCode } from "./GroupQRCode";
+import { useCreateInvite } from "@/lib/queries";
+import { describeInviteFailure, isSafeInviteUrl } from "@/lib/inviteLink";
+import { QRCodeSVG } from "@/components/ui/lazy-qr-code";
 import { GroupInviteModal } from "./GroupInviteModal";
 import {
   useArchiveGroup,
@@ -102,6 +106,7 @@ export function MembersPanel({
 
   return (
     <div className="space-y-6">
+      <GroupQRCode inviteUrl={typeof window !== "undefined" ? `${window.location.origin}/join/${detail.group.id}` : ""} />
       <div className="flex items-center justify-between">
         <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
           {detail.members.length} member{detail.members.length === 1 ? "" : "s"}
