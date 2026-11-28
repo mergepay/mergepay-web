@@ -106,7 +106,7 @@ export function MembersPanel({
 
   return (
     <div className="space-y-6">
-      <GroupQRCode inviteUrl={invite?.url ?? (typeof window !== "undefined" ? `${window.location.origin}/join/${detail.group.id}` : "")} />
+      <GroupQRCode inviteUrl={typeof window !== "undefined" ? `${window.location.origin}/join/${detail.group.id}` : ""} />
       <div className="flex items-center justify-between">
         <h3 className="font-display text-sm uppercase tracking-widest text-ink/60">
           {detail.members.length} member{detail.members.length === 1 ? "" : "s"}
