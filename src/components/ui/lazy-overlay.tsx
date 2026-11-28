@@ -45,7 +45,7 @@ export function ModalLoadingFallback({ label = "Loading dialog…", className }:
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       data-testid="modal-loading-fallback"
     >
-      <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm" aria-hidden="true" />
+      <div className="fixed inset-0 bg-surface/60 backdrop-blur-sm" aria-hidden="true" />
       <div
         role="status"
         aria-live="polite"

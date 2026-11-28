@@ -12,7 +12,7 @@ export function AssetBadge({
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-lg border-2 border-ink px-2 py-0.5 font-display text-[10px] uppercase tracking-widest shadow-brutal-sm",
-        isNative ? "bg-ink text-lime" : "bg-aqua text-ink",
+        isNative ? "bg-surface text-lime" : "bg-aqua text-ink",
         className
       )}
     >

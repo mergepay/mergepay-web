@@ -42,7 +42,7 @@ export function FocusTrapModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="fixed inset-0 bg-ink/60 backdrop-blur-sm transition-opacity"
+        className="fixed inset-0 bg-surface/60 backdrop-blur-sm transition-opacity"
         onClick={dismissible ? onClose : undefined}
         aria-hidden="true"
       />

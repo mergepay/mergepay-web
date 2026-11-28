@@ -54,7 +54,7 @@ export function MobileNavDrawer({ open, onClose }: MobileNavDrawerProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-ink/50 z-50 md:hidden"
+            className="fixed inset-0 bg-surface/50 z-50 md:hidden"
             aria-hidden="true"
           />
           <motion.div
@@ -90,7 +90,7 @@ export function MobileNavDrawer({ open, onClose }: MobileNavDrawerProps) {
                   onClick={onClose}
                   className={`block px-4 py-3 rounded-lg font-bold text-sm transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40 ${
                     pathname?.startsWith(item.href)
-                      ? "bg-ink text-paper"
+                      ? "bg-surface text-onSurface"
                       : "text-ink hover:bg-ink/10"
                   }`}
                 >

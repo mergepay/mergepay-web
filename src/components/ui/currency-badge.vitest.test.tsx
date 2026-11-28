@@ -7,7 +7,7 @@ describe("CurrencyBadge", () => {
     render(<CurrencyBadge code="XLM" />);
     const badge = screen.getByText("XLM");
     expect(badge).toBeInTheDocument();
-    expect(badge.className).toContain("bg-ink");
+    expect(badge.className).toContain("bg-surface");
     expect(badge.className).toContain("text-lime");
   });
 

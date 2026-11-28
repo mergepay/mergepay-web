@@ -26,7 +26,7 @@ const base =
 
 const variants: Record<Variant, string> = {
   primary: "bg-grape text-white",
-  secondary: "bg-ink text-lime",
+  secondary: "bg-surface text-lime",
   outline: "bg-cream text-ink",
   danger: "bg-flamingo text-ink",
   ghost:

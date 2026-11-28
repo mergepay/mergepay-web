@@ -40,13 +40,21 @@ export const metadata: Metadata = {
   },
 };
 
+// Pre-paint theme bootstrap (#871): applies the stored/system theme class
+// before first render so a dark-mode reload never flashes the light palette.
+// Must stay in sync with STORAGE_KEY/getStoredTheme in theme-provider.tsx.
+const THEME_BOOTSTRAP_SCRIPT = `(function(){try{var t=localStorage.getItem("mergepay-theme");var d=t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;r.classList.remove("light","dark");r.classList.add(d?"dark":"light");}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
+      </head>
       <body
         className={`${display.variable} ${body.variable} ${mono.variable} font-body`}
       >

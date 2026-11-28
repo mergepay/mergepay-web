@@ -126,7 +126,7 @@ export function GroupQRScannerModal({
             </Button>
           </div>
         ) : (
-          <div className="relative flex flex-col items-center justify-center rounded-2xl border-3 border-ink bg-ink overflow-hidden shadow-brutal aspect-square max-h-[280px]">
+          <div className="relative flex flex-col items-center justify-center rounded-2xl border-3 border-ink bg-surface overflow-hidden shadow-brutal aspect-square max-h-[280px]">
             <video
               ref={videoRef}
               autoPlay
@@ -135,11 +135,11 @@ export function GroupQRScannerModal({
               className="absolute inset-0 h-full w-full object-cover"
             />
             {!isScanning && (
-              <div className="absolute inset-0 flex items-center justify-center bg-ink/70 text-white font-display text-xs uppercase tracking-widest">
+              <div className="absolute inset-0 flex items-center justify-center bg-surface/70 text-white font-display text-xs uppercase tracking-widest">
                 Initializing Camera...
               </div>
             )}
-            <div className="absolute bottom-3 rounded-full bg-ink/80 px-3 py-1 text-[10px] font-display uppercase tracking-widest text-white border border-white/20">
+            <div className="absolute bottom-3 rounded-full bg-surface/80 px-3 py-1 text-[10px] font-display uppercase tracking-widest text-white border border-white/20">
               Position QR code in frame
             </div>
           </div>
