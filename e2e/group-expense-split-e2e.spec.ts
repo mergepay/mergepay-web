@@ -342,7 +342,7 @@ test.describe("Group creation and expense splitting flow (#612)", () => {
     ).toBeVisible();
 
     // 4. Verify Invite Modal (Adding / Inviting participants)
-    const inviteBtn = page.getByRole("button", { name: /invite/i });
+    const inviteBtn = page.getByRole("button", { name: "Invite", exact: true });
     if (await inviteBtn.isVisible()) {
       await inviteBtn.click();
       const inviteModal = page.getByRole("dialog", { name: /invite/i });
