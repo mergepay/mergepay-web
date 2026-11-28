@@ -73,7 +73,7 @@ export function MobileDrawer({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             className={cn(
-              "absolute inset-0 bg-ink/60 backdrop-blur-sm",
+              "absolute inset-0 bg-surface/60 backdrop-blur-sm",
               !dismissible && "pointer-events-none"
             )}
             onClick={dismissible ? onClose : undefined}

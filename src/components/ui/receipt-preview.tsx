@@ -37,7 +37,7 @@ export function ReceiptPreview({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/80 p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-surface/80 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -65,7 +65,7 @@ export function ReceiptPreview({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-ink p-2">
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-surface p-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={url}

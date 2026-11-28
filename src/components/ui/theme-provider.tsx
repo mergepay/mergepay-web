@@ -34,12 +34,25 @@ function getStoredTheme(): Theme {
   return "system";
 }
 
+function resolveTheme(theme: Theme): "light" | "dark" {
+  return theme === "system" ? getSystemTheme() : theme;
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("system");
-  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light");
+  // Lazy initializers read the persisted/system theme on the first client
+  // render, matching the class the pre-paint script in the root layout
+  // already applied — no post-hydration theme snap.
+  const [theme, setThemeState] = useState<Theme>(() =>
+    typeof window === "undefined" ? "system" : getStoredTheme()
+  );
+  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() =>
+    typeof window === "undefined" ? "light" : resolveTheme(getStoredTheme())
+  );
 
   useEffect(() => {
-    setThemeState(getStoredTheme());
+    const stored = getStoredTheme();
+    setThemeState(stored);
+    setResolvedTheme(resolveTheme(stored));
   }, []);
 
   useEffect(() => {

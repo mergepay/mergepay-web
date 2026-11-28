@@ -217,7 +217,7 @@ export function SplitCalculator({
             className={cn(
               "rounded-xl border-2 border-ink px-2 py-2 font-display text-[11px] uppercase tracking-wide transition-all duration-100 sm:text-xs",
               mode === m.id
-                ? "bg-ink text-lime shadow-brutal-sm"
+                ? "bg-surface text-lime shadow-brutal-sm"
                 : "bg-cream text-ink hover:-translate-x-px hover:-translate-y-px hover:shadow-brutal-sm"
             )}
           >

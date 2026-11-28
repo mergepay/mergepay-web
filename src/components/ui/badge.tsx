@@ -19,7 +19,7 @@ const tones: Record<Tone, string> = {
   flamingo: "bg-flamingo-pale text-ink",
   aqua: "bg-aqua-pale text-ink",
   butter: "bg-butter-pale text-ink",
-  ink: "bg-ink text-lime",
+  ink: "bg-surface text-lime",
   paper: "bg-paper text-ink",
   pending: "bg-butter-pale text-butter-dark",
 };
