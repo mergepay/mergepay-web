@@ -5,7 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { createQueryClient } from "@/lib/queryClient";
-import { subscribeToSessionExpired } from "@/lib/sessionMonitor";
+import { setSessionExpiredHandler } from "@/lib/api";
 import { toast } from "sonner";
 import { useSessionRestore } from "@/hooks/useSessionRestore";
 
@@ -26,19 +26,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(createQueryClient);
 
   useEffect(() => {
-    // Session endings are announced through a DOM event (see
-    // `src/lib/sessionMonitor.ts`) instead of a single module callback. That
-    // lets the 401 interceptor, the JWT watcher and the idle watchdog all
-    // reach the same cleanup without importing each other, and guarantees the
-    // query cache is purged before anything can render account data (#898).
-    return subscribeToSessionExpired((detail) => {
+    setSessionExpiredHandler(() => {
       queryClient.clear();
-      toast.error(
-        detail.reason === "idle_timeout"
-          ? "Your session expired due to inactivity. Please sign in again."
-          : "Your session expired. Please sign in again."
-      );
+      toast.error("Your session expired", {
+        id: "session-expired",
+        description: "Re-sign with Freighter to continue.",
+      });
     });
+    return () => setSessionExpiredHandler(null);
   }, [queryClient]);
 
   return (
