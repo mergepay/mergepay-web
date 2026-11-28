@@ -108,6 +108,73 @@ export function getSortedAggregatedBalances(
  * @param aggregation Map of asset identity key to aggregated balance
  * @returns Object with total stroops and per-asset breakdown
  */
+export interface PortfolioAggregate {
+  totalStroops: bigint;
+  totalDecimal: string;
+  byAsset: AggregatedBalance[];
+}
+
+/**
+ * Compute total portfolio value across multi-asset balances using exchange rates.
+ */
+export function calculatePortfolioExposure(
+  balances: MemberBalance[],
+  targetAssetOrFiat: string,
+  rates: Record<string, number> | { rates: Record<string, number> },
+  userId?: string
+): { totalValue: string; totalStroops: bigint; breakdown: Array<{ assetCode: string; amount: string; convertedValue: string }> } {
+  const aggregation = aggregateBalancesByAsset(balances, userId);
+  const sorted = getSortedAggregatedBalances(aggregation);
+  
+  let totalStroops = 0n;
+  const breakdown: Array<{ assetCode: string; amount: string; convertedValue: string }> = [];
+
+  const rateMap =
+    typeof rates === "object" && rates !== null && "rates" in rates
+      ? (rates as { rates: Record<string, number> }).rates
+      : (rates as Record<string, number>);
+
+  for (const b of sorted) {
+    const asset = b.assetCode.toUpperCase();
+    const target = targetAssetOrFiat.toUpperCase();
+    let convertedStroops = b.netStroops;
+
+    if (asset !== target) {
+      const directKey = `${asset}-${target}`;
+      const inverseKey = `${target}-${asset}`;
+      const directRate = rateMap[directKey];
+      const inverseRate = rateMap[inverseKey];
+
+      const sourceVal = Number(b.netStroops) / 10_000_000;
+      let targetVal = 0;
+
+      if (typeof inverseRate === "number" && inverseRate > 0 && isFinite(inverseRate)) {
+        targetVal = sourceVal / inverseRate;
+      } else if (typeof directRate === "number" && directRate > 0 && isFinite(directRate)) {
+        targetVal = sourceVal * directRate;
+      } else {
+        // Fallback: if no direct or inverse rate, use 0 or skip gracefully without throwing
+        targetVal = 0;
+      }
+
+      convertedStroops = BigInt(Math.round(targetVal * 10_000_000));
+    }
+
+    totalStroops += convertedStroops;
+    breakdown.push({
+      assetCode: b.assetCode,
+      amount: b.net,
+      convertedValue: stroopsToDecimal(convertedStroops),
+    });
+  }
+
+  return {
+    totalValue: stroopsToDecimal(totalStroops),
+    totalStroops,
+    breakdown,
+  };
+}
+
 export function calculateTotalNetPosition(
   aggregation: Map<string, AggregatedBalance>
 ): { totalStroops: bigint; byAsset: AggregatedBalance[] } {

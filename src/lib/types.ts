@@ -117,6 +117,17 @@ export interface GroupMember {
   user: User;
 }
 
+export interface PortfolioSummary {
+  totalValueFiat: string;
+  fiatCurrency: string;
+  assetBreakdown: Array<{
+    assetCode: string;
+    assetIssuer: string | null;
+    amount: string;
+    fiatValue: string;
+  }>;
+}
+
 export interface GroupSummary extends Group {
   memberCount: number;
   /** Net balance for the requesting user across the group, signed decimal string. */
