@@ -362,14 +362,14 @@ function StellarSection() {
           className="relative"
         >
           <div className="absolute -right-4 -bottom-4 h-full w-full rounded-3xl border-3 border-ink bg-lime" />
-          <div className="relative rounded-3xl border-3 border-ink bg-ink p-8 shadow-brutal-xl">
+          <div className="relative rounded-3xl border-3 border-ink bg-surface p-8 shadow-brutal-xl">
             <LogoMark size={64} className="mb-6" />
             <div className="space-y-3 font-mono text-sm text-lime">
               <div className="flex items-center gap-2">
                 <span className="text-tangerine">$</span> payment → GABC…X7Q
               </div>
-              <div className="text-paper/70">asset: USDC · amount: 12.50</div>
-              <div className="text-paper/70">memo: {SETTLEMENT_MEMO_PREFIX}dinner-8f3a</div>
+              <div className="text-onSurface/70">asset: USDC · amount: 12.50</div>
+              <div className="text-onSurface/70">memo: {SETTLEMENT_MEMO_PREFIX}dinner-8f3a</div>
               <div className="flex items-center gap-2 text-aqua">
                 <FileCheck2 className="h-4 w-4" /> confirmed · 4f9c…a21b
               </div>
@@ -474,10 +474,10 @@ function CTA() {
 
 function Footer() {
   return (
-    <footer className="border-t-3 border-ink bg-ink py-10 text-paper">
+    <footer className="border-t-3 border-ink bg-surface py-10 text-onSurface">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 px-5 md:flex-row">
-        <Logo className="[&_span]:text-paper [&_.text-grape]:text-grape-light" />
-        <p className="max-w-sm text-center text-xs text-paper/60 md:text-left">
+        <Logo className="[&_span]:text-onSurface [&_.text-grape]:text-grape-light" />
+        <p className="max-w-sm text-center text-xs text-onSurface/60 md:text-left">
           Mergepay is a Stellar-native group settlement app. Open-source public
           good — built for friends, roommates, and small communities.
         </p>

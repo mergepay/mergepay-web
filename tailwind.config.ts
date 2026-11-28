@@ -6,36 +6,45 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        paper: "#FBF3E2",
-        cream: "#FFF9EC",
-        ink: "#18130E",
+        // Theme-aware surfaces: values come from CSS custom properties so the
+        // `.dark` class on <html> (set by the pre-paint script in
+        // src/app/layout.tsx) re-themes every component without per-file
+        // `dark:` variants. See :root/.dark in src/app/globals.css.
+        paper: "rgb(var(--mp-paper) / <alpha-value>)",
+        cream: "rgb(var(--mp-cream) / <alpha-value>)",
+        ink: "rgb(var(--mp-ink) / <alpha-value>)",
+        // Constant dark chrome for elements that must stay dark in BOTH
+        // themes (badges, secondary buttons, scrims, the QR scanner well).
+        // `ink` flips to a light foreground in dark mode; these do not.
+        surface: "#18130E",
+        onSurface: "#F6EFDD",
         grape: {
           DEFAULT: "#6C4DF6",
           dark: "#4F33C8",
           light: "#A28BFF",
-          pale: "#E9E3FF",
+          pale: "rgb(var(--mp-grape-pale) / <alpha-value>)",
         },
         lime: {
-          DEFAULT: "#D7F94B",
+          DEFAULT: "rgb(var(--mp-lime) / <alpha-value>)",
           dark: "#B5DB1F",
-          pale: "#F2FFC2",
+          pale: "rgb(var(--mp-lime-pale) / <alpha-value>)",
         },
         tangerine: {
-          DEFAULT: "#FF8A3C",
+          DEFAULT: "rgb(var(--mp-tangerine) / <alpha-value>)",
           dark: "#E66A14",
-          pale: "#FFE5D1",
+          pale: "rgb(var(--mp-tangerine-pale) / <alpha-value>)",
         },
         flamingo: {
-          DEFAULT: "#FF5D8F",
-          pale: "#FFDCE7",
+          DEFAULT: "rgb(var(--mp-flamingo) / <alpha-value>)",
+          pale: "rgb(var(--mp-flamingo-pale) / <alpha-value>)",
         },
         aqua: {
-          DEFAULT: "#3DD6C3",
-          pale: "#D2F8F3",
+          DEFAULT: "rgb(var(--mp-aqua) / <alpha-value>)",
+          pale: "rgb(var(--mp-aqua-pale) / <alpha-value>)",
         },
         butter: {
-          DEFAULT: "#FFE45C",
-          pale: "#FFF6CE",
+          DEFAULT: "rgb(var(--mp-butter) / <alpha-value>)",
+          pale: "rgb(var(--mp-butter-pale) / <alpha-value>)",
         },
       },
       fontFamily: {
@@ -44,10 +53,12 @@ const config: Config = {
         mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
       boxShadow: {
-        brutal: "4px 4px 0 0 #18130E",
-        "brutal-sm": "2px 2px 0 0 #18130E",
-        "brutal-lg": "8px 8px 0 0 #18130E",
-        "brutal-xl": "12px 12px 0 0 #18130E",
+        // Ink shadows follow the theme foreground so dark mode gets light
+        // offset shadows instead of invisible black ones.
+        brutal: "4px 4px 0 0 rgb(var(--mp-ink) / 1)",
+        "brutal-sm": "2px 2px 0 0 rgb(var(--mp-ink) / 1)",
+        "brutal-lg": "8px 8px 0 0 rgb(var(--mp-ink) / 1)",
+        "brutal-xl": "12px 12px 0 0 rgb(var(--mp-ink) / 1)",
         "brutal-grape": "4px 4px 0 0 #6C4DF6",
         "brutal-lime": "4px 4px 0 0 #B5DB1F",
         none: "none",

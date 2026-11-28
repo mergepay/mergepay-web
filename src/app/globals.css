@@ -2,6 +2,48 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Theme tokens (#871). Tailwind colors in tailwind.config.ts resolve these
+ * custom properties, so switching `.dark` on <html> re-themes the whole app
+ * without touching component class names. Light values are the original
+ * palette; dark values keep the neobrutalist contrast (light foreground on
+ * deep violet-charcoal surfaces, deepened lime/butter so they still read
+ * with light text).
+ */
+:root {
+  --mp-paper: 251 243 226;
+  --mp-cream: 255 249 236;
+  --mp-ink: 24 19 14;
+  --mp-grape-pale: 233 227 255;
+  --mp-lime: 215 249 75;
+  --mp-lime-pale: 242 255 194;
+  --mp-tangerine: 255 138 60;
+  --mp-tangerine-pale: 255 229 209;
+  --mp-flamingo: 255 93 143;
+  --mp-flamingo-pale: 255 220 231;
+  --mp-aqua: 61 214 195;
+  --mp-aqua-pale: 210 248 243;
+  --mp-butter: 255 228 92;
+  --mp-butter-pale: 255 246 206;
+}
+
+.dark {
+  --mp-paper: 32 27 51;
+  --mp-cream: 47 40 74;
+  --mp-ink: 245 238 219;
+  --mp-grape-pale: 66 52 112;
+  --mp-lime: 137 154 22;
+  --mp-lime-pale: 58 68 20;
+  --mp-tangerine: 197 105 26;
+  --mp-tangerine-pale: 96 52 26;
+  --mp-flamingo: 198 54 90;
+  --mp-flamingo-pale: 104 40 66;
+  --mp-aqua: 23 143 128;
+  --mp-aqua-pale: 24 78 70;
+  --mp-butter: 190 138 16;
+  --mp-butter-pale: 88 66 20;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -21,12 +63,12 @@
     height: 12px;
   }
   ::-webkit-scrollbar-track {
-    background: #fbf3e2;
-    border-left: 2px solid #18130e;
+    background: rgb(var(--mp-paper));
+    border-left: 2px solid rgb(var(--mp-ink));
   }
   ::-webkit-scrollbar-thumb {
     background: #6c4df6;
-    border: 2px solid #18130e;
+    border: 2px solid rgb(var(--mp-ink));
     border-radius: 6px;
   }
 }
@@ -48,18 +90,18 @@
   }
 
   .text-outline {
-    -webkit-text-stroke: 2px #18130e;
+    -webkit-text-stroke: 2px rgb(var(--mp-ink));
     color: transparent;
   }
 
   .dotted-bg {
-    background-image: radial-gradient(#18130e22 1.5px, transparent 1.5px);
+    background-image: radial-gradient(rgb(var(--mp-ink) / 0.13) 1.5px, transparent 1.5px);
     background-size: 22px 22px;
   }
 
   .grid-bg {
-    background-image: linear-gradient(#18130e14 1px, transparent 1px),
-      linear-gradient(90deg, #18130e14 1px, transparent 1px);
+    background-image: linear-gradient(rgb(var(--mp-ink) / 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--mp-ink) / 0.08) 1px, transparent 1px);
     background-size: 36px 36px;
   }
 }

@@ -67,7 +67,7 @@ export function TxProgress({
   const isFilled = (i: number) => i <= completed;
   const tone = (i: number) =>
     i < completed
-      ? "bg-ink"
+      ? "bg-surface"
       : i === completed
         ? errored
           ? "bg-flamingo"

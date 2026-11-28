@@ -250,7 +250,7 @@ export function AnchorDepositWithdrawModal({
                     aria-pressed={isActive}
                     className={`flex-1 rounded-xl border-3 border-ink p-3 text-center transition-all duration-100 ${
                       isActive
-                        ? "bg-ink shadow-brutal-lg -translate-y-0.5"
+                        ? "bg-surface shadow-brutal-lg -translate-y-0.5"
                         : "bg-cream hover:bg-paper shadow-brutal-sm"
                     }`}
                   >
