@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   aggregateBalancesByAsset,
+  calculatePortfolioExposure,
   calculateTotalNetPosition,
   getSortedAggregatedBalances,
 } from "../balanceAggregation";
@@ -210,6 +211,61 @@ describe("calculateTotalNetPosition", () => {
       totalStroops: BigInt(0),
       byAsset: [],
     });
+  });
+});
+
+describe("calculatePortfolioExposure", () => {
+  it("computes total exposure with direct exchange rates", () => {
+    const balances = [
+      balance("alice", "10", "USDC"),
+      balance("alice", "20", "XLM"),
+    ];
+    const rates = { "USDC-USD": 1.0, "XLM-USD": 0.1 };
+    const result = calculatePortfolioExposure(balances, "USD", rates);
+
+    expect(result.totalStroops).toBe(BigInt(12_000_0000));
+    expect(result.breakdown).toHaveLength(2);
+  });
+
+  it("handles inverse exchange rates gracefully", () => {
+    const balances = [
+      balance("alice", "10", "XLM"),
+    ];
+    const rates = { "USD-XLM": 10 };
+    const result = calculatePortfolioExposure(balances, "USD", rates);
+
+    expect(result.totalStroops).toBe(BigInt(1_000_0000));
+  });
+
+  it("falls back to zero when exchange rates are missing", () => {
+    const balances = [
+      balance("alice", "10", "UNKNOWN"),
+    ];
+    const rates = { "XLM-USD": 0.1 };
+    const result = calculatePortfolioExposure(balances, "USD", rates);
+
+    expect(result.totalStroops).toBe(BigInt(0));
+  });
+
+  it("handles zero balances correctly", () => {
+    const balances = [
+      balance("alice", "0", "XLM"),
+      balance("alice", "0", "USDC"),
+    ];
+    const rates = { "XLM-USD": 0.1 };
+    const result = calculatePortfolioExposure(balances, "USD", rates);
+
+    expect(result.totalStroops).toBe(BigInt(0));
+  });
+
+  it("accepts nested rates object format", () => {
+    const balances = [
+      balance("alice", "10", "XLM"),
+    ];
+    const rates = { rates: { "XLM-USD": 0.5 } };
+    const result = calculatePortfolioExposure(balances, "USD", rates);
+
+    expect(result.totalStroops).toBe(BigInt(50_000_000));
   });
 });
 

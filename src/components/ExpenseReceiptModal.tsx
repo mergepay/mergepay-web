@@ -1,17 +1,3 @@
-"use client";
-
-/**
- * ExpenseReceiptModal
- *
- * Renders a shareable receipt view for a group expense, including:
- *  - Expense metadata (title, total, payer, date, memo, tx hash)
- *  - A QR code for instant peer-to-peer scanning (via qrcode.react)
- *  - Copy-to-clipboard buttons for the expense link and transaction payload
- *
- * Uses the existing Dialog component and neobrutalist UI primitives.
- * Fully keyboard-accessible: closes via Escape and backdrop click.
- */
-
 import { useState } from "react";
 import { Check, Copy, ExternalLink, FileText, Share2 } from "lucide-react";
 import { QRCodeCanvas } from "@/components/ui/lazy-qr-code";
@@ -23,13 +9,9 @@ import { Avatar } from "@/components/ui/avatar";
 import { Money } from "@/components/amount";
 import { AssetBadge } from "@/components/asset-badge";
 import { Timestamp } from "@/components/timestamp";
-import { TxLink } from "@/components/tx-link";
-import { explorerTxUrl } from "@/lib/constants";
 import type { Expense } from "@/lib/types";
+"";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Build a shareable expense link.
@@ -58,10 +40,6 @@ function buildReceiptPayload(expense: Expense): string {
   };
   return JSON.stringify(payload);
 }
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
 
 function CopyAction({
   text,
@@ -97,33 +75,40 @@ function CopyAction({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
 export function ExpenseReceiptModal({
   open,
   onClose,
   expense,
+  receipts,
+  currentIndex = 0,
 }: {
   open: boolean;
   onClose: () => void;
   expense: Expense;
+  receipts?: string[];
+  currentIndex?: number;
 }) {
-  const shareLink = buildExpenseLink(expense);
-  const payload = buildReceiptPayload(expense);
-  const txHash = expense.memo;
+  const activeExpense = expense;
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const shareLink = buildExpenseLink(activeExpense);
+  const payload = buildReceiptPayload(activeExpense);
+  const txHash = activeExpense.memo;
 
-  const settledCount = expense.shares.filter(
+  const settledCount = activeExpense.shares.filter(
     (s) => s.status === "settled"
   ).length;
+
+  const currentReceiptUrl = receipts && receipts[currentIndex] ? receipts[currentIndex] : activeExpense.receiptUrl;
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      title={`Receipt — ${expense.title}`}
-      description={`Shareable receipt for the expense "${expense.title}" paid by ${expense.payer.displayName}.`}
+      title={`Receipt — ${activeExpense.title}`}
+      description={`Shareable receipt for the expense "${activeExpense.title}" paid by ${activeExpense.payer.displayName}.`}
     >
       <div className="space-y-5">
         {/* Expense header */}
@@ -132,19 +117,19 @@ export function ExpenseReceiptModal({
             <span className="font-display text-xs uppercase tracking-widest text-ink/50">
               Expense
             </span>
-            <AssetBadge code={expense.assetCode} />
+            <AssetBadge code={activeExpense.assetCode} />
           </div>
           <div className="mt-3 flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-3 border-ink bg-butter shadow-brutal-sm">
-              <Avatar user={expense.payer} />
+              <Avatar user={activeExpense.payer} />
             </span>
             <div>
               <p className="font-display text-lg uppercase tracking-tight">
-                {expense.title}
+                {activeExpense.title}
               </p>
               <Money
-                value={expense.amount}
-                assetCode={expense.assetCode}
+                value={activeExpense.amount}
+                assetCode={activeExpense.assetCode}
                 className="text-2xl"
               />
             </div>
@@ -155,29 +140,90 @@ export function ExpenseReceiptModal({
         <div className="space-y-2">
           <div className="flex items-center justify-between rounded-xl border-2 border-ink bg-white px-3 py-2 text-sm">
             <span className="text-ink/50">Paid by</span>
-            <span className="font-bold">{expense.payer.displayName}</span>
+            <span className="font-bold">{activeExpense.payer.displayName}</span>
           </div>
           <div className="flex items-center justify-between rounded-xl border-2 border-ink bg-white px-3 py-2 text-sm">
             <span className="text-ink/50">Date</span>
-            <Timestamp value={expense.createdAt} />
+            <Timestamp value={activeExpense.createdAt} />
           </div>
           <div className="flex items-center justify-between rounded-xl border-2 border-ink bg-white px-3 py-2 text-sm">
             <span className="text-ink/50">Split</span>
-            <span className="capitalize">{expense.splitType}</span>
+            <span className="capitalize">{activeExpense.splitType}</span>
           </div>
-          {expense.memo && (
+          {activeExpense.memo && (
             <div className="flex items-center justify-between rounded-xl border-2 border-ink bg-white px-3 py-2 text-sm">
               <span className="text-ink/50">Memo</span>
-              <span className="font-mono text-xs">{expense.memo}</span>
+              <span className="font-mono text-xs">{activeExpense.memo}</span>
             </div>
           )}
           <div className="flex items-center justify-between rounded-xl border-2 border-ink bg-white px-3 py-2 text-sm">
             <span className="text-ink/50">Settled</span>
-            <Badge tone={statusTone(settledCount === expense.shares.length ? "settled" : "pending")}>
-              {settledCount}/{expense.shares.length}
+            <Badge tone={statusTone(settledCount === activeExpense.shares.length ? "settled" : "pending")}>
+              {settledCount}/{activeExpense.shares.length}
             </Badge>
           </div>
         </div>
+
+        {/* Zoom and Pan Receipt View */}
+        {currentReceiptUrl && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-display text-[10px] uppercase tracking-widest text-ink/50">
+                Receipt Preview
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setScale((s) => Math.max(0.5, s - 0.5))}
+                  aria-label="Zoom out"
+                >
+                  -
+                </Button>
+                <span className="text-xs font-bold px-1">{Math.round(scale * 100)}%</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setScale((s) => Math.min(3, s + 0.5))}
+                  aria-label="Zoom in"
+                >
+                  +
+                </Button>
+                {scale !== 1 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setScale(1); setPosition({ x: 0, y: 0 }); }}
+                    aria-label="Reset zoom"
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div className="relative overflow-hidden rounded-2xl border-3 border-ink bg-black/5 h-64 flex items-center justify-center cursor-grab active:cursor-grabbing">
+              <img
+                src={currentReceiptUrl}
+                alt="Receipt attachment"
+                style={{
+                  transform: `scale(${scale}) translate(${position.x}px, ${position.y}px)`,
+                  transition: isDragging ? "none" : "transform 0.1s ease-out",
+                }}
+                className="max-h-full max-w-full object-contain select-none"
+                onMouseDown={(e) => {
+                  setIsDragging(true);
+                  setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+                }}
+                onMouseMove={(e) => {
+                  if (!isDragging) return;
+                  setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+                }}
+                onMouseUp={() => setIsDragging(false)}
+                onMouseLeave={() => setIsDragging(false)}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Split breakdown */}
         <div>
@@ -185,7 +231,7 @@ export function ExpenseReceiptModal({
             Split breakdown
           </p>
           <div className="space-y-1.5">
-            {expense.shares.map((share) => (
+            {activeExpense.shares.map((share) => (
               <div
                 key={share.id}
                 className="flex items-center justify-between rounded-lg border-2 border-ink bg-cream px-3 py-1.5"
@@ -197,7 +243,7 @@ export function ExpenseReceiptModal({
                   </span>
                 </span>
                 <span className="flex items-center gap-2">
-                  <Money value={share.shareAmount} assetCode={expense.assetCode} />
+                  <Money value={share.shareAmount} assetCode={activeExpense.assetCode} />
                   <Badge tone={statusTone(share.status)}>
                     {share.status}
                   </Badge>
@@ -235,9 +281,9 @@ export function ExpenseReceiptModal({
             label="Copy payload"
             what="receipt payload"
           />
-          {expense.receiptUrl && (
+          {activeExpense.receiptUrl && (
             <a
-              href={expense.receiptUrl}
+              href={activeExpense.receiptUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 font-display uppercase tracking-wide border-3 border-ink transition-all duration-100 select-none shadow-brutal hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-brutal-lg active:translate-x-1 active:translate-y-1 active:shadow-none disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-grape/40 bg-cream text-ink text-xs px-3 py-1.5 rounded-lg"
