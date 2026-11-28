@@ -31,7 +31,7 @@ import {
   sortHistoryRows,
   type HistoryFilters,
 } from "@/lib/historyFilter";
-import { printReceipt } from "@/lib/export";
+import { printReceipt, exportHistoryCsv } from "@/lib/export";
 import {
   DEFAULT_HISTORY_VIEW,
   readHistoryView,

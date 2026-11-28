@@ -162,6 +162,20 @@ describe("isValidTxHash", () => {
 });
 
 describe("buildHistoryCsv", () => {
+  it("uses CRLF record separators and escapes descriptions with commas, quotes and line breaks", () => {
+    const csv = buildHistoryCsv([
+      expense({ title: 'Team "lunch"', description: 'First, second\n"third"', payer: user({ displayName: "Ada, Jr." }) }),
+    ], []);
+    assert.ok(csv.startsWith("type,date,"));
+    assert.ok(csv.endsWith("\r\n"));
+    assert.ok(csv.includes('"First, second\n""third"""'));
+    assert.ok(csv.includes('"Ada, Jr."'));
+  });
+
+  it("neutralizes formulas after leading spaces", () => {
+    assert.equal(escapeCsv("  =SUM(A1)"), "'  =SUM(A1)");
+  });
+
   it("neutralizes a formula memo on a settlement row", () => {
     const csv = buildHistoryCsv([], [settlement({ memo: "=1+1" })]);
     assert.ok(csv.includes(",'=1+1,"));
@@ -175,14 +189,14 @@ describe("buildHistoryCsv", () => {
 
   it("keeps legitimate rows readable", () => {
     const csv = buildHistoryCsv([], [settlement()]);
-    const [header, row] = csv.split("\n");
+    const [header, row] = csv.trimEnd().split("\r\n");
     assert.equal(
       header,
-      "type,date,title_or_parties,amount,asset,status,memo,stellar_tx_hash"
+      "type,date,title_or_parties,amount,asset,status,memo,stellar_tx_hash,description,payer_or_sender,recipient"
     );
     assert.equal(
       row,
-      `settlement,2024-05-01T12:00:00.000Z,Ada -> Grace,12.5000000,XLM,confirmed,Dinner,${VALID_HASH}`
+      `settlement,2024-05-01T12:00:00.000Z,Ada -> Grace,12.5000000,XLM,confirmed,Dinner,${VALID_HASH},,Ada,Grace`
     );
   });
 });
