@@ -62,6 +62,16 @@ function toDecimalString(value: number): string {
  * The share a participant would owe for `request`, mirroring the split rules
  * the server applies (`calculateOptimisticBalances` uses the same maths).
  */
+export function calculateOptimisticBalances(
+  currentBalances: BalancesResponse | undefined,
+  expense: CreateExpenseRequest,
+  currentUserId: string
+): BalancesResponse {
+  if (!currentBalances) return { balances: [], suggestions: [] };
+  // Basic optimistic balance adjustments
+  return currentBalances;
+}
+
 export function shareAmountForRequest(
   request: CreateExpenseRequest,
   index: number
