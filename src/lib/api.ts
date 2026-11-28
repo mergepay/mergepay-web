@@ -1,11 +1,7 @@
 import type { z } from "zod";
 import { API_URL } from "./constants";
-import { getToken } from "./auth-store";
-import {
-  clearClientSession,
-  emitSessionExpired,
-  isUnauthorizedStatus,
-} from "./sessionMonitor";
+import { getToken, useAuth } from "./auth-store";
+import { useWalletStore } from "./wallet-store";
 import {
   ApiRequestError,
   ApiValidationError,
@@ -105,6 +101,25 @@ export class ApiTimeoutError extends Error {
 }
 
 let expiryHandled = false;
+let onSessionExpired: (() => void) | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+/**
+ * Paths whose 401 means "this call was rejected", not "the session died".
+ * Refreshing (or tearing the session down) from these would loop: the
+ * refresh call would 401, refresh again, and so on.
+ */
+const SESSION_REFRESH_EXEMPT = new Set([
+  "/auth/challenge",
+  "/auth/verify",
+  "/auth/refresh",
+  "/auth/logout",
+]);
+
+/** Register the browser-session recovery hook without coupling this module to React. */
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  onSessionExpired = handler;
+}
 
 export function isSessionExpired(): boolean {
   return expiryHandled;
@@ -112,24 +127,128 @@ export function isSessionExpired(): boolean {
 
 export function resetSessionExpired(): void {
   expiryHandled = false;
+  refreshInFlight = null;
+}
+
+function pathnameOf(path: string): string {
+  return path.split("?")[0];
+}
+
+function isRefreshExempt(path: string): boolean {
+  return SESSION_REFRESH_EXEMPT.has(pathnameOf(path));
 }
 
 /**
- * Tear the session down exactly once, no matter how many in-flight requests
- * come back with a 401.
- *
- * The cleanup is delegated to `clearClientSession` so the auth, group and
- * asset stores are reset together (#898); previously this only cleared the
- * auth store, leaving the previous account's selected group and asset behind.
- * `emitSessionExpired` is the single notification path: the provider tree
- * listens for it to purge the React Query cache and explain the sign-out, so
- * this module never needs a React import.
+ * Exchange the current bearer token for a new one. One in-flight refresh is
+ * shared by every 401 that arrives together, and the refresh request itself
+ * bypasses `request()` so a 401 from `/auth/refresh` cannot recurse.
  */
-function expireSession(): void {
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  const pending = (async () => {
+    try {
+      const current = getToken();
+      if (!current) return null;
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${current}` },
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { token?: unknown; user?: User };
+      const user = data.user ?? useAuth.getState().user;
+      if (typeof data.token !== "string" || data.token.length === 0 || !user) {
+        return null;
+      }
+      useAuth.getState().setSession(data.token, user);
+      expiryHandled = false;
+      return data.token;
+    } catch {
+      return null;
+    }
+  })();
+
+  refreshInFlight = pending;
+  try {
+    return await pending;
+  } finally {
+    if (refreshInFlight === pending) refreshInFlight = null;
+  }
+}
+
+/**
+ * Drop the in-memory session exactly once. `clear()` resets the expired
+ * flag, so the flag is set again afterwards — that is what the re-auth
+ * dialog subscribes to. The wallet store is disconnected in the same turn
+ * so signed actions cannot keep using a dead SEP-10 session.
+ */
+function markSessionExpired(): void {
   if (expiryHandled) return;
   expiryHandled = true;
-  clearClientSession();
-  emitSessionExpired("unauthorized");
+  const auth = useAuth.getState();
+  auth.clear();
+  auth.setSessionExpired(true);
+  useWalletStore.getState().setConnected(false);
+  onSessionExpired?.();
+}
+
+/**
+ * Decide what a 401 on an authenticated call should do.
+ *
+ * Returns a fresh token when the caller should retry once. Returns null
+ * when the session was cleared, or when this 401 belongs to a token that
+ * is no longer current (a newer login must not be wiped by an old request).
+ */
+async function recoverUnauthorized(
+  path: string,
+  sentToken: string | null
+): Promise<string | null> {
+  if (!sentToken || expiryHandled) return null;
+  if (getToken() !== sentToken) return null;
+  if (!isRefreshExempt(path)) {
+    const next = await refreshAccessToken();
+    if (next) return next;
+  }
+  markSessionExpired();
+  return null;
+}
+
+/**
+ * Run `send` and, on a 401 for the token we actually sent, try one refresh
+ * and one retry. A second 401 ends the session. Further 401s are ignored so
+ * a burst of failing queries cannot toast, clear, or redirect in a loop.
+ */
+async function fetchWithSession(
+  path: string,
+  sentToken: string | null,
+  send: (activeToken: string | null) => Promise<Response>
+): Promise<Response> {
+  let activeToken = sentToken;
+  let res = await send(activeToken);
+
+  if (
+    res.status === 401 &&
+    activeToken &&
+    getToken() === activeToken &&
+    !expiryHandled
+  ) {
+    const next = await recoverUnauthorized(path, activeToken);
+    if (next) {
+      activeToken = next;
+      res = await send(activeToken);
+    }
+  }
+
+  if (
+    res.status === 401 &&
+    activeToken &&
+    getToken() === activeToken &&
+    !expiryHandled
+  ) {
+    markSessionExpired();
+  }
+
+  return res;
 }
 
 /**
@@ -191,16 +310,19 @@ async function request<T>(
   try {
     // Browser calls go through the same-origin Next.js API proxy
     // (src/app/api/*), which forwards to the backend via API_URL.
-    res = await fetch(`/api${path}`, { ...options, headers, body });
+    // A 401 on an authenticated call tries one token refresh, then ends
+    // the session if the retry is still unauthorized.
+    res = await fetchWithSession(path, token, (activeToken) => {
+      const nextHeaders = { ...headers };
+      if (activeToken) nextHeaders.Authorization = `Bearer ${activeToken}`;
+      else delete nextHeaders.Authorization;
+      return fetch(`/api${path}`, { ...options, headers: nextHeaders, body });
+    });
   } catch (err) {
     // fetch only rejects on network-level failures (offline, DNS, CORS)
     // or intentional aborts. Normalize and report centrally — every call
     // site gets the same "Network error" toast instead of a raw TypeError.
     throw networkFailure(err, { silent: options.silent });
-  }
-
-  if (isUnauthorizedStatus(res.status) && token) {
-    expireSession();
   }
 
   if (!res.ok) {
@@ -351,20 +473,22 @@ export const api = {
     );
 
     try {
-      const res = await fetch(
-        `/api/groups/${groupId}/expenses`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-          signal: controller.signal,
+      const res = await fetchWithSession(
+        `/groups/${groupId}/expenses`,
+        token,
+        (activeToken) => {
+          const nextHeaders = { ...headers };
+          if (activeToken) nextHeaders.Authorization = `Bearer ${activeToken}`;
+          else delete nextHeaders.Authorization;
+          return fetch(`/api/groups/${groupId}/expenses`, {
+            method: "POST",
+            headers: nextHeaders,
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
         }
       );
       clearTimeout(timeoutId);
-
-      if (isUnauthorizedStatus(res.status) && token) {
-        expireSession();
-      }
 
       if (!res.ok) {
         const { code, message } = await parseErrorBody(res);
@@ -418,16 +542,21 @@ export const api = {
     const origin = window.location.origin;
     let res: Response;
     try {
-      res = await fetch(`${origin}/api/expenses?${search.toString()}`, {
-        headers,
-      });
+      res = await fetchWithSession(
+        "/expenses",
+        token,
+        (activeToken) => {
+          const nextHeaders = { ...headers };
+          if (activeToken) nextHeaders.Authorization = `Bearer ${activeToken}`;
+          else delete nextHeaders.Authorization;
+          return fetch(`${origin}/api/expenses?${search.toString()}`, {
+            headers: nextHeaders,
+          });
+        }
+      );
     } catch (err) {
       // Same centralized network-failure handling as request() above.
       throw networkFailure(err);
-    }
-
-    if (isUnauthorizedStatus(res.status) && token) {
-      expireSession();
     }
 
     if (!res.ok) {
