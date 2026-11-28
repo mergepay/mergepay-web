@@ -15,28 +15,82 @@ interface GroupState {
 }
 
 function safeStorage(): Storage {
-  if (typeof window === "undefined") {
-    return {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {},
-      length: 0,
-      clear: () => {},
-      key: () => null,
-    };
-  }
-  try {
-    return localStorage;
-  } catch {
-    return {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {},
-      length: 0,
-      clear: () => {},
-      key: () => null,
-    };
-  }
+  const memoryFallback = new Map<string, string>();
+  const getBackend = (): Storage | null => {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.localStorage ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    getItem: (key: string) => {
+      const backend = getBackend();
+      if (backend) {
+        try {
+          const val = backend.getItem(key);
+          if (val !== null) return val;
+        } catch {
+          // Fall back to in-memory storage when reads throw.
+        }
+      }
+      return memoryFallback.get(key) ?? null;
+    },
+    setItem: (key: string, value: string) => {
+      memoryFallback.set(key, value);
+      const backend = getBackend();
+      if (!backend) return;
+      try {
+        backend.setItem(key, value);
+      } catch {
+        // Ignore QuotaExceededError / SecurityError in private browsing.
+      }
+    },
+    removeItem: (key: string) => {
+      memoryFallback.delete(key);
+      const backend = getBackend();
+      if (!backend) return;
+      try {
+        backend.removeItem(key);
+      } catch {
+        // Ignore restricted storage errors.
+      }
+    },
+    clear: () => {
+      memoryFallback.clear();
+      const backend = getBackend();
+      if (!backend) return;
+      try {
+        backend.clear();
+      } catch {
+        // Ignore restricted storage errors.
+      }
+    },
+    key: (index: number) => {
+      const backend = getBackend();
+      if (backend) {
+        try {
+          return backend.key(index);
+        } catch {
+          // Fall back to in-memory keys.
+        }
+      }
+      return Array.from(memoryFallback.keys())[index] ?? null;
+    },
+    get length() {
+      const backend = getBackend();
+      if (backend) {
+        try {
+          return backend.length;
+        } catch {
+          // Fall back to in-memory size.
+        }
+      }
+      return memoryFallback.size;
+    },
+  };
 }
 
 export const useGroupStore = create<GroupState>()(
