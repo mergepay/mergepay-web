@@ -1,7 +1,7 @@
 "use client";
 
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
-import { AlertTriangle, LayoutDashboard, RefreshCw, RotateCcw } from "lucide-react";
+import { AlertTriangle, LayoutDashboard, RefreshCw, RotateCcw, ChevronDown } from "lucide-react";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { logRenderError } from "@/lib/errorHandler";
@@ -20,6 +20,8 @@ const DEFAULT_DASHBOARD_HREF = "/dashboard";
 interface State {
   hasError: boolean;
   error: Error | null;
+  showDetails: boolean;
+  retryCount: number;
 }
 
 /**
@@ -31,10 +33,12 @@ export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
     error: null,
+    showDetails: false,
+    retryCount: 0,
   };
 
-  public static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  public static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, error, showDetails: false };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -47,7 +51,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleReset = () => {
     this.props.onReset?.();
-    this.setState({ hasError: false, error: null });
+    this.setState((previous) => ({ hasError: false, error: null, showDetails: false, retryCount: previous.retryCount + 1 }));
   };
 
   /**
@@ -58,6 +62,10 @@ export class ErrorBoundary extends Component<Props, State> {
    */
   private handleReload = () => {
     window.location.reload();
+  };
+
+  private toggleDetails = () => {
+    this.setState((previous) => ({ showDetails: !previous.showDetails }));
   };
 
   public render() {
@@ -86,11 +94,21 @@ export class ErrorBoundary extends Component<Props, State> {
               </div>
             </div>
 
-            {process.env.NODE_ENV !== "production" && (
-              <div className="rounded-xl border-2 border-ink bg-white p-3 font-mono text-xs text-ink/80 overflow-auto max-h-32">
-                {this.state.error.message}
-              </div>
-            )}
+            <div className="space-y-2">
+              <Button type="button" variant="outline" onClick={this.toggleDetails}
+                aria-expanded={this.state.showDetails} aria-controls="mergepay-error-details">
+                <ChevronDown className="mr-1 h-4 w-4" aria-hidden="true" />
+                {this.state.showDetails ? "Hide error details" : "Show error details"}
+              </Button>
+              {this.state.showDetails && (
+                <div id="mergepay-error-details" role="status"
+                  className="max-h-40 overflow-auto break-words rounded-xl border-2 border-ink bg-white p-3 font-mono text-xs text-ink/80">
+                  {process.env.NODE_ENV === "production"
+                    ? "An unexpected rendering error occurred. Reload the page if retrying does not help."
+                    : `${this.state.error.name}: ${this.state.error.message}`}
+                </div>
+              )}
+            </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
               {/* Full document navigation on purpose: a crashed subtree should
@@ -109,9 +127,9 @@ export class ErrorBoundary extends Component<Props, State> {
                   <RefreshCw className="h-4 w-4 mr-1" />
                   Reload page
                 </Button>
-                <Button onClick={this.handleReset} variant="primary">
+                <Button onClick={this.handleReset} variant="primary" disabled={this.state.retryCount >= 2}>
                   <RotateCcw className="h-4 w-4 mr-1" />
-                  Try Again
+                  {this.state.retryCount >= 2 ? "Reload to recover" : "Try Again"}
                 </Button>
               </div>
             </div>

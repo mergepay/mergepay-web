@@ -54,8 +54,17 @@ describe("ErrorBoundary", () => {
     );
 
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
-    expect(screen.getByText(/Boom! Component exploded during render/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show error details/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it("reveals and hides diagnostic details only when requested", () => {
+    render(<ErrorBoundary><Bomb shouldThrow /></ErrorBoundary>);
+    expect(screen.queryByText(/Boom! Component exploded/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /show error details/i }));
+    expect(screen.getByText(/Boom! Component exploded/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /hide error details/i }));
+    expect(screen.queryByText(/Boom! Component exploded/)).not.toBeInTheDocument();
   });
 
   it("offers a Return to Dashboard navigation link (#479)", () => {
@@ -177,6 +186,7 @@ describe("ErrorBoundary", () => {
       expect(screen.getByText("Something went wrong")).toBeInTheDocument();
       // …without the raw message, and without a console breadcrumb that could
       // leak wallet or account state out of a user's browser.
+      fireEvent.click(screen.getByRole("button", { name: /show error details/i }));
       expect(screen.queryByText(/Boom! Component exploded/)).not.toBeInTheDocument();
       // React's own dev-mode notice may still print; our logger must not.
       expect(mergepayLines()).toHaveLength(0);
