@@ -12,6 +12,9 @@ import { Plus, Users, Receipt, ArrowLeft, SearchX, Download, QrCode } from "luci
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { CurrencyTicker } from "@/components/CurrencyTicker";
+import { InviteMemberModal } from "@/components/groups/InviteMemberModal";
+import { GroupQRCode } from "@/components/groups/GroupQRCode";
+import { buildInviteLink } from "@/lib/inviteLink";
 import { TrustlineBanner } from "@/components/wallet/TrustlineBanner";
 import { BalancesPanel } from "@/components/balances/balances-panel";
 import { ExpenseCard } from "@/components/expenses/expense-card";
@@ -30,6 +33,7 @@ import { MultiPayerOverview } from "@/components/groups/MultiPayerOverview";
 import { GroupInviteModal } from "@/components/groups/GroupInviteModal";
 import { ExpenseListFilters, type ExpenseFilterState } from "@/components/expenses/expense-list-filters";
 import { filterExpenses } from "@/lib/expenseFilters";
+import { sortExpenses } from "@/lib/group-filter-store";
 import { ListSkeleton, GroupHeaderSkeleton, SkeletonBoundary } from "@/components/ui/skeleton";
 import type { Expense, GroupMember } from "@/lib/types";
 import { useAuth } from "@/lib/auth-store";
@@ -62,7 +66,16 @@ export default function GroupDetailPage() {
     if (groupId) setSelectedGroup(groupId);
   }, [groupId, setSelectedGroup]);
 
-  const [filters, setFilters] = useState<ExpenseFilterState>({ keyword: "", payer: "", status: "all", assetCode: "", fromDate: "", toDate: "", pageSize: 10 });
+  const [filters, setFilters] = useState<ExpenseFilterState>({
+    keyword: "",
+    payer: "",
+    status: "all",
+    assetCode: "",
+    fromDate: "",
+    toDate: "",
+    pageSize: 10,
+    sortOrder: "newest",
+  });
   const [page, setPage] = useState(1);
 
   const group = groupQuery.data?.group;
@@ -72,19 +85,19 @@ export default function GroupDetailPage() {
   const members: GroupMember[] = groupQuery.data?.members ?? [];
   const currentUserId = useAuth((state) => state.user?.id) ?? "";
   const isAdmin = true;
+  const inviteUrl = typeof window !== "undefined" ? `${window.location.origin}/join/${group?.id ?? groupId}` : "";
 
   const onFilterChange = useCallback((next: ExpenseFilterState) => {
     setFilters(next);
     setPage(1);
   }, []);
 
-  const filteredExpenses = useMemo(
-    () =>
-      filterExpenses(expenses, filters).filter(
-        (expense) => !filters.payer || expense.payerUserId === filters.payer
-      ),
-    [expenses, filters]
-  );
+  const filteredExpenses = useMemo(() => {
+    const matched = filterExpenses(expenses, filters).filter(
+      (expense) => !filters.payer || expense.payerUserId === filters.payer
+    );
+    return sortExpenses(matched, filters.sortOrder);
+  }, [expenses, filters]);
 
   const pageCount = Math.max(1, Math.ceil(filteredExpenses.length / filters.pageSize));
   const visibleExpenses = filteredExpenses.slice((page - 1) * filters.pageSize, page * filters.pageSize);
@@ -189,7 +202,7 @@ export default function GroupDetailPage() {
                   Expenses ({filteredExpenses.length}{filteredExpenses.length !== expenses.length ? ` of ${expenses.length}` : ""})
                 </h2>
 
-                <ExpenseListFilters expenses={expenses} members={members} onChange={onFilterChange} />
+                <ExpenseListFilters groupId={groupId} expenses={expenses} members={members} onChange={onFilterChange} />
 
                 {expensesQuery.isPending && (
                   <ListSkeleton rows={5} variant="expense" />
@@ -260,6 +273,9 @@ export default function GroupDetailPage() {
 
           <div className="space-y-6">
             <MultiPayerOverview expenses={expenses} />
+            <ErrorBoundary>
+              <GroupQRCode inviteUrl={inviteUrl} />
+            </ErrorBoundary>
             <ErrorBoundary>
               <BalancesPanel
                 groupId={groupId}
