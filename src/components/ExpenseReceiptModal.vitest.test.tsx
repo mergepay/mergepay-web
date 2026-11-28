@@ -39,7 +39,7 @@ const expense: Expense = {
   assetIssuer: null,
   splitType: "equal",
   memo: "MP:dinner-8f3a",
-  receiptUrl: null,
+  receiptUrl: "https://example.com/receipt1.jpg",
   createdAt: "2024-06-15T18:30:00.000Z",
   shares: [
     {
@@ -91,6 +91,38 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("ExpenseReceiptModal Zoom and Pan Controls", () => {
+  const receipts = ["https://example.com/receipt1.jpg"];
+
+  it("renders zoom controls and receipt image with receipts prop", () => {
+    render(<ExpenseReceiptModal open expense={expense} receipts={receipts} currentIndex={0} onClose={() => {}} />);
+    expect(screen.getByAltText("Receipt attachment")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /zoom in/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /zoom out/i })).toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeInTheDocument();
+  });
+
+  it("increases scale when zoom in is clicked", () => {
+    render(<ExpenseReceiptModal open expense={expense} receipts={receipts} currentIndex={0} onClose={() => {}} />);
+    const zoomInBtn = screen.getByRole("button", { name: /zoom in/i });
+    fireEvent.click(zoomInBtn);
+    expect(screen.getByText("150%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reset zoom/i })).toBeInTheDocument();
+  });
+
+  it("decreases scale and resets when zoom out is clicked", () => {
+    render(<ExpenseReceiptModal open expense={expense} receipts={receipts} currentIndex={0} onClose={() => {}} />);
+    const zoomInBtn = screen.getByRole("button", { name: /zoom in/i });
+    const zoomOutBtn = screen.getByRole("button", { name: /zoom out/i });
+
+    fireEvent.click(zoomInBtn);
+    expect(screen.getByText("150%")).toBeInTheDocument();
+
+    fireEvent.click(zoomOutBtn);
+    expect(screen.getByText("100%")).toBeInTheDocument();
+  });
+});
+
 describe("ExpenseReceiptModal", () => {
   it("renders nothing when closed", () => {
     const { container } = render(
@@ -113,7 +145,6 @@ describe("ExpenseReceiptModal", () => {
       <ExpenseReceiptModal open onClose={vi.fn()} expense={expense} />
     );
     expect(screen.getByText("Dinner at the restaurant")).toBeInTheDocument();
-    // Alice appears in both "Paid by" row and split breakdown
     expect(screen.getAllByText("Alice").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("equal")).toBeInTheDocument();
   });
@@ -140,7 +171,6 @@ describe("ExpenseReceiptModal", () => {
       <ExpenseReceiptModal open onClose={vi.fn()} expense={expense} />
     );
     expect(screen.getByText("Split breakdown")).toBeInTheDocument();
-    // Alice appears in both "Paid by" row and split breakdown
     expect(screen.getAllByText("Alice").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Bob")).toBeInTheDocument();
     expect(screen.getByText("Charlie")).toBeInTheDocument();
@@ -230,8 +260,12 @@ describe("ExpenseReceiptModal", () => {
   });
 
   it("does not show view receipt link when receiptUrl is absent", () => {
+    const expenseWithoutReceipt = {
+      ...expense,
+      receiptUrl: null,
+    };
     render(
-      <ExpenseReceiptModal open onClose={vi.fn()} expense={expense} />
+      <ExpenseReceiptModal open onClose={vi.fn()} expense={expenseWithoutReceipt} />
     );
     expect(screen.queryByRole("link", { name: /view receipt/i })).not.toBeInTheDocument();
   });
