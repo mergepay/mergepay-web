@@ -16,6 +16,7 @@
 
 import { useAssetStore } from "./asset-store";
 import { useAuth } from "./auth-store";
+import { useGroupFilterStore } from "./group-filter-store";
 import { useGroupStore } from "./group-store";
 
 /** Fired on `window` whenever the client session is torn down. */
@@ -50,6 +51,7 @@ export function isUnauthorizedStatus(status: number): boolean {
 export function clearClientSession(): void {
   useAuth.getState().forgetWallet();
   useGroupStore.getState().clear();
+  useGroupFilterStore.getState().clearAll();
   useAssetStore.getState().resetActiveAsset();
 }
 
